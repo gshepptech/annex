@@ -5,7 +5,7 @@ import { loadWings, parseWing, parseDuration, inQuietHours, WingFileError } from
 
 test("the shipped wing files load", () => {
   const wings = loadWings(join(import.meta.dirname, "..", "wings"));
-  assert.deepEqual(wings.map((w) => w.id), ["studio", "upkeep"]);
+  assert.deepEqual(wings.map((w) => w.id), ["colophon", "studio", "upkeep"]);
   const upkeep = wings.find((w) => w.id === "upkeep")!;
   assert.equal(upkeep.initialMode, "autonomous");
   assert.equal(upkeep.repo?.integrationBranch, "annex/upkeep");

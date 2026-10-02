@@ -229,8 +229,9 @@ button.primary:hover:not(:disabled) { background: #33426a; }
   overflow: auto;
 }
 
-.log, .chat { list-style: none; margin: 0; padding: 0; overflow: auto; max-height: 46vh; font: 0.85rem/1.4 var(--type); }
-.log li { display: grid; grid-template-columns: 3.6em 6.5em 1fr; gap: 6px; padding: 3px 0; border-bottom: 1px dotted rgb(35 48 79 / 0.25); }
+.log, .chat { list-style: none; margin: 0; padding: 0; overflow-y: auto; overflow-x: hidden; max-height: 46vh; font: 0.85rem/1.4 var(--type); }
+.log li { display: grid; grid-template-columns: 3.4em 5.5em minmax(0, 1fr); gap: 6px; padding: 3px 0; border-bottom: 1px dotted rgb(35 48 79 / 0.25); }
+.log li span { overflow-wrap: anywhere; }
 .log time { color: var(--ink-soft); }
 .log b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log .tone-good span { color: var(--good); }

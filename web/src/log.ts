@@ -13,7 +13,7 @@ export function describe(e: BourneEvent, nameOf: (agentId: string) => string, ti
   const who = e.actor === "you" ? "You" : e.actor === "annex" ? "Annex" : nameOf(e.actor);
   const p = e.payload;
   const title = e.taskId ? `"${(p.title as string | undefined) ?? titleOf(e.taskId)}"` : "";
-  const time = new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = new Date(e.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
   const line = (text: string, tone: LogLine["tone"] = "plain"): LogLine => ({ time, who, text, tone });
 
   switch (e.kind) {
