@@ -56,7 +56,9 @@ needs next. Then post exactly one comment containing one fenced block tagged \`$
       "evidence": "The signal name and the exact line of its output that justifies this",
       "done_check": "A shell command that exits 0 only when this task is done",
       "size": "S | M | L",
-      "details": "What the worker needs to know: files, approach, what not to touch"
+      "details": "What the worker needs to know: files, approach, what not to touch",
+      "ask_first": false,
+      "ask_reason": "Only when ask_first is true: what the person is being asked to approve"
     }
   ]
 }
@@ -74,6 +76,9 @@ Rules Annex enforces, so a task that breaks one is thrown away:
   bump. A task whose check cannot pass is stopped after three tries and wastes the crew's work.
 - Do not repeat a task that is open or was closed in the last 7 days.
 - An empty list is a correct answer when nothing is worth doing. Say why in \`note\`.
+- Set \`ask_first\` to true for a task the person must approve before it starts: anything that
+  falls under the brief's "Call me back when", or under these: ${w.settings.askBefore.length ? w.settings.askBefore.map((a) => `"${a}"`).join(", ") : "(none set)"}.
+  Annex holds it and shows the person your \`ask_reason\`; nothing starts until they say yes.
 
 Post it with \`node ${REPORT_SCRIPT} done <<'MD'\` (the proposal block is the comment). That marks the
 wake issue done in the same step.

@@ -15,10 +15,10 @@ const wing = (over: Partial<WingView> = {}): WingView => ({
   held: null,
   offline: null,
   agents: [
-    { id: "L", role: "lead", name: "Lead", desk: 0 },
-    { id: "W1", role: "worker", name: "One", desk: 1 },
-    { id: "W2", role: "worker", name: "Two", desk: 2 },
-    { id: "R", role: "reviewer", name: "Rev", desk: -1 },
+    { id: "L", role: "lead", name: "Lead", desk: 0, status: "idle", model: "" },
+    { id: "W1", role: "worker", name: "One", desk: 1, status: "idle", model: "" },
+    { id: "W2", role: "worker", name: "Two", desk: 2, status: "idle", model: "" },
+    { id: "R", role: "reviewer", name: "Rev", desk: -1, status: "idle", model: "" },
   ],
   tasks: [],
   filedCount: 0,
@@ -26,6 +26,9 @@ const wing = (over: Partial<WingView> = {}): WingView => ({
   draft: null,
   chat: [],
   settings: { wakeEvery: "15m", maxRunsPerHour: null, quietHours: null, backOffWhenIdle: false, askBefore: [] },
+  asks: [],
+  paused: false,
+  edit: { name: "Upkeep", charter: "", doneCheck: null, setup: null, repoPath: null, baseBranch: "main", workers: 2, leadModel: "", workerModel: "", reviewerModel: "", allow: [] },
   ...over,
 });
 

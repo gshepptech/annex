@@ -17,6 +17,12 @@ function fakeBureau(store: Store): Bureau & { calls: string[] } {
     async approveBrief(w, b) { calls.push(`approve ${w} ${b}`); },
     async comeBack(w) { if (w === "nope") throw new UserError("No wing called nope", 404); calls.push(`back ${w}`); },
     async dropIn(w, t) { calls.push(`drop ${w} ${t}`); return { taskId: "T9" }; },
+    async transcript(a) { calls.push(`transcript ${a}`); return { agent: { id: a, role: "worker", name: "K", desk: 1, status: "idle", model: "", wingId: "w" }, runs: [] }; },
+    async updateWing(w, e) { calls.push(`edit ${w} ${JSON.stringify(e)}`); },
+    async createWing(n) { calls.push(`new ${n.id}`); return { id: n.id }; },
+    async decideAsk(w, id, ok) { calls.push(`ask ${w} ${id} ${ok}`); },
+    pause(w) { calls.push(`pause ${w}`); },
+    resume(w) { calls.push(`resume ${w}`); },
   };
 }
 
@@ -38,6 +44,12 @@ test("routes reach the bureau and errors come back as readable JSON", async () =
     assert.equal((await post("/api/wings/studio/chat", { text: "hi" })).status, 202);
     assert.equal((await post("/api/wings/studio/briefs/3/approve", {})).status, 200);
     assert.deepEqual(bureau.calls, ["drop upkeep Bump vite", "chat studio hi", "approve studio 3"]);
+    assert.equal((await fetch(base + "/api/agents/A1/transcript")).status, 200);
+    assert.equal((await fetch(base + "/api/wings/upkeep", { method: "PUT", body: JSON.stringify({ wakeEvery: "30m" }) })).status, 200);
+    assert.equal((await post("/api/wings", { id: "docs", name: "Docs" })).status, 201);
+    assert.equal((await post("/api/wings/upkeep/asks/4/decline", {})).status, 200);
+    assert.equal((await post("/api/wings/upkeep/pause", {})).status, 200);
+    assert.deepEqual(bureau.calls.slice(3), ["transcript A1", 'edit upkeep {"wakeEvery":"30m"}', "new docs", "ask upkeep 4 false", "pause upkeep"]);
 
     const missing = await post("/api/wings/upkeep/tasks", { title: "  " });
     assert.equal(missing.status, 400);

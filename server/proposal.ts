@@ -10,6 +10,9 @@ export interface ProposedTask {
   doneCheck: string;
   size: "S" | "M" | "L";
   details: string;
+  // the lead wants the person's yes before this starts (ask_before, or the brief's call-backs)
+  askFirst: boolean;
+  askReason: string;
 }
 
 export interface Verdict {
@@ -50,6 +53,8 @@ export function parseProposal(body: string): { note: string; tasks: ProposedTask
       doneCheck: s("done_check"),
       size: size === "S" || size === "M" || size === "L" ? size : "M",
       details: s("details"),
+      askFirst: o.ask_first === true,
+      askReason: s("ask_reason"),
     };
   });
   return { note: typeof d.note === "string" ? d.note.trim() : "", tasks };

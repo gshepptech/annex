@@ -5,7 +5,7 @@
 //   CLAUDE_COMMAND  the claude binary agents run (default: the first real one on PATH)
 
 import { join } from "node:path";
-import { existsSync, watch } from "node:fs";
+import { existsSync, watch, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { Store } from "./db.ts";
 import { loadWings, WingFileError } from "./wing.ts";
@@ -44,6 +44,7 @@ const bureau = new Bureau({
   pc: new Paperclip(process.env.PAPERCLIP_URL),
   wings,
   stateDir,
+  wingsDir: join(root, "wings"),
   claudeCommand: findClaude(),
   settingsFile: writeAgentSettings(stateDir),
 });
@@ -52,9 +53,17 @@ await startHttp({ bureau, store, port, webDir: join(root, "web", "dist") });
 console.log(`[annex] the office is at http://127.0.0.1:${port}`);
 await bureau.start();
 
-// Wing files are read once at start. Say so when one changes, rather than half-applying it.
+// A wing file edited by hand is applied without a restart; editors save in bursts, so wait for
+// the file to settle first.
+const pending = new Map<string, ReturnType<typeof setTimeout>>();
 watch(join(root, "wings"), { recursive: true }, (_e, file) => {
-  if (file?.endsWith("wing.toml")) console.log(`[annex] ${file} changed. Restart Annex to apply it.`);
+  if (!file?.endsWith("wing.toml")) return;
+  const id = file.split(/[\\/]/)[0]!;
+  clearTimeout(pending.get(id));
+  pending.set(id, setTimeout(() => {
+    const path = join(root, "wings", id, "wing.toml");
+    if (existsSync(path)) void bureau.reloadFile(id, readFileSync(path, "utf8"));
+  }, 400));
 });
 
 const shutdown = () => {

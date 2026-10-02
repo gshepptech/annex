@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import type { Store } from "./db.ts";
-import type { StateView } from "./api-types.ts";
+import type { StateView, WingEdit, NewWing, TranscriptView } from "./api-types.ts";
 
 export interface Bureau {
   state(): Promise<StateView>;
@@ -16,6 +16,12 @@ export interface Bureau {
   approveBrief(wingId: string, briefId: number): Promise<void>;
   comeBack(wingId: string): Promise<void>;
   dropIn(wingId: string, title: string, detail: string): Promise<{ taskId: string }>;
+  transcript(agentId: string): Promise<TranscriptView>;
+  updateWing(wingId: string, edit: WingEdit): Promise<void>;
+  createWing(n: NewWing): Promise<{ id: string }>;
+  decideAsk(wingId: string, askId: number, approve: boolean): Promise<void>;
+  pause(wingId: string): void;
+  resume(wingId: string): void;
 }
 
 export class UserError extends Error {
@@ -45,6 +51,39 @@ export function startHttp(opts: { bureau: Bureau; store: Store; port: number; we
 
       if (req.method === "GET" && path === "/api/state") return json(res, 200, await bureau.state());
       if (req.method === "GET" && path === "/api/stream") return streamEvents(req, res, store, Number(url.searchParams.get("after") ?? 0));
+
+      const agent = /^\/api\/agents\/([^/]+)\/transcript$/.exec(path);
+      if (req.method === "GET" && agent) return json(res, 200, await bureau.transcript(decodeURIComponent(agent[1]!)));
+
+      if (req.method === "POST" && path === "/api/wings") {
+        const body = await readJson(req);
+        return json(res, 201, await bureau.createWing({
+          id: str(body.id, "id"),
+          name: str(body.name, "name"),
+          charter: typeof body.charter === "string" ? body.charter : undefined,
+          repoPath: typeof body.repoPath === "string" ? body.repoPath : undefined,
+          baseBranch: typeof body.baseBranch === "string" ? body.baseBranch : undefined,
+        }));
+      }
+
+      const wing = /^\/api\/wings\/([^/]+)$/.exec(path);
+      if (req.method === "PUT" && wing) {
+        await bureau.updateWing(decodeURIComponent(wing[1]!), (await readJson(req)) as WingEdit);
+        return json(res, 200, { ok: true });
+      }
+
+      const ask = /^\/api\/wings\/([^/]+)\/asks\/(\d+)\/(approve|decline)$/.exec(path);
+      if (req.method === "POST" && ask) {
+        await bureau.decideAsk(decodeURIComponent(ask[1]!), Number(ask[2]), ask[3] === "approve");
+        return json(res, 200, { ok: true });
+      }
+
+      const hold = /^\/api\/wings\/([^/]+)\/(pause|resume)$/.exec(path);
+      if (req.method === "POST" && hold) {
+        if (hold[2] === "pause") bureau.pause(decodeURIComponent(hold[1]!));
+        else bureau.resume(decodeURIComponent(hold[1]!));
+        return json(res, 200, { ok: true });
+      }
 
       const m = /^\/api\/wings\/([^/]+)\/(chat|handoff|come-back|tasks|briefs\/(\d+)\/approve)$/.exec(path);
       if (req.method === "POST" && m) {

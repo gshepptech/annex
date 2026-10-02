@@ -11,6 +11,76 @@ export interface AgentView {
   role: "lead" | "worker" | "reviewer";
   name: string;
   desk: number;
+  // Paperclip's view: "running" while a run is in progress
+  status: string;
+  model: string;
+}
+
+export interface AskView {
+  id: number;
+  title: string;
+  reason: string;
+  details: string;
+  createdAt: string;
+}
+
+export interface SettingsView {
+  wakeEvery: string;
+  maxRunsPerHour: number | null;
+  quietHours: string | null;
+  backOffWhenIdle: boolean;
+  askBefore: string[];
+}
+
+// What the settings form edits. Every field is optional; what is left out keeps its value.
+export interface WingEdit {
+  name?: string;
+  charter?: string;
+  doneCheck?: string | null;
+  setup?: string | null;
+  repoPath?: string | null;
+  baseBranch?: string;
+  workers?: number;
+  leadModel?: string;
+  workerModel?: string;
+  reviewerModel?: string;
+  wakeEvery?: string;
+  maxRunsPerHour?: number | null;
+  quietHours?: string | null;
+  backOffWhenIdle?: boolean;
+  askBefore?: string[];
+  allow?: string[];
+}
+
+export interface NewWing {
+  id: string;
+  name: string;
+  charter?: string;
+  repoPath?: string;
+  baseBranch?: string;
+}
+
+export type Entry =
+  | { kind: "start"; at: string; model: string; cwd: string }
+  | { kind: "text"; at: string; text: string }
+  | { kind: "tool"; at: string; id: string; name: string; summary: string; detail: string }
+  | { kind: "result"; at: string; toolId: string; text: string; isError: boolean; lines: number }
+  | { kind: "done"; at: string; text: string; isError: boolean; durationMs: number | null; turns: number | null }
+  | { kind: "error"; at: string; text: string };
+
+export interface RunView {
+  id: string;
+  status: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  task: { identifier: string; title: string } | null;
+  reason: string;
+  entries: Entry[];
+}
+
+export interface TranscriptView {
+  agent: AgentView & { wingId: string };
+  runs: RunView[];
 }
 
 export interface TaskView {
@@ -51,13 +121,10 @@ export interface WingView {
   brief: BriefView | null;
   draft: BriefView | null;
   chat: ChatView[];
-  settings: {
-    wakeEvery: string;
-    maxRunsPerHour: number | null;
-    quietHours: string | null;
-    backOffWhenIdle: boolean;
-    askBefore: string[];
-  };
+  settings: SettingsView;
+  asks: AskView[];
+  paused: boolean;
+  edit: Required<Omit<WingEdit, "wakeEvery" | "maxRunsPerHour" | "quietHours" | "backOffWhenIdle" | "askBefore">>;
 }
 
 export interface StateView {

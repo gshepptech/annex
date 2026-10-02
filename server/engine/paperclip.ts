@@ -284,6 +284,18 @@ export class Paperclip {
     return this.call<Run[]>("GET", `/api/companies/${companyId}/heartbeat-runs`);
   }
 
+  agentRuns(companyId: string, agentId: string, limit: number) {
+    return this.call<(Run & { startedAt: string | null; finishedAt: string | null; contextSnapshot: Record<string, unknown> | null; logBytes: number | null })[]>(
+      "GET",
+      `/api/companies/${companyId}/heartbeat-runs?agentId=${agentId}&limit=${limit}`,
+    );
+  }
+
+  async runLog(runId: string): Promise<string> {
+    const r = await this.call<{ content?: string }>("GET", `/api/heartbeat-runs/${runId}/log`);
+    return r.content ?? "";
+  }
+
   run(runId: string) {
     return this.call<Run & { error: string | null; agentId: string }>("GET", `/api/heartbeat-runs/${runId}`);
   }

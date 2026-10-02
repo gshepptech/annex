@@ -126,7 +126,28 @@ const MIGRATIONS: string[] = [
   -- the signal output the lead was shown, so its proposal is judged against exactly that
   alter table wake add column signals text;
   `,
+  `
+  -- work the lead wants the person to say yes to first: a raised hand (design D3)
+  create table ask (
+    id integer primary key,
+    wing_id text not null references wing(id),
+    task text not null,
+    reason text not null,
+    status text not null default 'pending' check (status in ('pending', 'approved', 'declined')),
+    created_at text not null,
+    decided_at text
+  );
+  `,
 ];
+
+export interface AskRow {
+  id: number;
+  wingId: string;
+  task: Record<string, unknown>;
+  reason: string;
+  status: "pending" | "approved" | "declined";
+  createdAt: string;
+}
 
 export interface TaskRow {
   id: string;
@@ -263,6 +284,10 @@ export class Store {
 
   setProject(id: string, projectId: string) {
     this.db.prepare("update wing set project_id = ?, updated_at = ? where id = ?").run(projectId, now(), id);
+  }
+
+  clearProject(id: string) {
+    this.db.prepare("update wing set project_id = null, updated_at = ? where id = ?").run(now(), id);
   }
 
   setChatIssue(id: string, issueId: string) {
@@ -479,6 +504,26 @@ export class Store {
     return r && toWake(r);
   }
 
+  // Asks
+
+  addAsk(wingId: string, task: Record<string, unknown>, reason: string): AskRow {
+    const r = this.db.prepare("insert into ask (wing_id, task, reason, created_at) values (?, ?, ?, ?) returning *").get(wingId, JSON.stringify(task), reason, now()) as Record<string, unknown>;
+    return toAsk(r);
+  }
+
+  asks(wingId: string, status: AskRow["status"] = "pending"): AskRow[] {
+    return (this.db.prepare("select * from ask where wing_id = ? and status = ? order by id").all(wingId, status) as Record<string, unknown>[]).map(toAsk);
+  }
+
+  ask(id: number): AskRow | undefined {
+    const r = this.db.prepare("select * from ask where id = ?").get(id) as Record<string, unknown> | undefined;
+    return r && toAsk(r);
+  }
+
+  decideAsk(id: number, status: "approved" | "declined") {
+    this.db.prepare("update ask set status = ?, decided_at = ? where id = ?").run(status, now(), id);
+  }
+
   // Layouts
 
   setLayout(wingId: string, json: unknown) {
@@ -542,6 +587,10 @@ function toWing(r: Record<string, unknown>): WingRow {
     heldUntil: (r.held_until as string | null) ?? null,
     heldReason: (r.held_reason as string | null) ?? null,
   };
+}
+
+function toAsk(r: Record<string, unknown>): AskRow {
+  return { id: r.id as number, wingId: r.wing_id as string, task: JSON.parse(r.task as string), reason: r.reason as string, status: r.status as AskRow["status"], createdAt: r.created_at as string };
 }
 
 function toTask(r: Record<string, unknown>): TaskRow {

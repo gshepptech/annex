@@ -7,23 +7,27 @@
 // next pass instead of lost.
 
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { homedir } from "node:os";
 import type { Store, TaskRow } from "./db.ts";
 import type { Wing } from "./wing.ts";
-import { inQuietHours } from "./wing.ts";
-import type { StateView, WingView, TaskView } from "./api-types.ts";
+import { inQuietHours, parseWing } from "./wing.ts";
+import type { StateView, WingView, TaskView, WingEdit, NewWing, TranscriptView, RunView, Entry } from "./api-types.ts";
+import { applyEdit, toToml } from "./wingfile.ts";
+import { parseLog } from "./transcript.ts";
 import type { NewEvent } from "./events.ts";
 import { BOARD_USER_ID, type Paperclip, type Issue, type Frame } from "./engine/paperclip.ts";
 import { provision, type Provisioned } from "./provision.ts";
 import { runCommand, type RunResult } from "./run.ts";
 import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration } from "./git.ts";
-import { parseProposal, parseBrief, judge } from "./proposal.ts";
+import { parseProposal, parseBrief, judge, type ProposedTask } from "./proposal.ts";
 import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
 import { toolUses, isUsageLimit, resetTime } from "./mapping.ts";
 
 const TICK_MS = 15_000;
+const PAUSED = "Paused by you";
 const WAKE_TIMEOUT_MS = 30 * 60_000;
 const CHECK_TIMEOUT_MS = 15 * 60_000;
 const MAX_CHECK_ATTEMPTS = 3;
@@ -44,6 +48,8 @@ interface Runtime {
   waking: boolean;
   // Merges, setup and signal runs all use the one integration worktree, so they take turns.
   integration: Promise<unknown>;
+  // Paperclip's status and model for each agent, refreshed on each poll and on status frames
+  agentInfo: Map<string, { status: string; model: string }>;
 }
 
 export interface BureauOptions {
@@ -51,6 +57,8 @@ export interface BureauOptions {
   pc: Paperclip;
   wings: Wing[];
   stateDir: string;
+  // where wing files live, so the office can edit and add them
+  wingsDir: string;
   claudeCommand: string;
   settingsFile: string;
   now?: () => Date;
@@ -77,7 +85,7 @@ export class Bureau implements BureauApi {
     this.log = opts.log ?? ((m) => console.log(`[annex] ${m}`));
     for (const wing of opts.wings) {
       this.store.ensureWing(wing.id, wing.initialMode);
-      this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve() });
+      this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve(), agentInfo: new Map() });
     }
   }
 
@@ -209,6 +217,9 @@ export class Bureau implements BureauApi {
     const open = [...this.store.tasks(rt.wing.id, { state: "open" }).map((t) => t.id), ...(wake?.issueId ? [wake.issueId] : [])];
     for (const id of open) if (!seen.has(id)) await this.refreshIssue(rt, id, null);
     rt.seeded = true;
+    for (const a of await this.pc.agents(rt.prov!.companyId).catch(() => [])) {
+      rt.agentInfo.set(a.id, { status: a.status, model: String(a.adapterConfig?.model ?? "") });
+    }
     await this.syncChat(rt).catch((e) => this.log(`${rt.wing.id}: chat sync failed: ${e.message}`));
   }
 
@@ -242,6 +253,11 @@ export class Bureau implements BureauApi {
         rt.lastTool.set(p.agentId, now);
         this.emit({ wingId: rt.wing.id, kind: "agent.tool", actor: p.agentId, taskId: (p.issueId as string) ?? null, payload: { tool: use.tool, detail: use.detail } });
       }
+      return;
+    }
+    if (f.type === "agent.status" && typeof p.agentId === "string") {
+      const info = rt.agentInfo.get(p.agentId);
+      rt.agentInfo.set(p.agentId, { status: String(p.status ?? "idle"), model: info?.model ?? "" });
       return;
     }
     if (f.type === "heartbeat.run.status") {
@@ -614,10 +630,17 @@ export class Bureau implements BureauApi {
           this.emit({ wingId, kind: "agent.said", actor: "annex", taskId: null, payload: { text: `Threw away "${v.task.title || "untitled"}": ${v.reason}` } });
           continue;
         }
+        if (v.task.askFirst) {
+          // a raised hand: held until the person says yes (design D3)
+          const ask = this.store.addAsk(wingId, v.task as unknown as Record<string, unknown>, v.task.askReason || "The lead wants your yes before starting this.");
+          this.emit({ wingId, kind: "approval.requested", actor: lead.id, taskId: null, payload: { title: `Approve "${v.task.title}"`, askId: ask.id, reason: ask.reason } });
+          continue;
+        }
         await this.createTask(rt, { ...v.task, source: "lead" });
         created++;
       }
-      if (created === 0) {
+      const asked = verdicts.filter((v) => v.ok && v.task.askFirst).length;
+      if (created === 0 && asked === 0) {
         this.emit({ wingId, kind: "lead.idle", actor: lead.id, taskId: null, payload: { reason: parsed.note || "nothing worth doing" } });
       } else if (parsed.note) {
         this.emit({ wingId, kind: "agent.said", actor: lead.id, taskId: null, payload: { text: parsed.note } });
@@ -756,6 +779,168 @@ export class Bureau implements BureauApi {
     return { taskId: `drop-${d.id}` };
   }
 
+  // ----- the options the office exposes --------------------------------------------------
+
+  private settingsOf(w: Wing) {
+    const s = w.settings;
+    const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    return {
+      wakeEvery: formatSec(s.wakeEverySec),
+      maxRunsPerHour: s.maxRunsPerHour,
+      quietHours: s.quietHours ? `${hhmm(s.quietHours.startMin)}-${hhmm(s.quietHours.endMin)}` : null,
+      backOffWhenIdle: s.backOffWhenIdle,
+      askBefore: s.askBefore,
+    };
+  }
+
+  // Edits a wing's file and applies it at once: settings take effect on the next tick, the crew's
+  // instructions are re-synced, extra workers are hired, and a new repo gets its own project.
+  async updateWing(wingId: string, e: WingEdit) {
+    const rt = this.rt(wingId);
+    const next = applyEdit(rt.wing, e);
+    const cur = this.settingsOf(rt.wing);
+    const settings = {
+      wakeEvery: e.wakeEvery ?? cur.wakeEvery,
+      maxRunsPerHour: e.maxRunsPerHour === undefined ? cur.maxRunsPerHour : e.maxRunsPerHour,
+      quietHours: e.quietHours === undefined ? cur.quietHours : e.quietHours || null,
+      backOffWhenIdle: e.backOffWhenIdle ?? cur.backOffWhenIdle,
+      askBefore: (e.askBefore ?? cur.askBefore).map((x) => x.trim()).filter(Boolean),
+    };
+    let parsed: Wing;
+    const text = toToml(next, settings);
+    try {
+      parsed = parseWing(wingId, text);
+    } catch (err) {
+      throw new UserError((err as Error).message.replace(/^wings\/[^:]+: /, ""), 400);
+    }
+    if (parsed.repo && !existsSync(join(parsed.repo.path, ".git"))) throw new UserError(`${parsed.repo.path} is not a git repository`, 400);
+    if (this.store.wing(wingId)!.mode === "autonomous" && !parsed.charter && !this.store.currentBrief(wingId)) {
+      throw new UserError("A wing on its own needs a charter or an approved brief", 400);
+    }
+    this.written.set(wingId, text);
+    writeFileSync(join(this.opts.wingsDir, wingId, "wing.toml"), text);
+    await this.apply(rt, parsed);
+    this.emit({ wingId, kind: "agent.said", actor: "you", taskId: null, payload: { text: "Changed the wing's settings" } });
+  }
+
+  // The last text Annex itself wrote to each wing file, so the watcher skips its own writes.
+  private written = new Map<string, string>();
+
+  private async apply(rt: Runtime, parsed: Wing) {
+    const repoChanged = rt.wing.repo?.path !== parsed.repo?.path;
+    rt.wing = parsed;
+    if (repoChanged) this.store.clearProject(parsed.id);
+    if (rt.prov) {
+      rt.stop?.();
+      rt.prov = null;
+      rt.offline = "applying the new settings";
+      await this.connectAll();
+    }
+  }
+
+  // Called when a wing file changes on disk: a hand edit is applied like one from the office, a
+  // new wing folder becomes a new wing, and a file that does not parse is reported and ignored.
+  async reloadFile(wingId: string, text: string) {
+    if (this.written.get(wingId) === text) return;
+    let parsed: Wing;
+    try {
+      parsed = parseWing(wingId, text);
+    } catch (err) {
+      this.log(`${(err as Error).message} (kept the previous settings)`);
+      return;
+    }
+    const rt = this.rts.get(wingId);
+    this.written.set(wingId, text);
+    if (rt) {
+      await this.apply(rt, parsed);
+      this.log(`${wingId}: applied the edited wing file`);
+      return;
+    }
+    this.store.ensureWing(wingId, parsed.initialMode);
+    this.rts.set(wingId, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve(), agentInfo: new Map() });
+    await this.connectAll();
+    this.log(`${wingId}: new wing from its file`);
+  }
+
+  async createWing(n: NewWing) {
+    const id = n.id.trim().toLowerCase();
+    if (!/^[a-z][a-z0-9-]{1,30}$/.test(id)) throw new UserError("A wing id is 2 to 31 lowercase letters, digits or dashes, starting with a letter", 400);
+    if (this.rts.has(id) || existsSync(join(this.opts.wingsDir, id))) throw new UserError(`There is already a wing called "${id}"`, 409);
+    const repoPath = n.repoPath?.trim() ? expandHome(n.repoPath.trim()) : null;
+    if (repoPath && !existsSync(join(repoPath, ".git"))) throw new UserError(`${repoPath} is not a git repository`, 400);
+    const base: Wing = parseWing(id, `name = ${JSON.stringify(n.name.trim() || id)}`);
+    const wing = applyEdit({ ...base, charter: n.charter?.trim() ?? "" }, repoPath ? { repoPath, baseBranch: n.baseBranch?.trim() || "main" } : {});
+    const text = toToml(wing, this.settingsOf(wing));
+    const parsed = parseWing(id, text);
+    mkdirSync(join(this.opts.wingsDir, id), { recursive: true });
+    this.written.set(id, text);
+    writeFileSync(join(this.opts.wingsDir, id, "wing.toml"), text);
+    this.store.ensureWing(id, "with_you");
+    this.rts.set(id, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve(), agentInfo: new Map() });
+    await this.connectAll();
+    this.emit({ wingId: id, kind: "agent.said", actor: "you", taskId: null, payload: { text: `Opened the ${parsed.name} wing` } });
+    return { id };
+  }
+
+  async decideAsk(wingId: string, askId: number, approve: boolean) {
+    const rt = this.ready(wingId);
+    const ask = this.store.ask(askId);
+    if (!ask || ask.wingId !== wingId) throw new UserError("That request does not belong to this wing", 404);
+    if (ask.status !== "pending") throw new UserError(`That request was already ${ask.status}`, 409);
+    this.store.decideAsk(askId, approve ? "approved" : "declined");
+    const t = ask.task as unknown as ProposedTask;
+    this.emit({ wingId, kind: "approval.decided", actor: "you", taskId: null, payload: { decision: approve ? "approved" : "declined", title: `"${t.title}"` } });
+    if (approve) await this.createTask(rt, { ...t, source: "lead" });
+  }
+
+  pause(wingId: string) {
+    this.rt(wingId);
+    this.store.setHold(wingId, "9999-12-31T00:00:00.000Z", PAUSED);
+    this.emit({ wingId, kind: "wing.held", actor: "you", taskId: null, payload: { reason: PAUSED } });
+  }
+
+  resume(wingId: string) {
+    this.rt(wingId);
+    if (!this.store.wing(wingId)!.heldUntil) throw new UserError("This wing is not held", 409);
+    this.store.setHold(wingId, null, null);
+    this.emit({ wingId, kind: "wing.resumed", actor: "you", taskId: null, payload: {} });
+    this.track(this.tick());
+  }
+
+  // What an agent did, run by run, read from Paperclip's logs. Finished runs never change, so
+  // their parsed transcript is kept.
+  private transcripts = new Map<string, Entry[]>();
+
+  async transcript(agentId: string, limit = 8): Promise<TranscriptView> {
+    const row = this.store.agent(agentId);
+    if (!row) throw new UserError("There is no such agent", 404);
+    const rt = this.ready(row.wingId);
+    const runs = await this.pc.agentRuns(rt.prov.companyId, agentId, limit);
+    const out: RunView[] = [];
+    for (const r of runs) {
+      const finished = ["succeeded", "failed", "cancelled", "timed_out"].includes(r.status);
+      let entries = finished ? this.transcripts.get(r.id) : undefined;
+      if (!entries) {
+        entries = r.logBytes ? parseLog(await this.pc.runLog(r.id).catch(() => "")) : [];
+        if (finished) this.transcripts.set(r.id, entries);
+      }
+      const ctx = (r.contextSnapshot ?? {}) as Record<string, unknown>;
+      const issueId = typeof ctx.issueId === "string" ? ctx.issueId : null;
+      const issue = issueId ? rt.issues.get(issueId) : undefined;
+      out.push({
+        id: r.id,
+        status: r.status,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        task: issue ? { identifier: issue.identifier, title: issue.title } : null,
+        reason: String(ctx.wakeReason ?? r.invocationSource ?? ""),
+        entries,
+      });
+    }
+    const info = rt.agentInfo.get(agentId);
+    return { agent: { id: row.id, role: row.role, name: row.name, desk: row.desk, wingId: row.wingId, status: info?.status ?? "idle", model: info?.model ?? "" }, runs: out };
+  }
+
   // ----- the snapshot the browser draws from -----------------------------------------------
 
   async state(): Promise<StateView> {
@@ -772,8 +957,6 @@ export class Bureau implements BureauApi {
       const brief = this.store.currentBrief(rt.wing.id);
       const draft = this.store.latestDraft(rt.wing.id);
       const s = rt.wing.settings;
-      const q = s.quietHours;
-      const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
       wings.push({
         id: rt.wing.id,
         name: rt.wing.name,
@@ -783,18 +966,27 @@ export class Bureau implements BureauApi {
         integrationBranch: rt.wing.repo?.integrationBranch ?? null,
         held: row.heldUntil ? { until: row.heldUntil, reason: row.heldReason ?? "held" } : null,
         offline: rt.offline,
-        agents: this.store.agents(rt.wing.id).map((a) => ({ id: a.id, role: a.role, name: a.name, desk: a.desk })),
+        agents: this.store.agents(rt.wing.id).map((a) => ({ id: a.id, role: a.role, name: a.name, desk: a.desk, status: rt.agentInfo.get(a.id)?.status ?? "idle", model: rt.agentInfo.get(a.id)?.model ?? "" })),
         tasks,
         filedCount: merged,
         brief: brief ? { id: brief.id, version: brief.version, text: brief.text, status: brief.status } : null,
         draft: draft ? { id: draft.id, version: draft.version, text: draft.text, status: draft.status } : null,
         chat: this.store.chat(rt.wing.id).map((c) => ({ id: c.id, at: c.at, who: c.who, text: c.text })),
-        settings: {
-          wakeEvery: formatSec(Math.min(s.wakeEverySec * 2 ** row.backoffLevel, MAX_BACKOFF_SEC)),
-          maxRunsPerHour: s.maxRunsPerHour,
-          quietHours: q ? `${hhmm(q.startMin)}-${hhmm(q.endMin)}` : null,
-          backOffWhenIdle: s.backOffWhenIdle,
-          askBefore: s.askBefore,
+        settings: { ...this.settingsOf(rt.wing), wakeEvery: formatSec(Math.min(s.wakeEverySec * 2 ** row.backoffLevel, MAX_BACKOFF_SEC)) },
+        asks: this.store.asks(rt.wing.id).map((a) => ({ id: a.id, title: String(a.task.title ?? ""), reason: a.reason, details: String(a.task.details ?? ""), createdAt: a.createdAt })),
+        paused: row.heldReason === PAUSED,
+        edit: {
+          name: rt.wing.name,
+          charter: rt.wing.charter,
+          doneCheck: rt.wing.doneCheck,
+          setup: rt.wing.setup,
+          repoPath: rt.wing.repo?.path ?? null,
+          baseBranch: rt.wing.repo?.baseBranch ?? "main",
+          workers: rt.wing.crew.workers,
+          leadModel: rt.wing.crew.leadModel,
+          workerModel: rt.wing.crew.workerModel,
+          reviewerModel: rt.wing.crew.reviewerModel,
+          allow: rt.wing.allow,
         },
       });
     }
@@ -813,6 +1005,10 @@ function isAtBourne(i: Issue): boolean {
 async function cleanWorktree(dir: string) {
   await git(dir, "reset", "--hard");
   await git(dir, "clean", "-fd");
+}
+
+function expandHome(p: string): string {
+  return p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p;
 }
 
 function participantKey(i: Issue): string {

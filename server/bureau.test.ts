@@ -128,7 +128,7 @@ workers = 1
     },
   }) as unknown as Paperclip;
   const store = new Store(":memory:");
-  const bureau = new Bureau({ store, pc: client, wings: [wing], stateDir: join(dir, "state"), claudeCommand: "claude", settingsFile: "/dev/null", log: () => {} });
+  const bureau = new Bureau({ store, pc: client, wings: [wing], stateDir: join(dir, "state"), wingsDir: join(dir, "wings"), claudeCommand: "claude", settingsFile: "/dev/null", log: () => {} });
   await bureau.start();
   bureau.stopAll();
   return { dir, repo, pc, store, bureau };

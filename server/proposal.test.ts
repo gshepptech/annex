@@ -20,6 +20,8 @@ const task = (over: Partial<ProposedTask> = {}): ProposedTask => ({
   doneCheck: "npm test && npm run typecheck",
   size: "S",
   details: "",
+  askFirst: false,
+  askReason: "",
   ...over,
 });
 
