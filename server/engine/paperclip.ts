@@ -95,6 +95,8 @@ export interface AgentSpec {
   settingsFile: string;
   allowedTools: string[];
   maxConcurrentRuns?: number;
+  // directories outside its working directory the agent may read (the lead reads the repo)
+  readDirs?: string[];
 }
 
 export class EngineError extends Error {
@@ -359,6 +361,7 @@ function agentConfig(a: AgentSpec) {
         "--settings", a.settingsFile,
         "--permission-mode", "acceptEdits",
         "--allowedTools", a.allowedTools.join(","),
+        ...(a.readDirs ?? []).flatMap((d) => ["--add-dir", d]),
       ],
     },
     // Annex runs the wake timer itself (design D5), so Paperclip's stays off.

@@ -114,6 +114,8 @@ export async function provision(opts: {
     claudeCommand: opts.claudeCommand,
     settingsFile: opts.settingsFile,
     allowedTools: toolsFor(role, wing),
+    // the lead plans from its own workspace; this lets its Read, Glob and Grep reach the repo
+    ...(role === "lead" && workspace ? { readDirs: [workspace.integrationDir] } : {}),
     ...extra,
   });
 

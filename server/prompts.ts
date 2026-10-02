@@ -10,7 +10,15 @@ export const REPORT_SCRIPT = join(import.meta.dirname, "agent-tools", "report.mj
 
 // How every role writes back to Paperclip. Shell commands containing `$VARIABLES` are refused in
 // these runs, so agents must not hand-roll curl calls with the API variables.
-const REPORTING = `## Reporting back
+const REPORTING = `## Working here
+
+These runs have no one to approve a refused command, so a refused command is a wasted turn.
+- Your working directory is already the right place. Never \`cd\`.
+- One command per shell call. Do not chain with \`&&\`, \`;\` or pipes into commands you were not
+  given; run them one at a time.
+- Read files with the Read, Glob and Grep tools rather than \`cat\`, \`find\` or \`grep\` in the shell.
+
+## Reporting back
 
 Use only this command to change your task's status or comment on it. Write the comment between
 the quote-marked heredoc lines exactly as shown:
@@ -43,7 +51,8 @@ ${w.charter ? `## Charter\n\n${w.charter}\n` : "## Charter\n\nNone yet. The pers
 ### 1. A wake issue from Annex ("Wake: ...")
 
 Annex has already run the wing's signals and pasted their output into the issue, along with the
-open tasks, recently closed tasks, and anything the person dropped in. Decide what the charter
+open tasks, recently closed tasks, and anything the person dropped in. The repo itself is open to
+your Read, Glob and Grep tools at the path given at the end of the issue. Decide what the charter
 needs next. Then post exactly one comment containing one fenced block tagged \`${PROPOSAL_FENCE}\`:
 
 \`\`\`${PROPOSAL_FENCE}
