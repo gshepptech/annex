@@ -6,12 +6,12 @@ import type { RoomScene, Actor } from "./scene.ts";
 import { isMoving } from "./scene.ts";
 import { deskOf } from "./grid.ts";
 import {
-  TILE, FLOOR, FLOOR_LINE, WALL, WALL_TOP, ROLE, GOOD, BAD, WARN, SCREEN_OFF,
+  TILE, PAL, ROLE, GOOD, BAD, WARN,
   drawPerson, drawFolder, drawDesk, drawCabinet, drawTable, drawPlant, drawWindow, lookFor, roundRect,
 } from "./sprites.ts";
 
 const PERSON_SCALE = 1.45;
-const LIGHT_COLOUR = { off: SCREEN_OFF, amber: WARN, green: GOOD, red: BAD } as const;
+const LIGHT_COLOUR = { amber: WARN, green: GOOD, red: BAD } as const;
 
 export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now: number) {
   const { layout } = scene;
@@ -20,25 +20,25 @@ export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now:
   const H = layout.h * TILE;
 
   // walls all round, then the floor inset into them
-  ctx.fillStyle = WALL;
+  ctx.fillStyle = PAL.WALL;
   ctx.fillRect(0, 0, W, H);
-  roundRect(ctx, TILE - 3, TILE - 3, W - TILE * 2 + 6, H - TILE * 2 + 6, 5, WALL_TOP);
-  roundRect(ctx, TILE, TILE, W - TILE * 2, H - TILE * 2, 3, FLOOR);
-  ctx.fillStyle = FLOOR_LINE;
+  roundRect(ctx, TILE - 3, TILE - 3, W - TILE * 2 + 6, H - TILE * 2 + 6, 5, PAL.WALL_TOP);
+  roundRect(ctx, TILE, TILE, W - TILE * 2, H - TILE * 2, 3, PAL.FLOOR);
+  ctx.fillStyle = PAL.FLOOR_LINE;
   for (let x = 2; x < layout.w - 1; x++) ctx.fillRect(x * TILE, TILE, 0.6, H - TILE * 2);
   for (let y = 2; y < layout.h - 1; y++) ctx.fillRect(TILE, y * TILE, W - TILE * 2, 0.6);
   // the wall casts a soft shadow onto the top of the floor
   const shade = ctx.createLinearGradient(0, TILE, 0, TILE + 7);
-  shade.addColorStop(0, "rgba(24,35,42,0.16)");
-  shade.addColorStop(1, "rgba(24,35,42,0)");
+  shade.addColorStop(0, `rgba(${PAL.WALL_SHADE},0.16)`);
+  shade.addColorStop(1, `rgba(${PAL.WALL_SHADE},0)`);
   ctx.fillStyle = shade;
   ctx.fillRect(TILE, TILE, W - TILE * 2, 7);
   for (const wx of [4, 13]) drawWindow(ctx, wx * TILE, 0);
 
   // the doorway, red while the office is closed
   const d = layout.door.at;
-  roundRect(ctx, d.x * TILE + 1, d.y * TILE - 3, TILE - 2, TILE + 3, 1.5, scene.held ? BAD : FLOOR);
-  if (!scene.held) roundRect(ctx, d.x * TILE + 2.5, d.y * TILE - 1, TILE - 5, 4, 1, "#D7DFDB");
+  roundRect(ctx, d.x * TILE + 1, d.y * TILE - 3, TILE - 2, TILE + 3, 1.5, scene.held ? BAD : PAL.FLOOR);
+  if (!scene.held) roundRect(ctx, d.x * TILE + 2.5, d.y * TILE - 1, TILE - 5, 4, 1, PAL.DOORMAT);
 
   drawTable(ctx, layout.table.at.x * TILE, layout.table.at.y * TILE);
   drawPlant(ctx, 1 * TILE, (layout.h - 2) * TILE);
@@ -93,14 +93,14 @@ export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now:
 
   // a closed office is dimmed, as if the lights were off
   if (scene.held) {
-    ctx.fillStyle = "rgba(24,35,42,0.32)";
+    ctx.fillStyle = PAL.DIM;
     ctx.fillRect(0, 0, W, H);
   }
 }
 
 function glow(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, rgb: string, now: number) {
   // a slow flicker of a few percent, so a lit desk reads as alive without pulling the eye
-  const f = 0.2 + 0.03 * Math.sin(now / 700 + cx);
+  const f = Number(PAL.GLOW) + 0.03 * Math.sin(now / 700 + cx);
   const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, radius);
   g.addColorStop(0, `rgba(${rgb},${f})`);
   g.addColorStop(1, `rgba(${rgb},0)`);

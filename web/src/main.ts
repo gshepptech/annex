@@ -16,6 +16,7 @@ import { logDialog } from "./syslog.ts";
 import { DirectorDesk } from "./directorview.ts";
 import { h } from "./dom.ts";
 import { portrait } from "./portrait.ts";
+import { setRoomTheme } from "./office/sprites.ts";
 
 const app = document.getElementById("app")!;
 const rooms = new Map<string, Room>();
@@ -49,6 +50,27 @@ const newOffice = newWingDialog((id) => {
 const syslog = logDialog();
 const director = new DirectorDesk(() => selectWing(selectedWing ?? state?.wings[0]?.id ?? ""), () => scheduleRefresh(0));
 
+// Dark by default; the choice is kept in this browser only.
+type Theme = "light" | "dark";
+let theme: Theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+setRoomTheme(theme);
+const themeBtn = h("button", { class: "hud-btn", type: "button", onclick: () => flipTheme() });
+function flipTheme() {
+  theme = theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  setRoomTheme(theme);
+  try {
+    localStorage.setItem("annex-theme", theme);
+  } catch {
+    // private windows can refuse storage; the switch still works for this visit
+  }
+  labelTheme();
+}
+function labelTheme() {
+  themeBtn.textContent = theme === "dark" ? "Light mode" : "Dark mode";
+}
+labelTheme();
+
 // the HUD: the game's top bar
 const stats = h("div", { class: "stats" });
 const openState = h("span", { class: "state", role: "status" }, "Connecting…");
@@ -60,6 +82,7 @@ const hud = h(
   openState,
   h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, portrait("director", 0, 26, ""), "Director"),
   h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "System log"),
+  themeBtn,
 );
 
 app.append(h("div", { class: "shell" }, hud, sidebar.el, world, drawer), toasts, newOffice, syslog.el);

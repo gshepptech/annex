@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Annex</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='3' width='14' height='11' fill='%23DDBF6C'/%3E%3Crect x='1' y='2' width='6' height='2' fill='%23B99B4E'/%3E%3Crect x='3' y='7' width='10' height='2' fill='%23B3302A'/%3E%3C/svg%3E" />
+    <script>
+      // the theme is set before anything draws, so a dark page never flashes light
+      try { document.documentElement.dataset.theme = localStorage.getItem("annex-theme") === "light" ? "light" : "dark"; } catch { document.documentElement.dataset.theme = "dark"; }
+    </script>
   </head>
   <body>
     <div id="app"></div>
