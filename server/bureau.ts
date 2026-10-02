@@ -1028,6 +1028,7 @@ export class Bureau implements BureauApi {
   pause(wingId: string) {
     this.rt(wingId);
     this.store.setHold(wingId, "9999-12-31T00:00:00.000Z", PAUSED);
+    this.logger.info(wingId, "paused by you");
     this.emit({ wingId, kind: "wing.held", actor: "you", taskId: null, payload: { reason: PAUSED } });
   }
 
@@ -1038,6 +1039,7 @@ export class Bureau implements BureauApi {
     // the person is overriding a usage-limit hold: the failure that caused it must not re-close
     // the office on the next tick; a new failure still will
     if (row.heldReason && row.heldReason !== PAUSED) this.quotaOverriddenAt = this.now().getTime();
+    this.logger.info(wingId, `opened again by you (was: ${row.heldReason ?? "closed"})`);
     this.store.setHold(wingId, null, null);
     this.emit({ wingId, kind: "wing.resumed", actor: "you", taskId: null, payload: {} });
     this.track(this.tick());
