@@ -347,3 +347,22 @@ The spike passed (`docs/spike-findings.md`). What it changed:
   lowest free desk from 1.
 - **D11, rendering.** Plain Canvas 2D instead of PixiJS. The sprites are drawn in code and there
   are only a handful of them, so a renderer library added nothing.
+
+## Acceptance run, 2 October 2026
+
+Run live against reckon, Upkeep on its own, Studio with you, then Colophon added.
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | Upkeep runs on its own; every task names a charter line, a signal and a done check | Met for about 40 minutes, not the full hour. 5 wakes, 5 tasks, every one passing `judge()`. The lead also refused to repeat open work. |
+| 2 | A task verified by Annex's check and a separate reviewer lands on `annex/upkeep`; `main` untouched | Met three times: react 19.3.0, vitest 5.0.3, @types/node 22.20.5. reckon `master` stayed at `42c91d1` and the person's checkout stayed clean. |
+| 3 | A conversation becomes a brief; approving it hands off; "Come back in" returns with a summary | Met on Upkeep. Studio has no repo, so Annex refuses its handoff and says to add one. |
+| 4 | Every animation traces to a stored event | Met by construction: the scene changes only in `applyEvent`. Tested ("nothing moves without an event"). |
+| 5 | A new wing is added by writing a wing file | Met: `wings/colophon/wing.toml`, connected on restart, no code change. |
+
+What the live run caught that the tests had not, all fixed:
+- PATCHing an agent ignores `instructionsBundle`.
+- Shell `$VARIABLE` expansion is refused, so reviewers could not report (fixed with `report.mjs`).
+- Untracked scratch files were counted as uncommitted work.
+- A proposal posted as a status comment shows up after the status change.
+- A lead wrote a done check that could never pass, so a stopped or blocked task now goes back to the lead to re-plan.
