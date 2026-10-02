@@ -14,29 +14,43 @@ the check again. On screen, that is when the red VERIFIED stamp lands.
 
 You need Node 24.11 or newer and Claude Code logged in with your subscription.
 
-1. Start the engine (Paperclip, pinned in `runtime/`):
-   ```sh
-   cd runtime && npm install && npx paperclipai run --data-dir ../.paperclip
-   ```
-   The first run asks nothing; it binds to 127.0.0.1:3100.
-2. In another terminal, start Annex and build the office page:
-   ```sh
-   npm install && npm run web:build && npm start
-   ```
-3. Open http://127.0.0.1:4300.
+```sh
+npm install
+npm run up
+```
 
+`npm run up` starts the pinned Paperclip engine if it is not running (installing it the first
+time), waits for it, builds the page if needed, and runs Annex. Open http://127.0.0.1:4300.
 While working on the page, `npm run web:dev` serves it at :4301 with live reload.
 
-## Using the office
+## Playing it
 
-- **Sidebar:** every wing and everyone in it. Click an agent (or the agent in a room) to open its
-  terminal: every run, each tool call and what came back, the way Claude Code shows it, live while
-  it works.
-- **A wing's case file:** Hand off / Come back in, Pause / Resume, the log, the chat with the
-  lead, the brief, and **Settings**, where every option is editable and applies at once.
-- **Asks:** a lead that wants your yes first (anything under "Ask me before", or the brief's
-  "Call me back when") raises its hand; approve or decline it in the case file.
-- **+ New wing** opens a new room, which starts with you.
+- **The HUD** shows offices, crew, who is working, how much is verified, and whether Annex is
+  OPEN or CLOSED (for example "CLOSED UNTIL 15:40" when your Claude usage limit is reached; it
+  reopens by itself).
+- **PARTY** lists every office and everyone in it. Click a member, or the person in a room, to
+  open their terminal: each run in Claude Code's own grammar, the exact prompt Paperclip sent,
+  the agent's standing orders, and the full system prompt.
+- **Each office's plaque** counts down to its lead's next wake, or says why it will not wake.
+- **An office's file**: HAND OFF / COME BACK IN, + HIRE, PAUSE / RESUME, and tabs for the LOG,
+  TALK with the lead, the BRIEF, LOOT (verified commits waiting for you to merge, with the
+  command) and SETTINGS (every option, applied at once).
+- **Asks**: when a lead wants your yes first (anything under "Ask me before", or the brief's
+  "Call me back when"), the office shows a quest to ACCEPT or DECLINE.
+- **DIRECTOR**: one conversation above every office. It sees a line per office, answers how
+  things are going, and routes what you ask for: drops work into an office, opens an office,
+  hires, pauses, resumes, or brings an office back to you. Each lead still plans its own work.
+- **SYSTEM LOG**: everything Annex decided and why, also in `.annex/logs/annex.log`.
+
+## How the work is kept honest
+
+- A lead never plans blind: every wake carries the repo's signals and its CLAUDE.md / AGENTS.md,
+  and every proposed task must name the rules it touches, quote real signal output, and carry a
+  done check. Annex throws out anything that does not.
+- A task is done only when Annex runs its done check in the task's own worktree and it passes,
+  a separate reviewer approves the diff (house rules included), and the merge into the office's
+  integration branch passes the check again.
+- Leads can hire up to an office's "Most workers"; new hires walk in through the door.
 
 ## Add work
 

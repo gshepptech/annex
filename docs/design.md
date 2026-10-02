@@ -366,3 +366,32 @@ What the live run caught that the tests had not, all fixed:
 - Untracked scratch files were counted as uncommitted work.
 - A proposal posted as a status comment shows up after the status change.
 - A lead wrote a done check that could never pass, so a stopped or blocked task now goes back to the lead to re-plan.
+
+## Third round, 2 October 2026
+
+What the person asked for after using it, and what was built:
+
+- **A video-game office.** The UI is a pixel RPG: Silkscreen, Pixelify Sans and VT323, blue boxes
+  with white pixel borders, a party roster with portraits cut from each sprite, a CRT terminal, and
+  notifications only for real events. An earlier glassy dark theme was rejected as generic.
+- **"Why aren't they working?"** Your plan's session limit held every office. Annex now shows
+  CLOSED UNTIL on the HUD and a wake countdown, or the reason it will not wake, on every office. The
+  limit detector also missed "hit your session limit" and the `provider_quota` code; it now
+  catches both, reads the reset time in the zone Claude names, and catches limits it missed while
+  it was not watching.
+- **Logs.** Every decision goes to `.annex/logs/annex.log` and the SYSTEM LOG.
+- **House rules.** The lead plans outside the repo and had never seen the repo's CLAUDE.md. It now
+  gets CLAUDE.md / AGENTS.md on every wake, and can read the repo directly (`--add-dir`). Tasks
+  must cite the rules they touch. The reviewer checks the diff and commit against them.
+- **What agents are told.** Each agent's terminal shows its standing orders, the full system
+  prompt, and the exact prompt of every run (from Paperclip's `adapter.invoke` record).
+- **Hiring.** `max_workers` per office; the lead can ask for hires in its proposal; + HIRE in
+  the office.
+- **One lead or one Ultron.** Both, at different levels. Each office keeps its own lead, so a
+  lead's context holds one repo, one rulebook and one set of signals. Above them is the
+  **director**: its own agent in its own company, seeing one line per office and never a repo. It
+  answers, asks, and routes (`annex-route`: drop in, open an office, hire, pause, resume, come
+  back). Handing an office off stays the person's decision.
+- **LOOT.** Verified commits waiting on each integration branch, with the merge command. Annex
+  never merges into the person's own branch.
+- **`npm run up`** starts everything.
