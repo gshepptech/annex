@@ -296,6 +296,7 @@ export class Bureau implements BureauApi {
       // first sight after a restart: only finish work that was left half done
       if (cur.status === "done") this.track(this.merge(rt, cur, task));
       if (cur.status === "cancelled") this.store.closeTask(cur.id, "stopped");
+      if (cur.status === "blocked") await this.replan(rt, cur, task, actor);
       return;
     }
     const reviewerId = rt.prov!.reviewer.id;
@@ -305,12 +306,24 @@ export class Bureau implements BureauApi {
     } else if (prev.status === "in_review" && cur.status === "in_progress" && prev.executionState?.currentParticipant?.agentId === reviewerId) {
       this.emit({ wingId, kind: "review.rejected", actor: reviewerId, taskId: cur.id, payload: { title: task.title, reason: await this.lastCommentBy(cur.id, reviewerId) } });
     } else if (cur.status === "blocked" && prev.status !== "blocked") {
-      const by = cur.assigneeAgentId ?? actor ?? "annex";
-      this.emit({ wingId, kind: "agent.said", actor: by, taskId: cur.id, payload: { text: `Blocked: ${await this.lastCommentBy(cur.id, by)}` } });
+      await this.replan(rt, cur, task, actor);
     } else if (cur.status === "cancelled") {
       this.store.closeTask(cur.id, "stopped");
       this.emit({ wingId, kind: "task.stopped", actor: actor ?? "annex", taskId: cur.id, payload: { title: task.title, reason: "cancelled in Paperclip" } });
     }
+  }
+
+  // A blocked task goes back to the lead to re-plan: the crew cannot unblock it, and the lead
+  // cannot cancel tasks, so leaving it open would leave it open forever.
+  private async replan(rt: Runtime, cur: Issue, task: TaskRow, actor: string | null) {
+    const wingId = rt.wing.id;
+    const by = cur.assigneeAgentId ?? actor ?? "annex";
+    const reason = await this.lastCommentBy(cur.id, by);
+    this.emit({ wingId, kind: "agent.said", actor: by, taskId: cur.id, payload: { text: `Blocked: ${reason}` } });
+    this.store.closeTask(cur.id, "stopped");
+    await this.pc.setStatus(cur.id, "cancelled", "Annex handed this back to the lead to re-plan.");
+    this.store.addDropIn(wingId, `Re-plan ${cur.identifier} (blocked): ${task.title}`, `The worker stopped with: ${reason.slice(0, 600)}`);
+    this.emit({ wingId, kind: "task.stopped", actor: "annex", taskId: cur.id, payload: { title: task.title, reason: "blocked; back to the lead" } });
   }
 
   private async lastCommentBy(issueId: string, agentId: string): Promise<string> {
