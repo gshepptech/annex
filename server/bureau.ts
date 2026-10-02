@@ -315,7 +315,8 @@ export class Bureau implements BureauApi {
 
   private async lastCommentBy(issueId: string, agentId: string): Promise<string> {
     const comments = await this.pc.comments(issueId).catch(() => []);
-    const mine = comments.filter((c) => c.authorAgentId === agentId);
+    // Paperclip posts its own "Workspace Ready" note under the agent's name
+    const mine = comments.filter((c) => c.authorAgentId === agentId && !c.body.startsWith("## Workspace Ready"));
     return (mine[mine.length - 1]?.body ?? "").slice(0, 400);
   }
 

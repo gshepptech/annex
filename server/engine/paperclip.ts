@@ -179,9 +179,15 @@ export class Paperclip {
     });
   }
 
-  // Brings an existing agent's instructions and run settings up to date with its wing file.
-  syncAgent(id: string, a: AgentSpec) {
-    return this.call<Agent>("PATCH", `/api/agents/${id}`, { title: a.title, ...agentConfig(a) });
+  // Brings an existing agent's instructions and run settings up to date with its wing file. The
+  // agent PATCH accepts `instructionsBundle` but ignores it, so the file is written through its own
+  // route and read back.
+  async syncAgent(id: string, a: AgentSpec) {
+    const { instructionsBundle: _, ...config } = agentConfig(a);
+    await this.call<Agent>("PATCH", `/api/agents/${id}`, { title: a.title, ...config });
+    await this.call("PUT", `/api/agents/${id}/instructions-bundle/file`, { path: "AGENTS.md", content: a.instructions });
+    const stored = await this.call<{ content: string }>("GET", `/api/agents/${id}/instructions-bundle/file?path=AGENTS.md`);
+    if (stored.content !== a.instructions) throw new EngineError(`Paperclip did not store the new instructions for agent ${id}`, 0);
   }
 
   agents(companyId: string) {
