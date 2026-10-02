@@ -70,8 +70,8 @@ export interface RoomScene {
 const WALK_TILES_PER_SEC = 4.5;
 
 export function sceneFromSnapshot(w: WingView, lastEventId: number): RoomScene {
-  const workers = w.agents.filter((a) => a.role === "worker").length;
-  const layout = defaultLayout(Math.max(workers, 1));
+  // enough desks for the highest desk number in use, so a gap left by a departed worker is fine
+  const layout = defaultLayout(Math.max(1, ...w.agents.filter((a) => a.role === "worker").map((a) => a.desk)));
   const scene: RoomScene = {
     wingId: w.id,
     layout,

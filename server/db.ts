@@ -79,11 +79,83 @@ const MIGRATIONS: string[] = [
     text text not null
   );
   `,
+  `
+  alter table wing add column project_id text;
+  alter table wing add column chat_issue_id text;
+
+  -- tasks Annex created, with what the lead claimed for them, so the done check and the
+  -- duplicate rule never depend on reading prose back out of Paperclip
+  create table task (
+    id text primary key,
+    wing_id text not null references wing(id),
+    identifier text not null,
+    title text not null,
+    done_check text not null,
+    charter_line text,
+    evidence text,
+    source text not null check (source in ('lead', 'you')),
+    state text not null default 'open' check (state in ('open', 'merged', 'stopped')),
+    created_at text not null,
+    closed_at text
+  );
+
+  create table drop_in (
+    id integer primary key,
+    wing_id text not null references wing(id),
+    title text not null,
+    detail text not null default '',
+    created_at text not null,
+    taken_at text
+  );
+
+  create table wake (
+    id integer primary key,
+    wing_id text not null references wing(id),
+    issue_id text,
+    started_at text not null,
+    finished_at text,
+    outcome text
+  );
+  `,
 ];
+
+export interface TaskRow {
+  id: string;
+  wingId: string;
+  identifier: string;
+  title: string;
+  doneCheck: string;
+  charterLine: string | null;
+  evidence: string | null;
+  source: "lead" | "you";
+  state: "open" | "merged" | "stopped";
+  createdAt: string;
+  closedAt: string | null;
+}
+
+export interface DropInRow {
+  id: number;
+  wingId: string;
+  title: string;
+  detail: string;
+  createdAt: string;
+  takenAt: string | null;
+}
+
+export interface WakeRow {
+  id: number;
+  wingId: string;
+  issueId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  outcome: string | null;
+}
 
 export interface WingRow {
   id: string;
   companyId: string | null;
+  projectId: string | null;
+  chatIssueId: string | null;
   mode: Mode;
   backoffLevel: number;
   heldUntil: string | null;
@@ -180,6 +252,14 @@ export class Store {
     this.db.prepare("update wing set company_id = ?, updated_at = ? where id = ?").run(companyId, now(), id);
   }
 
+  setProject(id: string, projectId: string) {
+    this.db.prepare("update wing set project_id = ?, updated_at = ? where id = ?").run(projectId, now(), id);
+  }
+
+  setChatIssue(id: string, issueId: string) {
+    this.db.prepare("update wing set chat_issue_id = ?, updated_at = ? where id = ?").run(issueId, now(), id);
+  }
+
   setMode(id: string, mode: Mode) {
     this.db.prepare("update wing set mode = ?, backoff_level = 0, updated_at = ? where id = ?").run(mode, now(), id);
   }
@@ -196,10 +276,10 @@ export class Store {
 
   addAgent(a: Omit<AgentRow, "desk">): AgentRow {
     const taken = new Set(this.agents(a.wingId).map((x) => x.desk));
-    // The lead always sits at desk 0. Everyone else takes the lowest free desk, so a desk is never
-    // handed out while someone is still sitting at it.
-    let desk = a.role === "lead" ? 0 : 1;
-    while (taken.has(desk)) desk++;
+    // The lead sits at desk 0 and the reviewer at the review desk (-1). Workers take the lowest
+    // free desk from 1, so a desk is never handed out while someone is still sitting at it.
+    let desk = a.role === "lead" ? 0 : a.role === "reviewer" ? -1 : 1;
+    if (a.role === "worker") while (taken.has(desk)) desk++;
     this.db
       .prepare("insert into agent (id, wing_id, role, name, desk) values (?, ?, ?, ?, ?)")
       .run(a.id, a.wingId, a.role, a.name, desk);
@@ -300,6 +380,86 @@ export class Store {
     ).map((r) => ({ id: r.id as number, wingId: r.wing_id as string, at: r.at as string, who: r.who as ChatRow["who"], text: r.text as string }));
   }
 
+  // Tasks Annex created
+
+  addTask(t: Omit<TaskRow, "state" | "createdAt" | "closedAt">): TaskRow {
+    this.db
+      .prepare("insert into task (id, wing_id, identifier, title, done_check, charter_line, evidence, source, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(t.id, t.wingId, t.identifier, t.title, t.doneCheck, t.charterLine, t.evidence, t.source, now());
+    return this.task(t.id)!;
+  }
+
+  task(id: string): TaskRow | undefined {
+    const r = this.db.prepare("select * from task where id = ?").get(id) as Record<string, unknown> | undefined;
+    return r && toTask(r);
+  }
+
+  tasks(wingId: string, opts: { state?: TaskRow["state"]; closedSince?: string } = {}): TaskRow[] {
+    let sql = "select * from task where wing_id = ?";
+    const args: (string | number)[] = [wingId];
+    if (opts.state) {
+      sql += " and state = ?";
+      args.push(opts.state);
+    }
+    if (opts.closedSince) {
+      sql += " and closed_at >= ?";
+      args.push(opts.closedSince);
+    }
+    return (this.db.prepare(sql + " order by created_at").all(...args) as Record<string, unknown>[]).map(toTask);
+  }
+
+  closeTask(id: string, state: "merged" | "stopped") {
+    this.db.prepare("update task set state = ?, closed_at = ? where id = ?").run(state, now(), id);
+  }
+
+  // Drop-ins: work the person handed a wing directly
+
+  addDropIn(wingId: string, title: string, detail: string): DropInRow {
+    const r = this.db
+      .prepare("insert into drop_in (wing_id, title, detail, created_at) values (?, ?, ?, ?) returning *")
+      .get(wingId, title, detail, now()) as Record<string, unknown>;
+    return toDropIn(r);
+  }
+
+  pendingDropIns(wingId: string): DropInRow[] {
+    return (this.db.prepare("select * from drop_in where wing_id = ? and taken_at is null order by id").all(wingId) as Record<string, unknown>[]).map(toDropIn);
+  }
+
+  takeDropIns(ids: number[]) {
+    const stmt = this.db.prepare("update drop_in set taken_at = ? where id = ?");
+    for (const id of ids) stmt.run(now(), id);
+  }
+
+  // Wakes
+
+  startWake(wingId: string): WakeRow {
+    const r = this.db.prepare("insert into wake (wing_id, started_at) values (?, ?) returning *").get(wingId, now()) as Record<string, unknown>;
+    return toWake(r);
+  }
+
+  setWakeIssue(id: number, issueId: string) {
+    this.db.prepare("update wake set issue_id = ? where id = ?").run(issueId, id);
+  }
+
+  finishWake(id: number, outcome: string) {
+    this.db.prepare("update wake set finished_at = ?, outcome = ? where id = ?").run(now(), outcome, id);
+  }
+
+  openWake(wingId: string): WakeRow | undefined {
+    const r = this.db.prepare("select * from wake where wing_id = ? and finished_at is null order by id desc limit 1").get(wingId) as Record<string, unknown> | undefined;
+    return r && toWake(r);
+  }
+
+  lastWake(wingId: string): WakeRow | undefined {
+    const r = this.db.prepare("select * from wake where wing_id = ? order by id desc limit 1").get(wingId) as Record<string, unknown> | undefined;
+    return r && toWake(r);
+  }
+
+  wakeByIssue(issueId: string): WakeRow | undefined {
+    const r = this.db.prepare("select * from wake where issue_id = ?").get(issueId) as Record<string, unknown> | undefined;
+    return r && toWake(r);
+  }
+
   // Layouts
 
   setLayout(wingId: string, json: unknown) {
@@ -352,10 +512,50 @@ function toWing(r: Record<string, unknown>): WingRow {
   return {
     id: r.id as string,
     companyId: (r.company_id as string | null) ?? null,
+    projectId: (r.project_id as string | null) ?? null,
+    chatIssueId: (r.chat_issue_id as string | null) ?? null,
     mode: r.mode as Mode,
     backoffLevel: r.backoff_level as number,
     heldUntil: (r.held_until as string | null) ?? null,
     heldReason: (r.held_reason as string | null) ?? null,
+  };
+}
+
+function toTask(r: Record<string, unknown>): TaskRow {
+  return {
+    id: r.id as string,
+    wingId: r.wing_id as string,
+    identifier: r.identifier as string,
+    title: r.title as string,
+    doneCheck: r.done_check as string,
+    charterLine: (r.charter_line as string | null) ?? null,
+    evidence: (r.evidence as string | null) ?? null,
+    source: r.source as TaskRow["source"],
+    state: r.state as TaskRow["state"],
+    createdAt: r.created_at as string,
+    closedAt: (r.closed_at as string | null) ?? null,
+  };
+}
+
+function toDropIn(r: Record<string, unknown>): DropInRow {
+  return {
+    id: r.id as number,
+    wingId: r.wing_id as string,
+    title: r.title as string,
+    detail: r.detail as string,
+    createdAt: r.created_at as string,
+    takenAt: (r.taken_at as string | null) ?? null,
+  };
+}
+
+function toWake(r: Record<string, unknown>): WakeRow {
+  return {
+    id: r.id as number,
+    wingId: r.wing_id as string,
+    issueId: (r.issue_id as string | null) ?? null,
+    startedAt: r.started_at as string,
+    finishedAt: (r.finished_at as string | null) ?? null,
+    outcome: (r.outcome as string | null) ?? null,
   };
 }
 

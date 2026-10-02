@@ -18,7 +18,7 @@ const wing = (over: Partial<WingView> = {}): WingView => ({
     { id: "L", role: "lead", name: "Lead", desk: 0 },
     { id: "W1", role: "worker", name: "One", desk: 1 },
     { id: "W2", role: "worker", name: "Two", desk: 2 },
-    { id: "R", role: "reviewer", name: "Rev", desk: 3 },
+    { id: "R", role: "reviewer", name: "Rev", desk: -1 },
   ],
   tasks: [],
   filedCount: 0,

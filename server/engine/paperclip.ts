@@ -173,24 +173,13 @@ export class Paperclip {
       title: a.title,
       ...(a.reportsTo ? { reportsTo: a.reportsTo } : {}),
       adapterType: "claude_local",
-      adapterConfig: {
-        engine: "cli",
-        command: a.claudeCommand,
-        model: a.model,
-        timeoutSec: 1800,
-        maxTurnsPerRun: 80,
-        dangerouslySkipPermissions: false,
-        extraArgs: [
-          "--setting-sources", "project,local",
-          "--settings", a.settingsFile,
-          "--permission-mode", "acceptEdits",
-          "--allowedTools", a.allowedTools.join(","),
-        ],
-      },
-      // Annex runs the wake timer itself (design D5), so Paperclip's stays off.
-      runtimeConfig: { heartbeat: { enabled: false, intervalSec: 0, maxConcurrentRuns: a.maxConcurrentRuns ?? 1 } },
-      instructionsBundle: { entryFile: "AGENTS.md", files: { "AGENTS.md": a.instructions } },
+      ...agentConfig(a),
     });
+  }
+
+  // Brings an existing agent's instructions and run settings up to date with its wing file.
+  syncAgent(id: string, a: AgentSpec) {
+    return this.call<Agent>("PATCH", `/api/agents/${id}`, { title: a.title, ...agentConfig(a) });
   }
 
   agents(companyId: string) {
@@ -321,6 +310,28 @@ export class Paperclip {
       ws?.close();
     };
   }
+}
+
+function agentConfig(a: AgentSpec) {
+  return {
+    adapterConfig: {
+      engine: "cli",
+      command: a.claudeCommand,
+      model: a.model,
+      timeoutSec: 1800,
+      maxTurnsPerRun: 80,
+      dangerouslySkipPermissions: false,
+      extraArgs: [
+        "--setting-sources", "project,local",
+        "--settings", a.settingsFile,
+        "--permission-mode", "acceptEdits",
+        "--allowedTools", a.allowedTools.join(","),
+      ],
+    },
+    // Annex runs the wake timer itself (design D5), so Paperclip's stays off.
+    runtimeConfig: { heartbeat: { enabled: false, intervalSec: 0, maxConcurrentRuns: a.maxConcurrentRuns ?? 1 } },
+    instructionsBundle: { entryFile: "AGENTS.md", files: { "AGENTS.md": a.instructions } },
+  };
 }
 
 function safeJson(text: string): unknown {

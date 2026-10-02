@@ -15,11 +15,12 @@ test("desks are never handed out while taken", () => {
   const s = store();
   s.ensureWing("w", "with_you");
   assert.equal(s.addAgent({ id: "lead", wingId: "w", role: "lead", name: "Lead" }).desk, 0);
+  assert.equal(s.addAgent({ id: "rev", wingId: "w", role: "reviewer", name: "Rev" }).desk, -1, "the reviewer takes no worker desk");
   assert.equal(s.addAgent({ id: "a", wingId: "w", role: "worker", name: "A" }).desk, 1);
   assert.equal(s.addAgent({ id: "b", wingId: "w", role: "worker", name: "B" }).desk, 2);
   s.removeAgent("a");
   assert.equal(s.addAgent({ id: "c", wingId: "w", role: "worker", name: "C" }).desk, 1);
-  assert.equal(s.addAgent({ id: "d", wingId: "w", role: "reviewer", name: "D" }).desk, 3);
+  assert.equal(s.addAgent({ id: "d", wingId: "w", role: "worker", name: "D" }).desk, 3);
 });
 
 test("approving a brief supersedes the previous one", () => {
