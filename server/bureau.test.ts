@@ -210,8 +210,12 @@ test("an idle lead is a correct answer, and the next wake waits for the interval
   const { pc, store, bureau } = await setup();
   const lead = store.agents("upkeep").find((a) => a.role === "lead")!;
   const wakeIssue = [...pc.issues.values()].find((i) => i.title.startsWith("Wake:"))!;
-  pc.agentComment(wakeIssue.id, lead.id, '```annex-proposal\n{"note":"all good","tasks":[]}\n```');
+  // done first, comment visible a moment later: the race seen live
   wakeIssue.status = "done";
+  wakeIssue.updatedAt = new Date().toISOString();
+  await bureau.tick();
+  assert.equal(store.eventsSince(0).some((e) => e.kind === "lead.idle"), false, "not judged before the comment shows up");
+  pc.agentComment(wakeIssue.id, lead.id, '```annex-proposal\n{"note":"all good","tasks":[]}\n```');
   await bureau.tick();
   assert.ok(store.eventsSince(0).some((e) => e.kind === "lead.idle" && e.payload.reason === "all good"));
   await bureau.tick();

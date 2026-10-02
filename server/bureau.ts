@@ -29,6 +29,7 @@ const CHECK_TIMEOUT_MS = 15 * 60_000;
 const MAX_CHECK_ATTEMPTS = 3;
 const MAX_BACKOFF_SEC = 24 * 3600;
 const TOOL_EVENT_GAP_MS = 1500;
+const PROPOSAL_GRACE_MS = 30_000;
 
 interface Runtime {
   wing: Wing;
@@ -565,7 +566,10 @@ export class Bureau implements BureauApi {
       const comments = await this.pc.comments(issue.id);
       const proposalComment = [...comments].reverse().find((c) => c.authorAgentId === lead.id && c.body.includes("```annex-proposal"));
       if (!proposalComment) {
-        if (issue.status === "done" || issue.status === "cancelled") {
+        // A status PATCH carrying the proposal as its comment announces the status before the
+        // comment is listed, so "done without a proposal" is only believed after a grace period.
+        const closedFor = this.now().getTime() - new Date(issue.updatedAt).getTime();
+        if ((issue.status === "done" || issue.status === "cancelled") && closedFor > PROPOSAL_GRACE_MS) {
           this.store.finishWake(wake.id, "no proposal");
           this.emit({ wingId, kind: "lead.idle", actor: lead.id, taskId: null, payload: { reason: "the lead closed the wake without a proposal" } });
           return true;
