@@ -1,0 +1,42 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - heading "Annex" [level=1] [ref=e4]
+    - status [ref=e5]: 2 wings · 0 on their own
+  - generic [ref=e6]:
+    - main "Wings" [ref=e7]:
+      - generic [ref=e8]:
+        - button "Open Studio" [ref=e9] [cursor=pointer]:
+          - heading "Studio" [level=2] [ref=e10]
+          - paragraph [ref=e11]: With you · no repo yet · 0 open · 0 filed
+        - generic [ref=e12]:
+          - generic:
+            - generic: Auditor
+            - generic: Handler
+            - generic: Kestrel
+            - generic: Marlin
+      - generic [ref=e14]:
+        - button "Open Upkeep" [ref=e15] [cursor=pointer]:
+          - heading "Upkeep" [level=2] [ref=e16]
+          - paragraph [ref=e17]: With you · reckon · annex/upkeep · 0 open · 0 filed
+        - generic [ref=e18]:
+          - generic:
+            - generic: Auditor
+            - generic: Handler
+            - generic: Kestrel
+            - generic: Marlin
+    - complementary "Selected wing" [ref=e20]:
+      - generic [ref=e21]:
+        - paragraph [ref=e22]: With you
+        - heading "Studio" [level=2] [ref=e23]
+        - button "Hand off" [ref=e24] [cursor=pointer]
+      - tablist [ref=e25]:
+        - tab "Log" [ref=e26] [cursor=pointer]
+        - tab "Talk" [selected] [ref=e27] [cursor=pointer]
+        - tab "Brief" [ref=e28] [cursor=pointer]
+        - tab "Settings" [ref=e29] [cursor=pointer]
+      - tabpanel [ref=e30]:
+        - list [ref=e31]:
+          - listitem [ref=e32]: Tell the lead what you want this wing to work on. When you're done planning, press Hand off.
+        - generic [ref=e33]:
+          - textbox "Message the lead" [ref=e34]
+          - button "Send" [ref=e35] [cursor=pointer]

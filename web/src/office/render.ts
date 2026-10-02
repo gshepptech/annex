@@ -50,7 +50,9 @@ export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now:
   for (const desk of layout.desks) {
     if (!occupied.has(desk.desk)) continue;
     const sitter = [...scene.actors.values()].find((a) => a.desk === desk.desk && a.role !== "reviewer");
-    drawDesk(ctx, desk.at.x * TILE, desk.at.y * TILE, !scene.held && !!sitter && (sitter.working || sitter.role === "lead"));
+    // a lamp is on when its owner is at the desk and has something to do there
+    const atDesk = !!sitter && Math.abs(sitter.pos.x - desk.seat.x) < 0.01 && Math.abs(sitter.pos.y - desk.seat.y) < 0.01;
+    drawDesk(ctx, desk.at.x * TILE, desk.at.y * TILE, !scene.held && atDesk && (sitter!.working || sitter!.role === "lead"));
   }
 
   // folders resting on desks and on the review desk, stacked a little when there are several

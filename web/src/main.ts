@@ -17,6 +17,7 @@ const app = document.getElementById("app")!;
 const rooms = new Map<string, Room>();
 const building = h("main", { class: "building", "aria-label": "Wings" });
 const status = h("p", { class: "status", role: "status" }, "Connecting...");
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 let state: StateView | null = null;
 let selected: string | null = null;
 let recent: BourneEvent[] = [];
@@ -27,10 +28,10 @@ app.append(
   h("div", { class: "layout" }, building, panel.el),
 );
 
-const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-
-function select(id: string) {
+function select(id: string, fromTap = false) {
   selected = id;
+  // on a phone the case file sits below the rooms, so bring it into view
+  if (fromTap && matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => panel.el.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth" }));
   for (const [wid, r] of rooms) r.el.classList.toggle("selected", wid === id);
   const w = state?.wings.find((x) => x.id === id);
   if (w) panel.show(w, recent);
@@ -43,7 +44,7 @@ function applyState(next: StateView) {
     if (existing && existing.sameCrew(w)) {
       existing.update(w);
     } else {
-      const room = new Room(w, existing?.scene.lastEventId ?? next.lastEventId, select);
+      const room = new Room(w, existing?.scene.lastEventId ?? next.lastEventId, (id) => select(id, true));
       if (existing) existing.el.replaceWith(room.el);
       else building.append(room.el);
       rooms.set(w.id, room);
