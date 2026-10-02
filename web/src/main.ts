@@ -1,4 +1,4 @@
-import "@fontsource/silkscreen/400.css";
+import "@fontsource-variable/bricolage-grotesque";
 import "@fontsource/atkinson-hyperlegible/400.css";
 import "@fontsource/atkinson-hyperlegible/700.css";
 import "@fontsource-variable/jetbrains-mono";
@@ -51,15 +51,15 @@ const director = new DirectorDesk(() => selectWing(selectedWing ?? state?.wings[
 
 // the HUD: the game's top bar
 const stats = h("div", { class: "stats" });
-const openState = h("span", { class: "state", role: "status" }, "CONNECTING...");
+const openState = h("span", { class: "state", role: "status" }, "Connecting…");
 const hud = h(
   "header",
   { class: "hud box" },
-  h("h1", { class: "logo" }, "ANNEX"),
+  h("h1", { class: "logo" }, "Annex"),
   stats,
   openState,
-  h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, portrait("director", 0, 26, ""), "DIRECTOR"),
-  h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "SYSTEM LOG"),
+  h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, portrait("director", 0, 26, ""), "Director"),
+  h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "System log"),
 );
 
 app.append(h("div", { class: "shell" }, hud, sidebar.el, world, drawer), toasts, newOffice, syslog.el);
@@ -142,20 +142,20 @@ function applyState(next: StateView) {
   const filed = next.wings.reduce((n, w) => n + w.filedCount, 0);
   const quests = next.wings.reduce((n, w) => n + w.asks.length, 0);
   stats.replaceChildren(
-    h("span", {}, "OFFICES", h("b", {}, String(next.wings.length))),
-    h("span", {}, "CREW", h("b", {}, String(crew.length))),
-    h("span", {}, "WORKING", h("b", {}, String(working))),
-    h("span", {}, "FILED", h("b", {}, `★${filed}`)),
+    h("span", {}, "Offices", h("b", {}, String(next.wings.length))),
+    h("span", {}, "Crew", h("b", {}, String(crew.length))),
+    h("span", {}, "Working", h("b", {}, String(working))),
+    h("span", {}, "Verified", h("b", {}, String(filed))),
   );
-  if (quests) stats.append(h("span", { style: "color: var(--gold)" }, "ASKS", h("b", {}, `!${quests}`)));
+  if (quests) stats.append(h("span", { class: "asks" }, "Asks", h("b", {}, String(quests))));
   const held = next.wings.find((w) => w.held && !w.paused);
   if (held?.held) {
     const until = held.held.until ? new Date(held.held.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
-    openState.textContent = `CLOSED${until ? ` UNTIL ${until}` : ""}`;
+    openState.textContent = `Closed${until ? ` until ${until}` : ""}`;
     openState.title = held.held.reason;
     openState.classList.add("closed");
   } else {
-    openState.textContent = working ? `● ${working} AT WORK` : "OPEN";
+    openState.textContent = working ? `${working} at work` : "Open";
     openState.title = "";
     openState.classList.remove("closed");
   }
@@ -170,7 +170,7 @@ function scheduleRefresh(ms = 400) {
     try {
       applyState(await getState());
     } catch (err) {
-      openState.textContent = "NO SIGNAL";
+      openState.textContent = "No connection";
       openState.title = (err as Error).message;
     }
   }, ms);
@@ -179,18 +179,18 @@ function scheduleRefresh(ms = 400) {
 // Real events become game notifications; nothing is announced that did not happen.
 function announce(e: BourneEvent) {
   if (e.wingId === "director") {
-    if (e.kind === "chat.message" && e.payload.who === "lead" && !showDirector) toast("✉ THE DIRECTOR REPLIED", "var(--annex)");
+    if (e.kind === "chat.message" && e.payload.who === "lead" && !showDirector) toast("The director replied", "var(--annex)");
     return;
   }
   const wing = state?.wings.find((w) => w.id === e.wingId);
-  const office = wing?.name.toUpperCase() ?? "";
+  const office = wing?.name ?? "";
   const title = String(e.payload.title ?? "").slice(0, 48);
-  if (e.kind === "task.done") toast(`★ VERIFIED · ${office} · ${title}`, "var(--ok)");
-  if (e.kind === "task.stopped") toast(`✖ STOPPED · ${office} · ${title}`, "var(--bad)");
-  if (e.kind === "agent.hired") toast(`✚ HIRED · ${String(e.payload.name ?? "").toUpperCase()} JOINS ${office}`, "var(--worker)");
-  if (e.kind === "approval.requested") toast(`! ${office} ASKS · ${String(e.payload.title ?? "").slice(0, 48)}`, "var(--gold)");
-  if (e.kind === "wing.held") toast(`⏸ ${office} CLOSED${e.payload.reason ? ` · ${String(e.payload.reason).toUpperCase()}` : ""}`, "var(--warn)");
-  if (e.kind === "wing.resumed") toast(`▶ ${office} OPEN AGAIN`, "var(--ok)");
+  if (e.kind === "task.done") toast(`Verified · ${office} · ${title}`, "var(--ok)");
+  if (e.kind === "task.stopped") toast(`Stopped · ${office} · ${title}`, "var(--bad)");
+  if (e.kind === "agent.hired") toast(`${String(e.payload.name ?? "")} joined ${office}`, "var(--worker)");
+  if (e.kind === "approval.requested") toast(`${office} asks · ${String(e.payload.title ?? "").slice(0, 48)}`, "var(--ask)");
+  if (e.kind === "wing.held") toast(`${office} closed${e.payload.reason ? ` · ${String(e.payload.reason)}` : ""}`, "var(--warn)");
+  if (e.kind === "wing.resumed") toast(`${office} is open again`, "var(--ok)");
 }
 
 const REFRESH_ON = new Set(["task.created", "task.started", "task.done", "task.stopped", "wing.mode_changed", "wing.held", "wing.resumed", "chat.message", "approval.requested", "approval.decided", "lead.woke", "lead.idle", "agent.said", "agent.hired"]);
@@ -214,7 +214,7 @@ async function boot() {
       },
       (connected) => {
         if (!connected) {
-          openState.textContent = "RECONNECTING...";
+          openState.textContent = "Reconnecting…";
           openState.classList.add("closed");
         } else {
           scheduleRefresh(0);
@@ -222,7 +222,7 @@ async function boot() {
       },
     );
   } catch (err) {
-    openState.textContent = "NO SIGNAL";
+    openState.textContent = "No connection";
     openState.title = `${(err as Error).message}. Is \`npm start\` running?`;
     setTimeout(boot, 3000);
     return;

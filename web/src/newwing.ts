@@ -34,14 +34,14 @@ export function newWingDialog(done: (id: string) => void): HTMLDialogElement {
         }
       },
     },
-    h("h2", {}, "NEW OFFICE"),
+    h("h2", {}, "New office"),
     h("p", {}, "A new room with its own lead, crew and reviewer. It starts with you: plan with the lead, then hand it off. You can hire more crew any time."),
     error,
     h("div", { class: "two" }, h("div", { class: "field" }, h("label", {}, "Name", name)), h("div", { class: "field" }, h("label", {}, "Id", id))),
     h("div", { class: "field" }, h("label", {}, "Repo (optional)", h("input", { name: "repoPath", placeholder: "~/Projects/my-app" }))),
     h("div", { class: "field" }, h("label", {}, "Base branch", h("input", { name: "baseBranch", value: "main" }))),
     h("div", { class: "field" }, h("label", {}, "Charter (optional)", h("textarea", { name: "charter", rows: 3, placeholder: "What should this office keep true?" }))),
-    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "OPEN THE OFFICE"), h("button", { class: "btn ghost", type: "button", onclick: () => dialog.close() }, "CANCEL")),
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "Open the office"), h("button", { class: "btn ghost", type: "button", onclick: () => dialog.close() }, "Cancel")),
   );
   dialog.append(form);
   return dialog;

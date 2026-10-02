@@ -36,12 +36,12 @@ was already running is left alone. If Annex was started in the background:
   open their terminal: each run in Claude Code's own grammar, the exact prompt Paperclip sent,
   the agent's standing orders, and the full system prompt.
 - **Each office's plaque** counts down to its lead's next wake, or says why it will not wake.
-- **An office's file**: HAND OFF / COME BACK IN, + HIRE, PAUSE / RESUME, and tabs for the LOG,
-  TALK with the lead, the BRIEF, LOOT (verified commits waiting for you to merge, with the
-  command) and SETTINGS (every option, applied at once).
+- **An office's file**: Hand off / Come back in, + Hire, Pause / Resume, and tabs for the Log,
+  Talk with the lead, the Brief, Ready to merge (verified commits waiting for you to merge, with
+  the command) and Settings (every option, applied at once).
 - **Asks**: when a lead wants your yes first (anything under "Ask me before", or the brief's
-  "Call me back when"), the office shows a quest to ACCEPT or DECLINE.
-- **DIRECTOR**: one conversation above every office. It sees a line per office, answers how
+  "Call me back when"), the office shows it to Accept or Decline.
+- **Director**: one conversation above every office. It sees a line per office, answers how
   things are going, and routes what you ask for: drops work into an office, opens an office,
   hires, pauses, resumes, or brings an office back to you. Each lead still plans its own work.
 - **SYSTEM LOG**: everything Annex decided and why, also in `.annex/logs/annex.log`.

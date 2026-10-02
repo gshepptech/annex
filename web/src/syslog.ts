@@ -51,7 +51,7 @@ export function logDialog() {
     h(
       "div",
       { class: "pad" },
-      h("div", { class: "row" }, h("h2", {}, "SYSTEM LOG"), h("span", { style: "margin-left: auto" }), filter, h("button", { class: "btn", type: "button", onclick: () => el.close() }, "CLOSE")),
+      h("div", { class: "row" }, h("h2", {}, "System log"), h("span", { style: "margin-left: auto" }), filter, h("button", { class: "btn", type: "button", onclick: () => el.close() }, "Close")),
       where,
       list,
     ),

@@ -1,47 +1,44 @@
-// Pixels only. Text (speech, names, the stamp, the door sign) is HTML laid over the canvas, so it
-// stays sharp at any scale and can be read by a screen reader.
+// Shapes only. Text (speech, names, the stamp, the door sign) is HTML laid over the canvas, so it
+// stays sharp at any scale and can be read by a screen reader. Callers set the canvas transform so
+// one unit here is one room unit (TILE per tile).
 
 import type { RoomScene, Actor } from "./scene.ts";
 import { isMoving } from "./scene.ts";
 import { deskOf } from "./grid.ts";
 import {
-  TILE, FLOOR_A, FLOOR_B, FLOOR_LINE, WALL, WALL_TRIM, ROLE, INK, GOOD, BAD, WARN, SCREEN_OFF,
-  drawPerson, drawFolder, drawDesk, drawCabinet, drawTable, drawPlant, drawWindow, lookFor,
+  TILE, FLOOR, FLOOR_LINE, WALL, WALL_TOP, ROLE, GOOD, BAD, WARN, SCREEN_OFF,
+  drawPerson, drawFolder, drawDesk, drawCabinet, drawTable, drawPlant, drawWindow, lookFor, roundRect,
 } from "./sprites.ts";
 
+const PERSON_SCALE = 1.45;
 const LIGHT_COLOUR = { off: SCREEN_OFF, amber: WARN, green: GOOD, red: BAD } as const;
 
 export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now: number) {
   const { layout } = scene;
-  ctx.imageSmoothingEnabled = false;
+  ctx.imageSmoothingEnabled = true;
   const W = layout.w * TILE;
   const H = layout.h * TILE;
 
-  // floor and walls
-  for (let y = 0; y < layout.h; y++) {
-    for (let x = 0; x < layout.w; x++) {
-      const edge = x === 0 || y === 0 || x === layout.w - 1 || y === layout.h - 1;
-      if (edge && layout.solid[y * layout.w + x]) {
-        ctx.fillStyle = WALL;
-        ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
-      } else {
-        ctx.fillStyle = (x + y) % 2 === 0 ? FLOOR_A : FLOOR_B;
-        ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
-        ctx.fillStyle = FLOOR_LINE;
-        ctx.fillRect(x * TILE, y * TILE, TILE, 1);
-      }
-    }
-  }
-  ctx.fillStyle = WALL_TRIM;
-  ctx.fillRect(TILE, TILE - 2, W - TILE * 2, 2);
-  for (const [i, wx] of [4, 13].entries()) drawWindow(ctx, wx * TILE, 0, i + scene.wingId.length);
+  // walls all round, then the floor inset into them
+  ctx.fillStyle = WALL;
+  ctx.fillRect(0, 0, W, H);
+  roundRect(ctx, TILE - 3, TILE - 3, W - TILE * 2 + 6, H - TILE * 2 + 6, 5, WALL_TOP);
+  roundRect(ctx, TILE, TILE, W - TILE * 2, H - TILE * 2, 3, FLOOR);
+  ctx.fillStyle = FLOOR_LINE;
+  for (let x = 2; x < layout.w - 1; x++) ctx.fillRect(x * TILE, TILE, 0.6, H - TILE * 2);
+  for (let y = 2; y < layout.h - 1; y++) ctx.fillRect(TILE, y * TILE, W - TILE * 2, 0.6);
+  // the wall casts a soft shadow onto the top of the floor
+  const shade = ctx.createLinearGradient(0, TILE, 0, TILE + 7);
+  shade.addColorStop(0, "rgba(24,35,42,0.16)");
+  shade.addColorStop(1, "rgba(24,35,42,0)");
+  ctx.fillStyle = shade;
+  ctx.fillRect(TILE, TILE, W - TILE * 2, 7);
+  for (const wx of [4, 13]) drawWindow(ctx, wx * TILE, 0);
 
-  // door, red while the wing is held
+  // the doorway, red while the office is closed
   const d = layout.door.at;
-  ctx.fillStyle = scene.held ? BAD : "#2A2F6B";
-  ctx.fillRect(d.x * TILE + 2, d.y * TILE, TILE - 4, TILE);
-  ctx.fillStyle = scene.held ? "#FECDD3" : WALL_TRIM;
-  ctx.fillRect(d.x * TILE + TILE - 6, d.y * TILE + 7, 2, 2);
+  roundRect(ctx, d.x * TILE + 1, d.y * TILE - 3, TILE - 2, TILE + 3, 1.5, scene.held ? BAD : FLOOR);
+  if (!scene.held) roundRect(ctx, d.x * TILE + 2.5, d.y * TILE - 1, TILE - 5, 4, 1, "#D7DFDB");
 
   drawTable(ctx, layout.table.at.x * TILE, layout.table.at.y * TILE);
   drawPlant(ctx, 1 * TILE, (layout.h - 2) * TILE);
@@ -54,11 +51,11 @@ export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now:
     !scene.held && !!a && atSeat(a, seat) && (a.working || (a.role === "lead" && scene.mode === "autonomous"));
   for (const desk of layout.desks) {
     const sitter = workers.find((a) => a.desk === desk.desk);
-    if (lit(sitter, desk.seat)) glow(ctx, desk.at.x * TILE + TILE, desk.at.y * TILE + 10, 44, sitter!.role === "lead" ? "255,181,71" : "56,189,248", now);
+    if (lit(sitter, desk.seat)) glow(ctx, desk.at.x * TILE + TILE, desk.at.y * TILE + 10, 44, sitter!.role === "lead" ? "238,138,46" : "43,127,217", now);
   }
   const r = layout.review.at;
   if (scene.reviewLight !== "off") {
-    const rgb = scene.reviewLight === "green" ? "52,211,153" : scene.reviewLight === "red" ? "251,113,133" : "251,191,36";
+    const rgb = scene.reviewLight === "green" ? "31,157,99" : scene.reviewLight === "red" ? "224,70,78" : "233,168,0";
     glow(ctx, r.x * TILE + TILE, r.y * TILE + 8, 36, rgb, now);
   }
 
@@ -94,16 +91,16 @@ export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now:
   const actors = [...scene.actors.values()].sort((a, b) => a.pos.y - b.pos.y);
   for (const a of actors) drawActor(ctx, scene, a, now);
 
-  // a held wing is dimmed, as if the lights were off
+  // a closed office is dimmed, as if the lights were off
   if (scene.held) {
-    ctx.fillStyle = "rgba(8,10,30,0.45)";
+    ctx.fillStyle = "rgba(24,35,42,0.32)";
     ctx.fillRect(0, 0, W, H);
   }
 }
 
 function glow(ctx: CanvasRenderingContext2D, cx: number, cy: number, radius: number, rgb: string, now: number) {
   // a slow flicker of a few percent, so a lit desk reads as alive without pulling the eye
-  const f = 0.26 + 0.03 * Math.sin(now / 700 + cx);
+  const f = 0.2 + 0.03 * Math.sin(now / 700 + cx);
   const g = ctx.createRadialGradient(cx, cy, 2, cx, cy, radius);
   g.addColorStop(0, `rgba(${rgb},${f})`);
   g.addColorStop(1, `rgba(${rgb},0)`);
@@ -119,20 +116,24 @@ function drawActor(ctx: CanvasRenderingContext2D, scene: RoomScene, a: Actor, no
   const moving = isMoving(a);
   const seated = !moving && seatedAt(scene, a);
   const pose = moving ? (Math.floor(now / 180) % 2 === 0 ? "step" : "stand") : seated ? "sit" : "stand";
-  const px = Math.round(a.pos.x * TILE);
-  const py = Math.round(a.pos.y * TILE) - (pose === "sit" ? 10 : 6);
-  // a soft shadow grounds a standing or walking figure
-  if (pose !== "sit") {
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.fillRect(px + 4, py + 15, 8, 2);
+  const px = a.pos.x * TILE;
+  const py = a.pos.y * TILE - (pose === "sit" ? 5 : 6);
+  // people are drawn larger than a tile, grown from where they stand, so they read at a glance
+  ctx.save();
+  ctx.translate(px + 8, py + 16);
+  ctx.scale(PERSON_SCALE, PERSON_SCALE);
+  ctx.translate(-8, -16);
+  const look = lookFor(a.role, a.index);
+  drawPerson(ctx, 0, 0, look, pose, a.facing);
+  // hands on the keyboard, tapping, while they work
+  if (a.working && pose === "sit") {
+    const tap = Math.floor(now / 220) % 2;
+    roundRect(ctx, 3.6, 10.6 - tap * 0.6, 2.2, 1.6, 0.8, look.skin);
+    roundRect(ctx, 10.2, 10.6 - (1 - tap) * 0.6, 2.2, 1.6, 0.8, look.skin);
   }
-  drawPerson(ctx, px, py, lookFor(a.role, a.index), pose, a.facing);
-  if (a.working && pose === "sit" && Math.floor(now / 260) % 2 === 0) {
-    ctx.fillStyle = INK;
-    ctx.fillRect(px + 6, py + 9, 4, 1);
-  }
+  ctx.restore();
   const carrying = [...scene.folders.values()].some((f) => f.place.kind === "carried" && f.place.by === a.id);
-  if (carrying) drawFolder(ctx, px + (a.facing === 1 ? 9 : -2), py + 8);
+  if (carrying) drawFolder(ctx, px + (a.facing === 1 ? 11 : -5), py + 6);
 }
 
 function seatedAt(scene: RoomScene, a: Actor): boolean {
@@ -146,7 +147,7 @@ export function actorAt(scene: RoomScene, x: number, y: number): { id: string } 
   let bestD = Infinity;
   for (const a of scene.actors.values()) {
     const d = Math.hypot(a.pos.x * TILE + 8 - x, a.pos.y * TILE - y);
-    if (d < 14 && d < bestD) {
+    if (d < 20 && d < bestD) {
       best = a;
       bestD = d;
     }

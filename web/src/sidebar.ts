@@ -5,13 +5,13 @@ import type { StateView, WingView } from "../../server/api-types.ts";
 import { h } from "./dom.ts";
 import { portrait, faceIndex } from "./portrait.ts";
 
-const CLASS = { lead: "LEAD", worker: "CREW", reviewer: "REVIEWER" } as const;
+const CLASS = { lead: "Lead", worker: "Crew", reviewer: "Reviewer" } as const;
 
 export function officeBadge(w: WingView): HTMLElement {
-  if (w.offline) return h("span", { class: "badge offline" }, "OFFLINE");
-  if (w.paused) return h("span", { class: "badge paused" }, "PAUSED");
-  if (w.held) return h("span", { class: "badge held" }, "CLOSED");
-  return w.mode === "autonomous" ? h("span", { class: "badge own" }, "ON ITS OWN") : h("span", { class: "badge with" }, "WITH YOU");
+  if (w.offline) return h("span", { class: "badge offline" }, "Offline");
+  if (w.paused) return h("span", { class: "badge paused" }, "Paused");
+  if (w.held) return h("span", { class: "badge held" }, "Closed");
+  return w.mode === "autonomous" ? h("span", { class: "badge own" }, "On its own") : h("span", { class: "badge with" }, "With you");
 }
 
 export class Sidebar {
@@ -22,9 +22,9 @@ export class Sidebar {
   constructor(handlers: { wing: (id: string) => void; agent: (id: string) => void; newWing: () => void }) {
     this.handlers = handlers;
     this.el.append(
-      h("h2", { class: "panel-title" }, "PARTY"),
+      h("h2", { class: "panel-title" }, "Offices"),
       this.list,
-      h("button", { class: "new-office", type: "button", onclick: () => this.handlers.newWing() }, "+ NEW OFFICE"),
+      h("button", { class: "new-office", type: "button", onclick: () => this.handlers.newWing() }, "+ New office"),
     );
   }
 
@@ -34,8 +34,8 @@ export class Sidebar {
         const head = h(
           "button",
           { class: `office-head${w.id === selectedWing && !selectedAgent ? " selected" : ""}`, type: "button", onclick: () => this.handlers.wing(w.id) },
-          h("span", { class: "title" }, w.name.toUpperCase()),
-          w.asks.length ? h("span", { class: "badge quest", title: "The lead is asking for your approval" }, `! ${w.asks.length}`) : officeBadge(w),
+          h("span", { class: "title" }, w.name),
+          w.asks.length ? h("span", { class: "badge ask-count", title: "The lead is asking for your approval" }, `${w.asks.length} ask${w.asks.length === 1 ? "" : "s"}`) : officeBadge(w),
           h("span", { class: "count", title: `${w.tasks.length} open, ${w.filedCount} filed` }, `${w.tasks.length}/${w.filedCount}`),
         );
         const order = { lead: 0, worker: 1, reviewer: 2 } as const;
@@ -63,7 +63,7 @@ export class Sidebar {
                     h("b", {}, a.name),
                     h("span", { class: "cls" }, CLASS[a.role]),
                     h("span", { class: "bar", "aria-hidden": "true" }, h("i", {})),
-                    h("span", { class: "line" }, h("span", { class: "st" }, state), h("span", { title: "Tasks this agent got filed as verified" }, `★${a.filed}`)),
+                    h("span", { class: "line" }, h("span", { class: "st" }, state), h("span", { title: "Tasks this agent got filed as verified" }, `${a.filed} verified`)),
                   ),
                 ),
               );

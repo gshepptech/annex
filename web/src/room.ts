@@ -25,6 +25,7 @@ export class Room {
   private wing: WingView;
 
   private next: HTMLElement;
+  private scale = 1;
 
   constructor(wing: WingView, lastEventId: number, onSelect: (id: string) => void, onAgent: (agentId: string) => void, arrivals: Set<string> = new Set()) {
     this.wing = wing;
@@ -32,6 +33,14 @@ export class Room {
     const { w, h: rows } = this.scene.layout;
     this.canvas = h("canvas", { width: w * TILE, height: rows * TILE, "aria-hidden": "true" });
     this.ctx = this.canvas.getContext("2d")!;
+    // the backing store follows the room's size on screen, so shapes are drawn at full resolution
+    new ResizeObserver(([entry]) => {
+      const px = (entry?.contentRect.width ?? 0) * devicePixelRatio;
+      if (px <= 0) return;
+      this.scale = Math.min(8, px / (w * TILE));
+      this.canvas.width = Math.round(w * TILE * this.scale);
+      this.canvas.height = Math.round(rows * TILE * this.scale);
+    }).observe(this.canvas);
     this.overlay = h("div", { class: "overlay" });
     this.stampEl = h("div", { class: "stamp", hidden: true });
     this.doorEl = h("div", { class: "door-sign", hidden: true });
@@ -41,7 +50,7 @@ export class Room {
     this.stampEl.style.top = `${((review.at.y + 0.5) / rows) * 100}%`;
     this.doorEl.style.left = `${((door.at.x + 0.5) / w) * 100}%`;
     this.doorEl.style.top = `${((door.at.y - 0.6) / rows) * 100}%`;
-    this.sign = h("h2", {}, wing.name.toUpperCase());
+    this.sign = h("h2", {}, wing.name);
     this.pill = h("span", {});
     this.next = h("span", { class: "next" });
     this.el = h(
@@ -59,8 +68,8 @@ export class Room {
     // clicking a person opens their terminal; clicking anywhere else opens the wing
     this.canvas.addEventListener("click", (ev) => {
       const r = this.canvas.getBoundingClientRect();
-      const x = ((ev.clientX - r.left) / r.width) * this.canvas.width;
-      const y = ((ev.clientY - r.top) / r.height) * this.canvas.height;
+      const x = ((ev.clientX - r.left) / r.width) * this.scene.layout.w * TILE;
+      const y = ((ev.clientY - r.top) / r.height) * this.scene.layout.h * TILE;
       const hit = actorAt(this.scene, x, y);
       if (hit) onAgent(hit.id);
       else onSelect(wing.id);
@@ -83,7 +92,7 @@ export class Room {
 
   update(wing: WingView) {
     this.wing = wing;
-    this.sign.textContent = wing.name.toUpperCase();
+    this.sign.textContent = wing.name;
     this.pill.replaceChildren(officeBadge(wing));
     this.el.classList.toggle("offline", wing.offline !== null);
     this.el.dataset.mode = wing.mode;
@@ -97,11 +106,11 @@ export class Room {
     let closed = false;
     // closed and paused are already on the badge and the door; the right side stays quiet
     if (this.wing.paused || this.wing.held) [text, closed] = ["", true];
-    else if (this.wing.mode === "with_you") text = "WAITING FOR YOU";
-    else if (n.blockedBy) text = n.blockedBy.toUpperCase();
+    else if (this.wing.mode === "with_you") text = "Waiting for you";
+    else if (n.blockedBy) text = n.blockedBy[0]!.toUpperCase() + n.blockedBy.slice(1);
     else if (n.at) {
       const s = Math.max(0, Math.round((new Date(n.at).getTime() - Date.now()) / 1000));
-      text = s === 0 ? "WAKING..." : `NEXT WAKE ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+      text = s === 0 ? "Waking…" : `Next wake in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
     }
     if (this.next.textContent !== text) this.next.textContent = text;
     this.next.classList.toggle("closed", closed);
@@ -114,6 +123,7 @@ export class Room {
   frame(dt: number, now: number, reducedMotion: boolean) {
     tick(this.scene, dt, now);
     this.tickNext();
+    this.ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     renderRoom(this.ctx, this.scene, now);
     const { w, h: rows } = this.scene.layout;
     for (const a of this.scene.actors.values()) {

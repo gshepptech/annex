@@ -6,7 +6,7 @@ import type { TranscriptView, RunView, Entry } from "../../server/api-types.ts";
 import { h } from "./dom.ts";
 import { portrait, faceIndex } from "./portrait.ts";
 
-const ROLE_LABEL = { lead: "LEAD", worker: "CREW", reviewer: "REVIEWER" } as const;
+const ROLE_LABEL = { lead: "Lead", worker: "Crew", reviewer: "Reviewer" } as const;
 const PREVIEW_LINES = 6;
 
 export class Terminal {
@@ -21,7 +21,7 @@ export class Terminal {
   private onBack: () => void;
   private wingName: (id: string) => string;
   private lastRender = "";
-  // how many of the newest runs to show; LOAD OLDER RUNS raises it
+  // how many of the newest runs to show; "Load older runs" raises it
   private limit = 8;
 
   constructor(onBack: () => void, wingName: (id: string) => string) {
@@ -41,7 +41,7 @@ export class Terminal {
       this.lastRender = "";
       this.head.replaceChildren();
       this.briefing.replaceChildren();
-      this.screen.replaceChildren(h("p", { class: "term-empty" }, "LOADING..."));
+      this.screen.replaceChildren(h("p", { class: "term-empty" }, "Loading…"));
     }
     void this.load();
   }
@@ -84,22 +84,22 @@ export class Terminal {
     const running = a.status === "running" || t.runs.some((r) => r.status === "running");
     this.el.className = `terminal role-${a.role}`;
     this.head.replaceChildren(
-      h("button", { class: "back", type: "button", onclick: () => this.onBack() }, `◀ ${this.wingName(a.wingId).toUpperCase()}`),
+      h("button", { class: "back", type: "button", onclick: () => this.onBack() }, `← ${this.wingName(a.wingId)}`),
       portrait(a.role, faceIndex(a), 52, "big"),
-      h("h2", {}, a.name.toUpperCase()),
+      h("h2", {}, a.name),
       h(
         "div",
         { class: "meta" },
-        h("span", { class: "badge", style: "background: var(--c)" }, ROLE_LABEL[a.role]),
+        h("span", { class: "badge" }, ROLE_LABEL[a.role]),
         a.model ? h("span", {}, a.model) : null,
-        h("span", {}, `★${a.filed} filed`),
-        running ? h("span", { class: "live" }, "● WORKING") : h("span", {}, "idle"),
+        h("span", {}, `${a.filed} verified`),
+        running ? h("span", { class: "live" }, "● Working") : h("span", {}, "idle"),
       ),
     );
     // what the agent is told before any task: Annex's orders, then everything Paperclip adds
     if (!this.briefing.childElementCount) {
-      this.briefing.append(h("details", {}, h("summary", {}, "BRIEFING: STANDING ORDERS FROM ANNEX"), h("pre", {}, t.instructions || "(none)")));
-      if (t.systemPrompt) this.briefing.append(h("details", {}, h("summary", {}, "FULL SYSTEM PROMPT (PAPERCLIP'S CONTRACT + OURS)"), h("pre", {}, t.systemPrompt)));
+      this.briefing.append(h("details", {}, h("summary", {}, "Standing orders from Annex"), h("pre", {}, t.instructions || "(none)")));
+      if (t.systemPrompt) this.briefing.append(h("details", {}, h("summary", {}, "Full system prompt (Paperclip's contract and ours)"), h("pre", {}, t.systemPrompt)));
     }
 
     // skip the DOM rebuild when nothing changed, so a reader's place and open folds survive polls
@@ -110,11 +110,11 @@ export class Terminal {
     const open = new Set([...this.screen.querySelectorAll("details[open]")].map((d) => (d as HTMLElement).dataset.k));
     const runs = [...t.runs].reverse();
     if (runs.length === 0) {
-      this.screen.replaceChildren(h("p", { class: "term-empty" }, `${a.name.toUpperCase()} HAS NOT RUN YET.`));
+      this.screen.replaceChildren(h("p", { class: "term-empty" }, `${a.name} has not run yet.`));
       return;
     }
     const older = t.runs.length >= this.limit
-      ? h("button", { class: "btn older", type: "button", onclick: () => { this.limit += 20; this.stick = false; this.lastRender = ""; void this.load(); } }, "▲ LOAD OLDER RUNS")
+      ? h("button", { class: "btn older", type: "button", onclick: () => { this.limit += 20; this.stick = false; this.lastRender = ""; void this.load(); } }, "Load older runs")
       : h("p", { class: "run-reason" }, "— the first run —");
     this.screen.replaceChildren(older, ...runs.map((r) => this.run(r)));
     for (const d of this.screen.querySelectorAll("details")) if (open.has((d as HTMLElement).dataset.k)) (d as HTMLDetailsElement).open = true;
@@ -138,7 +138,7 @@ export class Terminal {
     const body: (HTMLElement | null)[] = [];
     for (const [i, e] of r.entries.entries()) body.push(...this.entry(e, results, `${r.id}:${i}`));
     if (r.entries.length === 0) body.push(line("sys", "✻", r.status === "queued" ? "Waiting to start..." : "No output recorded."));
-    const prompt = r.prompt ? h("details", { class: "run-prompt", "data-k": `${r.id}:prompt` }, h("summary", {}, "▸ PROMPT SENT"), h("pre", {}, r.prompt)) : null;
+    const prompt = r.prompt ? h("details", { class: "run-prompt", "data-k": `${r.id}:prompt` }, h("summary", {}, "Prompt sent"), h("pre", {}, r.prompt)) : null;
     return h("div", { class: "run" }, rule, r.reason ? h("p", { class: "run-reason" }, `woke: ${r.reason.replace(/_/g, " ")}`) : null, prompt, ...body);
   }
 

@@ -55,15 +55,15 @@ export class DirectorDesk {
       h(
         "header",
         { class: "term-head", style: "--c: var(--annex)" },
-        h("button", { class: "back", type: "button", onclick: () => this.onBack() }, "◀ OFFICES"),
+        h("button", { class: "back", type: "button", onclick: () => this.onBack() }, "← Offices"),
         portrait("director", 0, 52, "big"),
-        h("h2", {}, "DIRECTOR"),
-        h("div", { class: "meta" }, h("span", {}, "sees every office, one line each · routes work to their leads"), thinking ? h("span", { class: "live" }, "● THINKING") : null),
+        h("h2", {}, "Director"),
+        h("div", { class: "meta" }, h("span", {}, "sees every office, one line each · routes work to their leads"), thinking ? h("span", { class: "live" }, "● Thinking") : null),
       ),
     );
     if (v?.offline) this.el.append(h("p", { class: "notice bad" }, `The director is not connected: ${v.offline}`));
     if (this.error) this.el.append(h("p", { class: "notice bad", role: "alert" }, this.error));
-    const list = h("ol", { class: "chat" }, ...(v?.chat ?? []).map((m) => h("li", { class: m.who === "you" ? "you" : "lead director-line" }, h("b", {}, m.who === "you" ? "YOU" : "DIRECTOR"), h("p", {}, m.text))));
+    const list = h("ol", { class: "chat" }, ...(v?.chat ?? []).map((m) => h("li", { class: m.who === "you" ? "you" : "lead director-line" }, h("b", {}, m.who === "you" ? "You" : "Director"), h("p", {}, m.text))));
     if (!v?.chat.length) {
       list.append(h("li", { class: "empty" }, 'Ask how the offices are doing, or tell the director what you want done: "have Upkeep check the README", "open an office for ~/Projects/colophon", "hire one more for Upkeep".'));
     }
@@ -81,7 +81,7 @@ export class DirectorDesk {
           "form",
           { onsubmit: (ev: Event) => { ev.preventDefault(); if (box.value.trim()) void this.send(box.value, box); } },
           box,
-          h("button", { class: "btn primary", type: "submit", disabled: this.busy || !!v?.offline }, this.busy ? "SENDING..." : "SEND ⌘↵"),
+          h("button", { class: "btn primary", type: "submit", disabled: this.busy || !!v?.offline }, this.busy ? "Sending…" : "Send ⌘↵"),
         ),
       ),
     );

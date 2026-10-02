@@ -1,19 +1,21 @@
-// A character's face for the roster and the terminal: the top of their sprite, drawn at a
-// whole-number scale on a small canvas so it stays crisp.
+// A character's face for the roster and the terminal: the head and shoulders of their figure in a
+// round frame, drawn at the screen's real resolution so it stays crisp.
 
 import { drawPerson, lookFor } from "./office/sprites.ts";
 
 export function portrait(role: "lead" | "worker" | "reviewer" | "director", index: number, size: number, className: string): HTMLCanvasElement {
   const c = document.createElement("canvas");
-  c.width = 12;
-  c.height = 12;
+  const px = Math.round(size * devicePixelRatio);
+  c.width = px;
+  c.height = px;
   c.className = className;
   c.style.width = `${size}px`;
   c.style.height = `${size}px`;
   const ctx = c.getContext("2d")!;
-  ctx.imageSmoothingEnabled = false;
-  // the sprite is 16 wide with the head in rows 1-11; shift it so the face fills the frame
-  drawPerson(ctx, -2, 0, lookFor(role, index), "stand", 1);
+  // the figure is 16 units wide with the head and shoulders in rows 0-12; frame those
+  const s = px / 11;
+  ctx.setTransform(s, 0, 0, s, -2.5 * s, 0.2 * s);
+  drawPerson(ctx, 0, 0, lookFor(role, index), "sit", 1);
   return c;
 }
 

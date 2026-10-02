@@ -395,3 +395,13 @@ What the person asked for after using it, and what was built:
 - **LOOT.** Verified commits waiting on each integration branch, with the merge command. Annex
   never merges into the person's own branch.
 - **`npm run up`** starts everything.
+
+## Fourth round, 2 October 2026
+
+- **No more pixels.** The person did not like the bit look. The office is now a daylight
+  tabletop model: rooms are drawn as vector shapes at the screen's real resolution (round-headed
+  figures, white desks with soft shadows, a dark wall inset with sky windows), and every panel is a
+  white tile with a solid base edge rather than a blur. Headings are Bricolage Grotesque, body text
+  stays Atkinson Hyperlegible, terminals stay JetBrains Mono on a plain dark screen with no
+  scanlines. Labels are sentence case; LOOT is now "Ready to merge". It was kept deliberately away
+  from the glassy dark theme rejected in the second round.

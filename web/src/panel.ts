@@ -116,24 +116,24 @@ export class Panel {
 
     const modeButton =
       w.mode === "with_you"
-        ? h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Asking the lead to write the brief", `${base}/handoff`, {}, () => (this.tab = "brief")) }, "HAND OFF")
-        : h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Bringing the lead back", `${base}/come-back`, {}, () => (this.tab = "talk")) }, "COME BACK IN");
+        ? h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Asking the lead to write the brief", `${base}/handoff`, {}, () => (this.tab = "brief")) }, "Hand off")
+        : h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Bringing the lead back", `${base}/come-back`, {}, () => (this.tab = "talk")) }, "Come back in");
     const crew = w.agents.filter((a) => a.role === "worker").length;
     const hireButton = h(
       "button",
       { class: "btn", type: "button", disabled: busy || !!w.offline || crew >= w.settings.maxWorkers, title: `${crew} of ${w.settings.maxWorkers} workers`, onclick: () => this.act("Hiring", `${base}/hire`, { count: 1 }) },
-      `+ HIRE (${crew}/${w.settings.maxWorkers})`,
+      `+ Hire (${crew}/${w.settings.maxWorkers})`,
     );
     const holdButton = w.held
-      ? h("button", { class: "btn", type: "button", disabled: busy, onclick: () => this.act("Resuming", `${base}/resume`) }, w.paused ? "RESUME" : "RESUME NOW")
-      : h("button", { class: "btn ghost", type: "button", disabled: busy, title: "Stops wakes and new tasks; work already running finishes", onclick: () => this.act("Pausing", `${base}/pause`) }, "PAUSE");
+      ? h("button", { class: "btn", type: "button", disabled: busy, onclick: () => this.act("Resuming", `${base}/resume`) }, w.paused ? "Resume" : "Resume now")
+      : h("button", { class: "btn ghost", type: "button", disabled: busy, title: "Stops wakes and new tasks; work already running finishes", onclick: () => this.act("Pausing", `${base}/pause`) }, "Pause");
 
     this.el.append(
       h(
         "header",
         { class: "panel-head" },
         officeBadge(w),
-        h("h2", {}, w.name.toUpperCase()),
+        h("h2", {}, w.name),
         h("p", { class: "where" }, w.repo ? `${w.repo.replace(/^\/Users\/[^/]+/, "~")} → ${w.integrationBranch}` : "No repo yet. Set one in Settings to hand this office off."),
         w.houseRules.length ? h("p", { class: "where" }, `House rules: ${w.houseRules.join(", ")} (enforced on every task)`) : null,
         h("div", { class: "actions" }, modeButton, hireButton, holdButton),
@@ -144,7 +144,7 @@ export class Panel {
       const until = w.held.until ? new Date(w.held.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
       this.el.append(h("div", { class: "notice warn" }, h("b", {}, `CLOSED${until ? ` UNTIL ${until}` : ""}. `), `${w.held.reason}. No new work starts and chat is off until then; a run Claude had queued retries at the reset. It opens again by itself, or press Resume now if the limit has reset.`));
     } else if (w.paused) {
-      this.el.append(h("div", { class: "notice" }, h("b", {}, "PAUSED. "), "The lead won't wake and no new tasks start. Work already running finishes, and its checks and merges still happen."));
+      this.el.append(h("div", { class: "notice" }, h("b", {}, "Paused. "), "The lead won't wake and no new tasks start. Work already running finishes, and its checks and merges still happen."));
     } else if (w.mode === "autonomous" && w.nextWake.blockedBy) {
       const b = w.nextWake.blockedBy;
       // "the lead is reading the signals now" is good news, not a reason it is stuck
@@ -162,14 +162,14 @@ export class Panel {
             h(
               "div",
               { class: "quest" },
-              h("div", { class: "label" }, "! THE LEAD ASKS"),
+              h("div", { class: "label" }, "The lead asks"),
               h("h3", {}, a.title),
               h("p", {}, a.reason),
               h(
                 "div",
                 { class: "row" },
-                h("button", { class: "btn good", type: "button", disabled: busy, onclick: () => this.act("Approving", `${base}/asks/${a.id}/approve`) }, "ACCEPT"),
-                h("button", { class: "btn bad", type: "button", disabled: busy, onclick: () => this.act("Declining", `${base}/asks/${a.id}/decline`) }, "DECLINE"),
+                h("button", { class: "btn good", type: "button", disabled: busy, onclick: () => this.act("Approving", `${base}/asks/${a.id}/approve`) }, "Accept"),
+                h("button", { class: "btn bad", type: "button", disabled: busy, onclick: () => this.act("Declining", `${base}/asks/${a.id}/decline`) }, "Decline"),
               ),
             ),
           ),
@@ -177,7 +177,7 @@ export class Panel {
       );
     }
 
-    const tabs: [Tab, string, number][] = [["log", "LOG", 0], ["talk", "TALK", 0], ["brief", "BRIEF", w.draft ? 1 : 0], ["loot", `LOOT ${w.loot.commits.length}`, 0], ["settings", "SETTINGS", 0]];
+    const tabs: [Tab, string, number][] = [["log", "Log", 0], ["talk", "Talk", 0], ["brief", "Brief", w.draft ? 1 : 0], ["loot", `Ready to merge ${w.loot.commits.length}`, 0], ["settings", "Settings", 0]];
     this.el.append(
       h(
         "nav",
@@ -215,7 +215,7 @@ export class Panel {
         h("h3", {}, "Drop in a task"),
         title,
         detail,
-        h("button", { class: "btn", type: "submit", disabled: busy || !!w.offline }, w.mode === "with_you" ? "TELL THE LEAD" : "ADD TO THE LEAD'S INBOX"),
+        h("button", { class: "btn", type: "submit", disabled: busy || !!w.offline }, w.mode === "with_you" ? "Tell the lead" : "Add to the lead's inbox"),
       ),
     );
     requestAnimationFrame(() => (list.scrollTop = list.scrollHeight));
@@ -238,7 +238,7 @@ export class Panel {
         "form",
         { onsubmit: (ev: Event) => { ev.preventDefault(); void this.act("Sending", `${base}/chat`, { text: text.value }, () => this.clear("message")); } },
         text,
-        h("button", { class: "btn", type: "submit", disabled: busy || !!w.offline || (!!w.held && !w.paused), title: w.held && !w.paused ? "Closed for the usage limit" : "" }, w.held && !w.paused ? "CLOSED" : "SEND ⌘↵"),
+        h("button", { class: "btn", type: "submit", disabled: busy || !!w.offline || (!!w.held && !w.paused), title: w.held && !w.paused ? "Closed for the usage limit" : "" }, w.held && !w.paused ? "Closed" : "Send ⌘↵"),
       ),
     );
     requestAnimationFrame(() => (list.scrollTop = list.scrollHeight));
@@ -272,10 +272,10 @@ export class Panel {
       return;
     }
     const cmd = w.loot.command!;
-    const copy = h("button", { class: "btn", type: "button", onclick: async () => { await navigator.clipboard?.writeText(cmd).catch(() => {}); copy.textContent = "COPIED"; } }, "COPY");
+    const copy = h("button", { class: "btn", type: "button", onclick: async () => { await navigator.clipboard?.writeText(cmd).catch(() => {}); copy.textContent = "Copied"; } }, "Copy");
     body.append(
-      h("h3", {}, `${w.loot.commits.length} VERIFIED COMMIT${w.loot.commits.length === 1 ? "" : "S"} WAITING ON ${w.integrationBranch?.toUpperCase()}`),
-      h("ol", { class: "log loot" }, ...w.loot.commits.map((c) => h("li", {}, h("time", {}, c.date.slice(5)), h("b", { style: "color: var(--gold)" }, c.sha), h("span", {}, c.subject)))),
+      h("h3", {}, `${w.loot.commits.length} verified commit${w.loot.commits.length === 1 ? "" : "s"} waiting on ${w.integrationBranch}`),
+      h("ol", { class: "log loot" }, ...w.loot.commits.map((c) => h("li", {}, h("time", {}, c.date.slice(5)), h("b", { style: "font-family: var(--term)" }, c.sha), h("span", {}, c.subject)))),
       h("p", { class: "empty" }, "Review them, then merge into your branch yourself:"),
       h("div", { class: "row" }, h("pre", { class: "brief", style: "flex: 1; margin: 0" }, cmd), copy),
     );
@@ -331,7 +331,7 @@ export class Panel {
       h(
         "fieldset",
         {},
-        h("legend", {}, "THE OFFICE"),
+        h("legend", {}, "The office"),
         field("Name", input("name", e.name, { required: true })),
         field("Charter", charter, "What the lead works toward. Each task must quote a line of it."),
         h("div", { class: "two" }, field("Repo", input("repoPath", e.repoPath ?? "", { placeholder: "~/Projects/my-app" })), field("Base branch", input("baseBranch", e.baseBranch))),
@@ -341,7 +341,7 @@ export class Panel {
       h(
         "fieldset",
         {},
-        h("legend", {}, "THE CREW"),
+        h("legend", {}, "The crew"),
         h("div", { class: "two" }, field("Workers", input("workers", String(e.workers), { type: "number", min: 1, max: 20 })), field("Most workers", input("maxWorkers", String(s.maxWorkers), { type: "number", min: 1, max: 20 }), "The lead may hire up to this.")),
         h("div", { class: "two" }, field("Lead model", input("leadModel", e.leadModel, { list: "models" })), field("Crew model", input("workerModel", e.workerModel, { list: "models" }))),
         field("Reviewer model", input("reviewerModel", e.reviewerModel, { list: "models" })),
@@ -350,7 +350,7 @@ export class Panel {
       h(
         "fieldset",
         {},
-        h("legend", {}, "PACE AND LIMITS (ALL OPTIONAL)"),
+        h("legend", {}, "Pace and limits (all optional)"),
         h("div", { class: "two" }, field("Wake every", input("wakeEvery", s.wakeEvery, { placeholder: "15m" })), field("Runs per hour", input("maxRunsPerHour", s.maxRunsPerHour === null ? "" : String(s.maxRunsPerHour), { type: "number", min: 1, placeholder: "No limit" }))),
         h("div", { class: "two" }, field("Quiet from", input("quietFrom", s.quietHours?.split("-")[0] ?? "", { type: "time" })), field("Quiet until", input("quietTo", s.quietHours?.split("-")[1] ?? "", { type: "time" }))),
         h("div", { class: "field check" }, backoff, h("label", { for: "backoff" }, "Back off when idle: wait longer after wakes that found nothing")),
@@ -359,7 +359,7 @@ export class Panel {
         h("div", { class: "two" }, field("Check timeout", input("checkTimeout", s.checkTimeout, { placeholder: "15m" })), field("Wake timeout", input("wakeTimeout", s.wakeTimeout, { placeholder: "30m" }), "How long the lead has to answer.")),
         field("Longest back-off", input("maxBackoff", s.maxBackoff, { placeholder: "24h" })),
       ),
-      h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", disabled: busy }, "SAVE"), this.saved ? h("span", { class: "saved" }, this.saved) : null),
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", disabled: busy }, "Save"), this.saved ? h("span", { class: "saved" }, this.saved) : null),
     );
     body.append(form);
   }

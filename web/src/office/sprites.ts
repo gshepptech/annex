@@ -1,90 +1,66 @@
-// Every sprite is drawn here from character maps and rectangles, so there are no image files and
-// no art licences to track. One character is one pixel; the renderer scales the room up.
+// Every piece of the office is drawn here as vector shapes, so there are no image files and no
+// art licences to track. Coordinates are in room units (TILE per tile); the renderer scales the
+// canvas up to the screen's real resolution, so edges stay smooth at any size.
 //
-// The office is at night: navy tiles, a starry window, walnut desks, and colour that comes from
-// people and work. A desk lamp throws a warm pool only while someone is working at it, and a
-// monitor glows in its owner's role colour.
+// The office is a daylight architect's model: a pale floor, white furniture with soft shadows,
+// and colour that comes from people and work. A monitor lights up in its owner's role colour
+// only while they are working.
 
 export const TILE = 16;
 
-export const ROLE = { lead: "#FFB547", worker: "#38BDF8", reviewer: "#C084FC" } as const;
-export const INK = "#0B0D1A";
-export const FLOOR_A = "#1D2550";
-export const FLOOR_B = "#1A2148";
-export const FLOOR_LINE = "#232C5C";
-export const WALL = "#0F1230";
-export const WALL_TRIM = "#3B3F8F";
-export const SKY = "#0A0E2E";
-export const STAR = "#E0E7FF";
-export const WOOD = "#8A5A3C";
-export const WOOD_TOP = "#A8714C";
-export const WOOD_DARK = "#5E3B27";
-export const BEZEL = "#151935";
-export const SCREEN_OFF = "#252A5A";
-export const MANILA = "#FCD34D";
-export const MANILA_DARK = "#D97706";
-export const CABINET = "#3A4080";
-export const CABINET_LIGHT = "#5158A8";
-export const RUG = "#3B1E73";
-export const RUG_EDGE = "#7C3AED";
-export const LEAF = "#34D399";
-export const LEAF_DARK = "#059669";
-export const POT = "#EA580C";
-export const GOOD = "#34D399";
-export const BAD = "#FB7185";
-export const WARN = "#FBBF24";
+export const ROLE = { lead: "#EE8A2E", worker: "#2B7FD9", reviewer: "#7C5CE0" } as const;
+export const INK = "#18232A";
+export const FLOOR = "#F1F3EF";
+export const FLOOR_LINE = "#E9EDE9";
+export const WALL = "#33434B";
+export const WALL_TOP = "#46585F";
+export const SKY = "#BFE4F4";
+export const SKY_LOW = "#E3F3F9";
+export const DESK_TOP = "#FFFFFF";
+export const DESK_EDGE = "#D5DDD9";
+export const DESK_LEG = "#B4C1BB";
+export const SCREEN_OFF = "#3A4A52";
+export const BEZEL = "#22303A";
+export const FILE = "#F7C948";
+export const FILE_DARK = "#D9A21B";
+export const CABINET = "#D9E1DE";
+export const CABINET_EDGE = "#B9C6C0";
+export const RUG = "#D6ECE6";
+export const RUG_EDGE = "#B5D8CF";
+export const LEAF = "#3FAE72";
+export const LEAF_DARK = "#2C8A57";
+export const POT = "#E9E4DA";
+export const GOOD = "#1F9D63";
+export const BAD = "#E0464E";
+export const WARN = "#E9A800";
+export const SHADOW = "rgba(24, 35, 42, 0.14)";
 
-// Front-facing person. H hair, S skin, E eye, C jacket, W shirt or tie, P trousers, B shoes,
-// V visor (reviewers only, drawn over the hair).
-const PERSON_STAND = [
-  "................",
-  "......HHHH......",
-  ".....HHHHHH.....",
-  ".....HSSSSH.....",
-  ".....SESSES.....",
-  ".....SSSSSS.....",
-  "......SSSS......",
-  "....CCCWWCCC....",
-  "...CCCCWWCCCC...",
-  "...CCCCWWCCCC...",
-  "...SCCCWWCCCS...",
-  "...SCCCCCCCCS...",
-  "....CCCCCCCC....",
-  "....PPP..PPP....",
-  "....PPP..PPP....",
-  "....BBB..BBB....",
-];
+export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, fill: string) {
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, r);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
 
-const PERSON_STEP = [
-  ...PERSON_STAND.slice(0, 13),
-  "....PPP...PPP...",
-  "...PPP....PPP...",
-  "...BBB.....BBB..",
-];
+function circle(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: string) {
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
 
-// Seated: the lower body is hidden by the desk, the arms reach forward.
-const PERSON_SIT = [
-  ...PERSON_STAND.slice(0, 7),
-  "....CCCWWCCC....",
-  "...CCCCWWCCCC...",
-  "..SCCCCWWCCCCS..",
-  "..SSCCCCCCCCSS..",
-  "....CCCCCCCC....",
-  "................",
-  "................",
-  "................",
-  "................",
-];
-
-const VISOR_ROW = ".....VVVVVVV....";
+function ellipse(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, fill: string) {
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+}
 
 export interface Look {
   hair: string;
   skin: string;
   jacket: string;
-  shirt: string;
   trousers: string;
-  shoes: string;
   visor: string | null;
 }
 
@@ -92,141 +68,132 @@ const SKINS = ["#F2C6A0", "#C68A62", "#8D5A3B", "#F6D7BD", "#A86F4C"];
 const HAIRS = ["#2B2118", "#6B4A2E", "#C08A4F", "#16161D", "#9CA3AF"];
 
 export function lookFor(role: keyof typeof ROLE | "director", index: number): Look {
-  if (role === "director") return { hair: "#E5E7EB", skin: SKINS[0]!, jacket: "#BE123C", shirt: "#FFD84A", trousers: "#1E2246", shoes: "#0B0D1A", visor: null };
   const skin = SKINS[index % SKINS.length]!;
   const hair = HAIRS[(index * 3 + 1) % HAIRS.length]!;
-  if (role === "lead") return { hair, skin, jacket: "#F59E0B", shirt: "#FFF7E6", trousers: "#1E2246", shoes: "#0B0D1A", visor: null };
-  if (role === "reviewer") return { hair, skin, jacket: "#A855F7", shirt: "#F5F3FF", trousers: "#2A1E4A", shoes: "#0B0D1A", visor: "#34D399" };
-  const shirts = ["#0EA5E9", "#22D3EE", "#3B82F6", "#06B6D4"];
-  return { hair, skin, jacket: shirts[index % shirts.length]!, shirt: "#E0F2FE", trousers: "#1E2246", shoes: "#0B0D1A", visor: null };
+  if (role === "director") return { hair: "#D9DEE2", skin: SKINS[0]!, jacket: BAD, trousers: "#2A3940", visor: null };
+  if (role === "reviewer") return { hair, skin, jacket: ROLE.reviewer, trousers: "#2A3940", visor: "#1F9D63" };
+  return { hair, skin, jacket: ROLE[role], trousers: "#2A3940", visor: null };
 }
 
+// One person in a 16x16 cell whose top-left is (x, y). A step lifts the body a little.
 export function drawPerson(ctx: CanvasRenderingContext2D, x: number, y: number, look: Look, pose: "stand" | "step" | "sit", facing: 1 | -1) {
-  const map = pose === "sit" ? PERSON_SIT : pose === "step" ? PERSON_STEP : PERSON_STAND;
-  const colours: Record<string, string> = {
-    H: look.hair,
-    S: look.skin,
-    E: INK,
-    C: look.jacket,
-    W: look.shirt,
-    P: look.trousers,
-    B: look.shoes,
-    V: look.visor ?? look.hair,
-  };
-  for (let row = 0; row < map.length; row++) {
-    const line = look.visor && row === 2 ? VISOR_ROW : map[row]!;
-    for (let col = 0; col < line.length; col++) {
-      const ch = line[facing === 1 ? col : line.length - 1 - col]!;
-      if (ch === ".") continue;
-      ctx.fillStyle = colours[ch]!;
-      ctx.fillRect(x + col, y + row, 1, 1);
+  const cx = x + 8;
+  const sit = pose === "sit";
+  const lift = pose === "step" ? -0.8 : 0;
+  if (!sit) {
+    ellipse(ctx, cx, y + 15.4, 4.6, 1.3, SHADOW);
+    // while stepping one foot is off the floor
+    const raised = facing === 1 ? 0 : 1;
+    for (const [i, lx] of [cx - 3.2, cx + 0.6].entries()) {
+      const up = pose === "step" && i === raised ? 1.2 : 0;
+      roundRect(ctx, lx, y + 11 + lift, 2.6, 4.2 - lift - up, 1.2, look.trousers);
     }
+  }
+  // body
+  const top = y + 6.6 + lift + (sit ? 1 : 0);
+  roundRect(ctx, cx - 4.6, top, 9.2, sit ? 5.4 : 6, 3, look.jacket);
+  // a lighter collar keeps the body readable against its own colour
+  ctx.globalAlpha = 0.35;
+  roundRect(ctx, cx - 1.6, top + 0.4, 3.2, 1.6, 0.8, "#FFFFFF");
+  ctx.globalAlpha = 1;
+  // head
+  const hy = y + 4 + lift + (sit ? 1 : 0);
+  circle(ctx, cx, hy, 3.7, look.skin);
+  // hair: a cap over the top of the head, parted toward where they face
+  ctx.beginPath();
+  ctx.arc(cx, hy, 3.9, Math.PI * 1.02, Math.PI * 1.98);
+  ctx.quadraticCurveTo(cx + facing * 1.5, hy - 1.4, cx - 3.9, hy - 0.2);
+  ctx.fillStyle = look.hair;
+  ctx.fill();
+  // eyes, or a visor across them
+  if (look.visor) {
+    roundRect(ctx, cx - 3.6, hy - 0.2, 7.2, 1.7, 0.85, look.visor);
+  } else {
+    circle(ctx, cx - 1.3 + facing * 0.4, hy + 0.6, 0.45, INK);
+    circle(ctx, cx + 1.3 + facing * 0.4, hy + 0.6, 0.45, INK);
   }
 }
 
 export function drawFolder(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  ctx.fillStyle = MANILA_DARK;
-  ctx.fillRect(x, y + 1, 4, 1);
-  ctx.fillStyle = MANILA;
-  ctx.fillRect(x, y + 2, 9, 6);
-  ctx.fillStyle = MANILA_DARK;
-  ctx.fillRect(x, y + 7, 9, 1);
-  ctx.fillStyle = INK;
-  ctx.fillRect(x + 2, y + 4, 5, 1);
+  roundRect(ctx, x + 0.6, y + 2.6, 9, 6, 1, SHADOW);
+  roundRect(ctx, x, y + 1, 4, 2, 0.8, FILE_DARK);
+  roundRect(ctx, x, y + 2, 9, 6, 1, FILE);
+  ctx.fillStyle = "rgba(24,35,42,0.35)";
+  ctx.fillRect(x + 2, y + 4.4, 5, 0.7);
 }
 
 // A desk with a monitor. `glow` is the screen colour while its owner works, null when idle.
 export function drawDesk(ctx: CanvasRenderingContext2D, x: number, y: number, glow: string | null) {
   const w = TILE * 2;
-  ctx.fillStyle = WOOD_DARK;
-  ctx.fillRect(x, y + 5, w, 11);
-  ctx.fillStyle = WOOD;
-  ctx.fillRect(x, y + 3, w, 9);
-  ctx.fillStyle = WOOD_TOP;
-  ctx.fillRect(x, y + 3, w, 1);
-  // legs
-  ctx.fillStyle = WOOD_DARK;
-  ctx.fillRect(x + 1, y + 12, 2, 4);
-  ctx.fillRect(x + w - 3, y + 12, 2, 4);
-  // monitor
-  ctx.fillStyle = BEZEL;
-  ctx.fillRect(x + 9, y - 6, 14, 10);
-  ctx.fillStyle = glow ?? SCREEN_OFF;
-  ctx.fillRect(x + 10, y - 5, 12, 7);
+  roundRect(ctx, x + 1, y + 6, w - 1, 11, 2.5, SHADOW);
+  roundRect(ctx, x + 2, y + 10, 1.6, 6, 0.8, DESK_LEG);
+  roundRect(ctx, x + w - 3.6, y + 10, 1.6, 6, 0.8, DESK_LEG);
+  roundRect(ctx, x, y + 3, w, 9, 2.5, DESK_EDGE);
+  roundRect(ctx, x, y + 2, w, 8, 2.5, DESK_TOP);
+  // monitor on its stand
+  roundRect(ctx, x + 14.5, y + 2, 3, 3, 0.6, BEZEL);
+  roundRect(ctx, x + 8.5, y - 6.5, 15, 10, 1.8, BEZEL);
+  roundRect(ctx, x + 9.5, y - 5.5, 13, 8, 1.2, glow ?? SCREEN_OFF);
   if (glow) {
-    // lines of text on the screen
-    ctx.fillStyle = INK;
-    ctx.globalAlpha = 0.35;
-    ctx.fillRect(x + 11, y - 4, 7, 1);
-    ctx.fillRect(x + 11, y - 2, 9, 1);
-    ctx.fillRect(x + 11, y, 5, 1);
-    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.fillRect(x + 11, y - 3.8, 7, 0.8);
+    ctx.fillRect(x + 11, y - 2, 9, 0.8);
+    ctx.fillRect(x + 11, y - 0.2, 5, 0.8);
   }
-  ctx.fillStyle = BEZEL;
-  ctx.fillRect(x + 15, y + 4, 2, 1);
+  // a mug, so the desks read as lived in
+  roundRect(ctx, x + 3, y + 3.5, 2.6, 2.8, 0.8, "#E9EEF0");
 }
 
 export function drawCabinet(ctx: CanvasRenderingContext2D, x: number, y: number, filed: number) {
-  ctx.fillStyle = CABINET;
-  ctx.fillRect(x, y, TILE * 2, TILE * 2);
+  const w = TILE * 2;
+  roundRect(ctx, x + 1.5, y + 2, w, TILE * 2, 3, SHADOW);
+  roundRect(ctx, x, y, w, TILE * 2, 3, CABINET_EDGE);
+  roundRect(ctx, x, y, w, TILE * 2 - 1.5, 3, CABINET);
   for (let i = 0; i < 4; i++) {
-    ctx.fillStyle = CABINET_LIGHT;
-    ctx.fillRect(x + 2, y + 2 + i * 7, TILE * 2 - 4, 6);
-    ctx.fillStyle = CABINET;
-    ctx.fillRect(x + TILE - 3, y + 4 + i * 7, 6, 1);
+    roundRect(ctx, x + 2.5, y + 2.5 + i * 7, w - 5, 5.6, 1.4, "#E8EDEB");
+    roundRect(ctx, x + TILE - 3, y + 4.6 + i * 7, 6, 1.2, 0.6, CABINET_EDGE);
   }
   // a gold edge shows in the top drawer once anything has been filed, longer as more is filed
-  if (filed > 0) {
-    ctx.fillStyle = MANILA;
-    ctx.fillRect(x + 4, y + 1, Math.min(24, 4 + filed * 3), 1);
-  }
+  if (filed > 0) roundRect(ctx, x + 4, y + 1, Math.min(24, 4 + filed * 3), 1.4, 0.7, FILE);
 }
 
 export function drawTable(ctx: CanvasRenderingContext2D, x: number, y: number) {
   // the rug the planning happens on
-  ctx.fillStyle = RUG_EDGE;
-  ctx.fillRect(x - 8, y - 4, TILE * 3 + 16, TILE * 2 + 12);
-  ctx.fillStyle = RUG;
-  ctx.fillRect(x - 6, y - 2, TILE * 3 + 12, TILE * 2 + 8);
-  ctx.fillStyle = WOOD_DARK;
-  ctx.fillRect(x, y + 4, TILE * 3, TILE * 2 - 4);
-  ctx.fillStyle = WOOD;
-  ctx.fillRect(x, y + 2, TILE * 3, TILE * 2 - 6);
-  ctx.fillStyle = "#F8FAFC";
-  ctx.fillRect(x + 8, y + 6, 10, 7);
-  ctx.fillRect(x + 22, y + 8, 9, 7);
-  ctx.fillStyle = "#6366F1";
-  ctx.fillRect(x + 10, y + 8, 6, 1);
-  ctx.fillRect(x + 10, y + 10, 4, 1);
-  ctx.fillRect(x + 24, y + 10, 5, 1);
+  roundRect(ctx, x - 8, y - 4, TILE * 3 + 16, TILE * 2 + 12, 8, RUG_EDGE);
+  roundRect(ctx, x - 6.5, y - 2.5, TILE * 3 + 13, TILE * 2 + 9, 7, RUG);
+  roundRect(ctx, x + 1.5, y + 4, TILE * 3, TILE * 2 - 4, 6, SHADOW);
+  roundRect(ctx, x, y + 2, TILE * 3, TILE * 2 - 5, 6, DESK_EDGE);
+  roundRect(ctx, x, y + 1, TILE * 3, TILE * 2 - 6, 6, DESK_TOP);
+  // papers being planned over
+  roundRect(ctx, x + 8, y + 6, 10, 7, 1, "#EEF3F6");
+  roundRect(ctx, x + 22, y + 8, 9, 7, 1, "#EEF3F6");
+  ctx.fillStyle = ROLE.lead;
+  ctx.fillRect(x + 10, y + 8, 6, 0.8);
+  ctx.fillRect(x + 10, y + 10, 4, 0.8);
+  ctx.fillRect(x + 24, y + 10, 5, 0.8);
 }
 
 export function drawPlant(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  ctx.fillStyle = POT;
-  ctx.fillRect(x + 4, y + 10, 8, 6);
-  ctx.fillStyle = "#C2410C";
-  ctx.fillRect(x + 4, y + 10, 8, 1);
-  ctx.fillStyle = LEAF_DARK;
-  ctx.fillRect(x + 3, y + 4, 4, 6);
-  ctx.fillRect(x + 9, y + 3, 4, 7);
-  ctx.fillStyle = LEAF;
-  ctx.fillRect(x + 6, y, 4, 10);
-  ctx.fillRect(x + 2, y + 5, 2, 2);
-  ctx.fillRect(x + 12, y + 4, 2, 2);
+  ellipse(ctx, x + 8.5, y + 15.5, 5, 1.4, SHADOW);
+  roundRect(ctx, x + 4, y + 10, 8, 6, 2, POT);
+  circle(ctx, x + 5.5, y + 6.5, 3.4, LEAF_DARK);
+  circle(ctx, x + 10.8, y + 5.8, 3.6, LEAF_DARK);
+  circle(ctx, x + 8, y + 3.6, 4, LEAF);
+  circle(ctx, x + 6, y + 8.6, 2.6, LEAF);
+  circle(ctx, x + 10.6, y + 8.4, 2.4, LEAF);
 }
 
-// A window in the top wall: night sky with a few fixed stars.
-export function drawWindow(ctx: CanvasRenderingContext2D, x: number, y: number, seed: number) {
-  ctx.fillStyle = WALL_TRIM;
-  ctx.fillRect(x, y + 2, TILE * 2, 11);
-  ctx.fillStyle = SKY;
-  ctx.fillRect(x + 1, y + 3, TILE * 2 - 2, 9);
-  ctx.fillStyle = WALL_TRIM;
-  ctx.fillRect(x + TILE - 1, y + 3, 1, 9);
-  ctx.fillStyle = STAR;
-  for (let i = 0; i < 4; i++) {
-    const sx = (seed * 7 + i * 11) % (TILE * 2 - 4);
-    const sy = (seed * 3 + i * 5) % 7;
-    ctx.fillRect(x + 2 + sx, y + 4 + sy, 1, 1);
-  }
+// A window in the top wall: a band of daylight sky.
+export function drawWindow(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  const w = TILE * 2;
+  roundRect(ctx, x, y + 2.5, w, 11, 2, WALL_TOP);
+  const g = ctx.createLinearGradient(0, y + 3.5, 0, y + 12.5);
+  g.addColorStop(0, SKY);
+  g.addColorStop(1, SKY_LOW);
+  ctx.beginPath();
+  ctx.roundRect(x + 1.2, y + 3.7, w - 2.4, 8.6, 1.2);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.fillStyle = WALL_TOP;
+  ctx.fillRect(x + TILE - 0.6, y + 3.7, 1.2, 8.6);
 }
