@@ -323,3 +323,27 @@ The spike passed (`docs/spike-findings.md`). What it changed:
 - **D5, one wake at a time.** Leads get `maxConcurrentRuns: 1`, and the timer baseline is set so
   a new lead does not wake the moment it is created.
 - **Never comment on a closed issue.** In Paperclip that reopens it.
+
+## Changes made while building (2 October 2026)
+
+- **D3/D5, the timer is Annex's.** Paperclip's agent timer stays off for every agent. Annex
+  runs the wake on its own schedule, runs the signals itself in its integration worktree, and
+  gives the lead their output in a "Wake" issue. The lead answers with a `annex-proposal` JSON
+  block, and `server/proposal.ts` enforces the rules before any task exists: at most 3 tasks, a
+  charter line that is really in the charter or brief, evidence that quotes at least 12
+  characters of real signal output, a done check that only checks (no push, reset, install or
+  recursive delete), and no duplicate of open work or work closed in the last 7 days. Rejected
+  tasks are logged with the reason.
+- **D5, backing off.** `back_off_when_idle` doubles the wait after each wake that produced no
+  task, up to 24 hours, and resets on the first wake that does. That is simpler than "the last 5
+  verified tasks moved no signal" and needs no judgement about what counts as moving a signal.
+- **D10, `setup`.** A wing file can name a setup command (`npm ci` for Upkeep). Annex runs it in
+  a worktree before each check and signal run, so a check tests the code and not a missing
+  install. Workers are told to run it too.
+- **D7, after review.** Annex merges the reviewed branch with `--no-ff` into its integration
+  worktree, runs the done check there, and undoes the merge if it fails. Work that cannot land
+  goes back to the lead as a drop-in instead of being forced.
+- **D9, desks.** The lead sits at desk 0 and the reviewer at the review desk; workers take the
+  lowest free desk from 1.
+- **D11, rendering.** Plain Canvas 2D instead of PixiJS. The sprites are drawn in code and there
+  are only a handful of them, so a renderer library added nothing.
