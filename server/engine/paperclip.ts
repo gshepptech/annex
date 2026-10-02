@@ -296,6 +296,15 @@ export class Paperclip {
     return r.content ?? "";
   }
 
+  runEvents(runId: string) {
+    return this.call<{ eventType?: string; payload?: Record<string, unknown> }[]>("GET", `/api/heartbeat-runs/${runId}/events`);
+  }
+
+  async instructions(agentId: string): Promise<string> {
+    const r = await this.call<{ content?: string }>("GET", `/api/agents/${agentId}/instructions-bundle/file?path=AGENTS.md`);
+    return r.content ?? "";
+  }
+
   run(runId: string) {
     return this.call<Run & { error: string | null; agentId: string }>("GET", `/api/heartbeat-runs/${runId}`);
   }

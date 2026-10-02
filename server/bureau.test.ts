@@ -92,12 +92,13 @@ class FakePaperclip {
   }
 }
 
-async function setup() {
+async function setup(opts: { claudeMd?: string } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "annex-bureau-"));
   const repo = join(dir, "repo");
   await git(dir, "init", "-q", "-b", "main", repo);
   for (const [k, v] of [["user.email", "t@example.com"], ["user.name", "t"]]) await git(repo, "config", k!, v!);
   writeFileSync(join(repo, "README.md"), "hi\n");
+  if (opts.claudeMd) writeFileSync(join(repo, "CLAUDE.md"), opts.claudeMd);
   await git(repo, "add", ".");
   await git(repo, "commit", "-q", "-m", "init");
 
@@ -128,7 +129,7 @@ workers = 1
     },
   }) as unknown as Paperclip;
   const store = new Store(":memory:");
-  const bureau = new Bureau({ store, pc: client, wings: [wing], stateDir: join(dir, "state"), wingsDir: join(dir, "wings"), claudeCommand: "claude", settingsFile: "/dev/null", log: () => {} });
+  const bureau = new Bureau({ store, pc: client, wings: [wing], stateDir: join(dir, "state"), wingsDir: join(dir, "wings"), claudeCommand: "claude", settingsFile: "/dev/null" });
   await bureau.start();
   bureau.stopAll();
   return { dir, repo, pc, store, bureau };
@@ -362,4 +363,29 @@ test("a new wing opens from the office, and pause and resume hold and free it", 
   assert.equal((await bureau.state()).wings.find((w) => w.id === "upkeep")!.paused, true);
   bureau.resume("upkeep");
   assert.equal(store.wing("upkeep")!.heldUntil, null);
+});
+
+test("with a CLAUDE.md the lead sees it, tasks must cite it, and a hire request adds a worker", async () => {
+  const { pc, store, bureau, dir } = await setup({ claudeMd: "# Rules\n\n- Never push.\n- No attribution to Claude in commits.\n" });
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(dir, "wings", "upkeep"), { recursive: true });
+  const lead = store.agents("upkeep").find((a) => a.role === "lead")!;
+  const wakeIssue = [...pc.issues.values()].find((i) => i.title.startsWith("Wake:"))!;
+  assert.match(wakeIssue.description!, /## House rules/);
+  assert.match(wakeIssue.description!, /No attribution to Claude/);
+  const base = { charter_line: "done.txt exists on the integration branch.", evidence: "missing: done.txt (needed by charter)", done_check: "test -f done.txt", size: "S" };
+  pc.agentComment(wakeIssue.id, lead.id, "```annex-proposal\n" + JSON.stringify({
+    note: "",
+    tasks: [{ title: "Add done.txt", ...base }, { title: "Create the done marker file", ...base, house_rules: "Never push: commit only. No Claude attribution in the message." }],
+    hire: { count: 1, reason: "two files to add at once" },
+  }) + "\n```");
+  wakeIssue.status = "done";
+  await bureau.tick();
+  assert.ok(store.eventsSince(0).some((e) => e.kind === "agent.said" && /Threw away "Add done.txt".*house rules/.test(String(e.payload.text))));
+  const created = [...pc.issues.values()].find((i) => i.title === "Create the done marker file")!;
+  assert.match(created.description!, /House rules that apply/);
+  assert.equal(store.agents("upkeep").filter((a) => a.role === "worker").length, 2, "the lead's hire added a worker");
+  assert.ok(store.eventsSince(0).some((e) => e.kind === "agent.hired"));
+  await bureau.updateWing("upkeep", { maxWorkers: 2 });
+  await assert.rejects(bureau.hireFromOffice("upkeep", 1), /most workers/);
 });

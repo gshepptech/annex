@@ -25,6 +25,8 @@ export interface WingSettings {
   quietHours: QuietHours | null;
   backOffWhenIdle: boolean;
   askBefore: string[];
+  // the most workers the lead may hire up to
+  maxWorkers: number;
 }
 
 export interface Repo {
@@ -128,7 +130,11 @@ export function parseWing(id: string, source: string): Wing {
     quietHours: parseQuietHours(s.quiet_hours, at("settings.quiet_hours")),
     backOffWhenIdle: bool(s.back_off_when_idle, at("settings.back_off_when_idle")) ?? false,
     askBefore: strList(s.ask_before, at("settings.ask_before")),
+    maxWorkers: num(s.max_workers, at("settings.max_workers")) ?? 6,
   };
+  if (!Number.isInteger(settings.maxWorkers) || settings.maxWorkers < 1 || settings.maxWorkers > 8) {
+    throw new WingFileError(`${at("settings.max_workers")} must be a whole number from 1 to 8`);
+  }
 
   const perms = table(raw.permissions, at("permissions")) ?? {};
 

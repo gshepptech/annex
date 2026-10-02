@@ -7,7 +7,7 @@
 // next pass instead of lost.
 
 import { randomUUID } from "node:crypto";
-import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import type { Store, TaskRow } from "./db.ts";
@@ -25,6 +25,8 @@ import { parseProposal, parseBrief, judge, type ProposedTask } from "./proposal.
 import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
 import { toolUses, isUsageLimit, resetTime } from "./mapping.ts";
+import { Logger } from "./logger.ts";
+import { readHouseRules } from "./houserules.ts";
 
 const TICK_MS = 15_000;
 const PAUSED = "Paused by you";
@@ -62,7 +64,7 @@ export interface BureauOptions {
   claudeCommand: string;
   settingsFile: string;
   now?: () => Date;
-  log?: (msg: string) => void;
+  logger?: Logger;
 }
 
 export class Bureau implements BureauApi {
@@ -72,7 +74,7 @@ export class Bureau implements BureauApi {
   private opts: BureauOptions;
   private timer: ReturnType<typeof setInterval> | null = null;
   private now: () => Date;
-  private log: (msg: string) => void;
+  readonly logger: Logger;
   private ticking = false;
   private experimentsOn = false;
   private inflight = new Set<Promise<unknown>>();
@@ -82,7 +84,7 @@ export class Bureau implements BureauApi {
     this.store = opts.store;
     this.pc = opts.pc;
     this.now = opts.now ?? (() => new Date());
-    this.log = opts.log ?? ((m) => console.log(`[annex] ${m}`));
+    this.logger = opts.logger ?? new Logger(null, { quiet: true });
     for (const wing of opts.wings) {
       this.store.ensureWing(wing.id, wing.initialMode);
       this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve(), agentInfo: new Map() });
@@ -120,7 +122,7 @@ export class Bureau implements BureauApi {
         this.experimentsOn = true;
       } catch (err) {
         for (const rt of this.rts.values()) rt.offline = (err as Error).message;
-        this.log(`Paperclip is not ready; retrying on each tick. ${(err as Error).message}`);
+        this.logger.warn(null, `Paperclip is not ready; retrying on each tick. ${(err as Error).message}`);
         return;
       }
     }
@@ -129,11 +131,11 @@ export class Bureau implements BureauApi {
       try {
         rt.prov = await provision({ ...this.opts, wing: rt.wing });
         rt.offline = null;
-        rt.stop = this.pc.subscribe(rt.prov.companyId, (f) => void this.onFrame(rt, f).catch((e) => this.log(`frame error: ${e.message}`)));
-        this.log(`${rt.wing.id}: connected (${rt.prov.workers.length} crew, mode ${this.store.wing(rt.wing.id)!.mode})`);
+        rt.stop = this.pc.subscribe(rt.prov.companyId, (f) => void this.onFrame(rt, f).catch((e) => this.logger.warn(rt.wing.id, `could not handle a live frame: ${e.message}`)));
+        this.logger.info(rt.wing.id, `connected (${rt.prov.workers.length} crew, mode ${this.store.wing(rt.wing.id)!.mode})`);
       } catch (err) {
         rt.offline = (err as Error).message;
-        this.log(`${rt.wing.id}: not connected: ${rt.offline}`);
+        this.logger.warn(rt.wing.id, `not connected: ${rt.offline}`);
       }
     }
   }
@@ -176,7 +178,7 @@ export class Bureau implements BureauApi {
           await this.maybeWake(rt);
           await this.expireWake(rt);
         } catch (err) {
-          this.log(`${rt.wing.id}: tick failed: ${(err as Error).message}`);
+          this.logger.warn(rt.wing.id, `tick failed: ${(err as Error).message}`);
         }
       }
     } finally {
@@ -202,6 +204,7 @@ export class Bureau implements BureauApi {
     const row = this.store.wing(rt.wing.id)!;
     if (row.heldUntil && new Date(row.heldUntil) <= this.now()) {
       this.store.setHold(rt.wing.id, null, null);
+      this.logger.info(rt.wing.id, "hold over; the wing is working again");
       this.emit({ wingId: rt.wing.id, kind: "wing.resumed", actor: "annex", taskId: null, payload: {} });
     }
   }
@@ -220,14 +223,14 @@ export class Bureau implements BureauApi {
     for (const a of await this.pc.agents(rt.prov!.companyId).catch(() => [])) {
       rt.agentInfo.set(a.id, { status: a.status, model: String(a.adapterConfig?.model ?? "") });
     }
-    await this.syncChat(rt).catch((e) => this.log(`${rt.wing.id}: chat sync failed: ${e.message}`));
+    await this.syncChat(rt).catch((e) => this.logger.warn(rt.wing.id, `chat sync failed: ${e.message}`));
   }
 
   private async observeSafely(rt: Runtime, cur: Issue, actor: string | null) {
     try {
       await this.observe(rt, cur, actor);
     } catch (err) {
-      this.log(`${rt.wing.id}: could not handle ${cur.identifier}: ${(err as Error).message}`);
+      this.logger.warn(rt.wing.id, `could not handle ${cur.identifier}: ${(err as Error).message}`);
     }
   }
 
@@ -236,7 +239,7 @@ export class Bureau implements BureauApi {
     try {
       cur = await this.pc.issue(issueId);
     } catch (err) {
-      this.log(`${rt.wing.id}: could not read issue ${issueId}: ${(err as Error).message}`);
+      this.logger.warn(rt.wing.id, `could not read issue ${issueId}: ${(err as Error).message}`);
       return;
     }
     await this.observeSafely(rt, cur, actor);
@@ -416,10 +419,12 @@ export class Bureau implements BureauApi {
       if (!isAtBourne(await this.pc.issue(issue.id))) return;
 
       if (result.exitCode === 0) {
+        this.logger.info(wingId, `${issue.identifier} passed its done check (${Math.round(result.durationMs / 1000)}s); on to review`);
         this.emit({ wingId, kind: "check.passed", actor: "annex", taskId: issue.id, payload: { title: task.title, command: task.doneCheck } });
         await this.pc.setStatus(issue.id, "done", `Annex ran \`${task.doneCheck}\` on ${where}: it passed (exit 0). Passing to review.\n\n\`\`\`\n${tail}\n\`\`\``);
         return;
       }
+      this.logger.info(wingId, `${issue.identifier} failed its done check (exit ${result.exitCode}, attempt ${run.attempt}): ${lastLines(result.output, 1).slice(0, 160)}`);
       this.emit({ wingId, kind: "check.failed", actor: "annex", taskId: issue.id, payload: { title: task.title, command: task.doneCheck, exitCode: result.exitCode } });
       const why = result.timedOut ? `timed out after ${Math.round(CHECK_TIMEOUT_MS / 60_000)} minutes` : `failed (exit ${result.exitCode})`;
       if (run.attempt >= MAX_CHECK_ATTEMPTS) {
@@ -429,13 +434,13 @@ export class Bureau implements BureauApi {
         await this.pc.setStatus(issue.id, "in_progress", `Annex ran \`${task.doneCheck}\` and it ${why}, attempt ${run.attempt} of ${MAX_CHECK_ATTEMPTS}. Annex is stopping this task; the lead will see it on its next wake.\n\n\`\`\`\n${tail}\n\`\`\``);
         await this.pc.setStatus(issue.id, "cancelled", "Stopped by Annex after repeated done check failures.");
         const after = await this.pc.issue(issue.id);
-        if (after.status !== "cancelled") this.log(`${wingId}: ${issue.identifier} did not cancel (now ${after.status})`);
+        if (after.status !== "cancelled") this.logger.warn(wingId, `${issue.identifier} did not cancel (now ${after.status})`);
         this.emit({ wingId, kind: "task.stopped", actor: "annex", taskId: issue.id, payload: { title: task.title, reason: `done check failed ${run.attempt} times` } });
         return;
       }
       await this.pc.setStatus(issue.id, "in_progress", `Annex ran \`${task.doneCheck}\`${where ? ` on ${where}` : ""} and it ${why}. Attempt ${run.attempt} of ${MAX_CHECK_ATTEMPTS}. Fix this and mark the task done again.\n\n\`\`\`\n${tail}\n\`\`\``);
     } catch (err) {
-      this.log(`${wingId}: gate for ${seen.identifier} failed: ${(err as Error).message}`);
+      this.logger.warn(wingId, `gate for ${seen.identifier} failed: ${(err as Error).message}`);
     } finally {
       rt.busy.delete(key);
     }
@@ -486,14 +491,16 @@ export class Bureau implements BureauApi {
         return this.stopAfterReview(rt, issue, task, `merged, the done check failed on ${ws.integrationBranch}, so the merge was undone`);
       }
       this.store.closeTask(issue.id, "merged");
+      this.logger.info(wingId, `${issue.identifier} merged into ${ws.integrationBranch} at ${merged.commit.slice(0, 8)}`);
       this.emit({ wingId, kind: "task.done", actor: "annex", taskId: issue.id, payload: { title: task.title, commit: merged.commit, branch: ws.integrationBranch } });
     } catch (err) {
-      this.log(`${wingId}: merge of ${issue.identifier} failed: ${(err as Error).message}`);
+      this.logger.warn(wingId, `merge of ${issue.identifier} failed: ${(err as Error).message}`);
     }
   }
 
   // Approved work that cannot land goes back to the lead as a drop-in rather than being forced.
   private stopAfterReview(rt: Runtime, issue: Issue, task: TaskRow, reason: string) {
+    this.logger.warn(rt.wing.id, `stopped ${issue.identifier}: ${reason}`);
     this.store.closeTask(issue.id, "stopped");
     this.store.addDropIn(rt.wing.id, `Redo ${issue.identifier} on top of ${rt.wing.repo?.integrationBranch}: ${task.title}`, `The reviewed work was not merged: ${reason}. Its branch is still there to start from.`);
     this.emit({ wingId: rt.wing.id, kind: "task.stopped", actor: "annex", taskId: issue.id, payload: { title: task.title, reason } });
@@ -530,9 +537,11 @@ export class Bureau implements BureauApi {
     const wakeRow = this.store.startWake(wingId);
     try {
       this.emit({ wingId, kind: "lead.woke", actor: rt.prov!.lead.id, taskId: null, payload: {} });
+      let houseRules: ReturnType<typeof readHouseRules> = null;
       const signals = await this.inIntegration(rt, async () => {
         await cleanWorktree(ws.integrationDir);
         if (rt.wing.setup) await runCommand(rt.wing.setup, ws.integrationDir, CHECK_TIMEOUT_MS);
+        houseRules = readHouseRules(ws.integrationDir);
         const out = [];
         for (const sig of rt.wing.signals) {
           const r = await runCommand(sig.run, ws.integrationDir, 5 * 60_000);
@@ -540,6 +549,7 @@ export class Bureau implements BureauApi {
         }
         return out;
       });
+      this.logger.info(wingId, `woke the lead; signals: ${signals.map((s) => `${s.name}=${s.exitCode}`).join(", ") || "none"}`);
       const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
       const view = (t: TaskRow) => {
         const last = t.state === "stopped" ? this.store.checks(t.id).at(-1) : undefined;
@@ -554,6 +564,8 @@ export class Bureau implements BureauApi {
         open: this.store.tasks(wingId, { state: "open" }).map(view),
         closed: this.store.tasks(wingId, { closedSince: week }).map(view),
         dropIns,
+        houseRules: (houseRules as ReturnType<typeof readHouseRules>)?.text ?? null,
+        crew: { workers: rt.prov!.workers.length, maxWorkers: rt.wing.settings.maxWorkers },
       });
       const issue = await this.pc.createIssue(rt.prov!.companyId, {
         title,
@@ -622,11 +634,14 @@ export class Bureau implements BureauApi {
       const existingTitles = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })].map((t) => t.title);
       const charter = [rt.wing.charter, this.store.currentBrief(wingId)?.text ?? ""].join("\n");
       const signals = this.store.wakeSignals(wake.id) ?? [];
-      const verdicts = judge(parsed.tasks, { charter, signals, existingTitles });
+      const houseRules = rt.prov!.workspace ? readHouseRules(rt.prov!.workspace.integrationDir) !== null : false;
+      const verdicts = judge(parsed.tasks, { charter, signals, existingTitles, houseRules });
+      if (parsed.hire) await this.hire(rt, parsed.hire.count, parsed.hire.reason, lead.id);
 
       let created = 0;
       for (const v of verdicts) {
         if (!v.ok) {
+          this.logger.info(wingId, `threw away "${v.task.title}": ${v.reason}`);
           this.emit({ wingId, kind: "agent.said", actor: "annex", taskId: null, payload: { text: `Threw away "${v.task.title || "untitled"}": ${v.reason}` } });
           continue;
         }
@@ -648,6 +663,7 @@ export class Bureau implements BureauApi {
       const row = this.store.wing(wingId)!;
       if (rt.wing.settings.backOffWhenIdle) this.store.setBackoff(wingId, created === 0 ? row.backoffLevel + 1 : 0);
       this.store.finishWake(wake.id, `${created} task(s) created, ${verdicts.length - created} thrown away`);
+      this.logger.info(wingId, `wake ${wake.id} done: ${created} created, ${verdicts.length - created} not created${parsed.note ? `. Lead: ${parsed.note.slice(0, 200)}` : ""}`);
       if (issue.status !== "done" && issue.status !== "cancelled") await this.pc.setStatus(issue.id, "done", `Annex read the proposal: ${created} task(s) created.`).catch(() => {});
       return true;
     } finally {
@@ -655,7 +671,7 @@ export class Bureau implements BureauApi {
     }
   }
 
-  private async createTask(rt: Runtime, t: { title: string; charterLine: string; evidence: string; doneCheck: string; size: string; details: string; source: "lead" | "you" }) {
+  private async createTask(rt: Runtime, t: { title: string; charterLine: string; evidence: string; doneCheck: string; size: string; details: string; houseRules?: string; source: "lead" | "you" }) {
     const prov = rt.prov!;
     const open = this.store.tasks(rt.wing.id, { state: "open" });
     const load = (id: string) => open.filter((x) => rt.issues.get(x.id)?.assigneeAgentId === id).length;
@@ -663,7 +679,8 @@ export class Bureau implements BureauApi {
     const setupNote = rt.wing.setup ? `\n\nStart by running \`${rt.wing.setup}\` in your worktree.` : "";
     const issue = await this.pc.createIssue(prov.companyId, {
       title: t.title,
-      description: taskDescription({ ...t, base: rt.wing.repo?.integrationBranch ?? "" }) + setupNote,
+      description: taskDescription({ ...t, base: rt.wing.repo?.integrationBranch ?? "" }) + setupNote +
+        (t.houseRules ? `\n\n**House rules that apply (the repo's CLAUDE.md is in your worktree; follow all of it):** ${t.houseRules}` : ""),
       projectId: prov.projectId,
       assigneeAgentId: worker.id,
       reviewStages: [
@@ -672,6 +689,7 @@ export class Bureau implements BureauApi {
       ],
     });
     rt.issues.set(issue.id, issue);
+    this.logger.info(rt.wing.id, `opened ${issue.identifier} "${t.title}" for ${worker.name}`);
     this.store.addTask({ id: issue.id, wingId: rt.wing.id, identifier: issue.identifier, title: t.title, doneCheck: t.doneCheck, charterLine: t.charterLine, evidence: t.evidence, source: t.source });
     this.emit({ wingId: rt.wing.id, kind: "task.created", actor: t.source === "you" ? "you" : prov.lead.id, taskId: issue.id, payload: { title: t.title, assigneeId: worker.id, charterLine: t.charterLine } });
     return issue;
@@ -684,6 +702,7 @@ export class Bureau implements BureauApi {
       const row = this.store.wing(rt.wing.id)!;
       if (row.heldUntil && new Date(row.heldUntil) >= until) continue;
       this.store.setHold(rt.wing.id, until.toISOString(), reason);
+      this.logger.warn(rt.wing.id, `held until ${until.toISOString()}: ${reason}`);
       this.emit({ wingId: rt.wing.id, kind: "wing.held", actor: "annex", taskId: null, payload: { until: until.toISOString(), reason } });
     }
   }
@@ -779,6 +798,21 @@ export class Bureau implements BureauApi {
     return { taskId: `drop-${d.id}` };
   }
 
+  // When an autonomous lead next wakes, or what is stopping it, so "is it working?" has an answer.
+  private nextWake(rt: Runtime): { at: string | null; blockedBy: string | null } {
+    const row = this.store.wing(rt.wing.id)!;
+    if (row.mode !== "autonomous") return { at: null, blockedBy: "with you: the lead waits for your messages" };
+    if (row.heldUntil) return { at: row.heldReason === PAUSED ? null : row.heldUntil, blockedBy: row.heldReason ?? "held" };
+    if (!rt.wing.repo) return { at: null, blockedBy: "no repo set" };
+    if (rt.offline) return { at: null, blockedBy: `not connected: ${rt.offline}` };
+    if (this.store.openWake(rt.wing.id)) return { at: null, blockedBy: "the lead is reading the signals now" };
+    const last = this.store.lastWake(rt.wing.id);
+    const interval = Math.min(rt.wing.settings.wakeEverySec * 2 ** row.backoffLevel, MAX_BACKOFF_SEC) * 1000;
+    const at = last ? new Date(new Date(last.startedAt).getTime() + interval) : this.now();
+    if (inQuietHours(rt.wing.settings.quietHours, at)) return { at: at.toISOString(), blockedBy: "quiet hours" };
+    return { at: at.toISOString(), blockedBy: null };
+  }
+
   // ----- the options the office exposes --------------------------------------------------
 
   private settingsOf(w: Wing) {
@@ -790,12 +824,13 @@ export class Bureau implements BureauApi {
       quietHours: s.quietHours ? `${hhmm(s.quietHours.startMin)}-${hhmm(s.quietHours.endMin)}` : null,
       backOffWhenIdle: s.backOffWhenIdle,
       askBefore: s.askBefore,
+      maxWorkers: s.maxWorkers,
     };
   }
 
   // Edits a wing's file and applies it at once: settings take effect on the next tick, the crew's
   // instructions are re-synced, extra workers are hired, and a new repo gets its own project.
-  async updateWing(wingId: string, e: WingEdit) {
+  async updateWing(wingId: string, e: WingEdit, announce = true) {
     const rt = this.rt(wingId);
     const next = applyEdit(rt.wing, e);
     const cur = this.settingsOf(rt.wing);
@@ -805,6 +840,7 @@ export class Bureau implements BureauApi {
       quietHours: e.quietHours === undefined ? cur.quietHours : e.quietHours || null,
       backOffWhenIdle: e.backOffWhenIdle ?? cur.backOffWhenIdle,
       askBefore: (e.askBefore ?? cur.askBefore).map((x) => x.trim()).filter(Boolean),
+      maxWorkers: e.maxWorkers ?? cur.maxWorkers,
     };
     let parsed: Wing;
     const text = toToml(next, settings);
@@ -820,7 +856,8 @@ export class Bureau implements BureauApi {
     this.written.set(wingId, text);
     writeFileSync(join(this.opts.wingsDir, wingId, "wing.toml"), text);
     await this.apply(rt, parsed);
-    this.emit({ wingId, kind: "agent.said", actor: "you", taskId: null, payload: { text: "Changed the wing's settings" } });
+    this.logger.info(wingId, `settings saved and applied`);
+    if (announce) this.emit({ wingId, kind: "agent.said", actor: "you", taskId: null, payload: { text: "Changed the wing's settings" } });
   }
 
   // The last text Annex itself wrote to each wing file, so the watcher skips its own writes.
@@ -846,20 +883,20 @@ export class Bureau implements BureauApi {
     try {
       parsed = parseWing(wingId, text);
     } catch (err) {
-      this.log(`${(err as Error).message} (kept the previous settings)`);
+      this.logger.warn(wingId, `${(err as Error).message} (kept the previous settings)`);
       return;
     }
     const rt = this.rts.get(wingId);
     this.written.set(wingId, text);
     if (rt) {
       await this.apply(rt, parsed);
-      this.log(`${wingId}: applied the edited wing file`);
+      this.logger.info(wingId, `applied the edited wing file`);
       return;
     }
     this.store.ensureWing(wingId, parsed.initialMode);
     this.rts.set(wingId, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve(), agentInfo: new Map() });
     await this.connectAll();
-    this.log(`${wingId}: new wing from its file`);
+    this.logger.info(wingId, `new wing from its file`);
   }
 
   async createWing(n: NewWing) {
@@ -893,6 +930,31 @@ export class Bureau implements BureauApi {
     if (approve) await this.createTask(rt, { ...t, source: "lead" });
   }
 
+  // Adds workers, up to the wing's max_workers. The lead asks for this in a proposal; the person can
+  // also press Hire. Each new worker walks in through the door.
+  async hire(rt: Runtime, count: number, reason: string, by: string) {
+    const before = new Set(this.store.agents(rt.wing.id).map((a) => a.id));
+    const target = Math.min(rt.wing.crew.workers + count, rt.wing.settings.maxWorkers);
+    if (target <= rt.wing.crew.workers) {
+      this.logger.info(rt.wing.id, `asked to hire ${count} (${reason || "no reason"}) but the crew is at its limit of ${rt.wing.settings.maxWorkers}`);
+      return 0;
+    }
+    await this.updateWing(rt.wing.id, { workers: target }, false);
+    const hired = this.store.agents(rt.wing.id).filter((a) => !before.has(a.id));
+    for (const a of hired) {
+      this.logger.info(rt.wing.id, `hired ${a.name}${reason ? `: ${reason}` : ""}`);
+      this.emit({ wingId: rt.wing.id, kind: "agent.hired", actor: by, taskId: null, payload: { agentId: a.id, name: a.name, reason } });
+    }
+    return hired.length;
+  }
+
+  async hireFromOffice(wingId: string, count: number) {
+    const rt = this.ready(wingId);
+    const n = await this.hire(rt, Math.max(1, Math.floor(count) || 1), "hired by you", "you");
+    if (n === 0) throw new UserError(`${rt.wing.name} already has its most workers (${rt.wing.settings.maxWorkers}). Raise "Most workers" in Settings to hire more.`, 409);
+    return { hired: n };
+  }
+
   pause(wingId: string) {
     this.rt(wingId);
     this.store.setHold(wingId, "9999-12-31T00:00:00.000Z", PAUSED);
@@ -917,6 +979,7 @@ export class Bureau implements BureauApi {
     const rt = this.ready(row.wingId);
     const runs = await this.pc.agentRuns(rt.prov.companyId, agentId, limit);
     const out: RunView[] = [];
+    let systemFile: string | null = null;
     for (const r of runs) {
       const finished = ["succeeded", "failed", "cancelled", "timed_out"].includes(r.status);
       let entries = finished ? this.transcripts.get(r.id) : undefined;
@@ -924,6 +987,8 @@ export class Bureau implements BureauApi {
         entries = r.logBytes ? parseLog(await this.pc.runLog(r.id).catch(() => "")) : [];
         if (finished) this.transcripts.set(r.id, entries);
       }
+      const invoke = await this.invocation(r.id, finished);
+      if (invoke.systemFile && !systemFile) systemFile = invoke.systemFile;
       const ctx = (r.contextSnapshot ?? {}) as Record<string, unknown>;
       const issueId = typeof ctx.issueId === "string" ? ctx.issueId : null;
       const issue = issueId ? rt.issues.get(issueId) : undefined;
@@ -934,11 +999,31 @@ export class Bureau implements BureauApi {
         finishedAt: r.finishedAt,
         task: issue ? { identifier: issue.identifier, title: issue.title } : null,
         reason: String(ctx.wakeReason ?? r.invocationSource ?? ""),
+        prompt: invoke.prompt,
         entries,
       });
     }
+    const instructions = await this.pc.instructions(agentId).catch(() => "");
+    const systemPrompt = systemFile && existsSync(systemFile) ? readFileSync(systemFile, "utf8") : null;
     const info = rt.agentInfo.get(agentId);
-    return { agent: { id: row.id, role: row.role, name: row.name, desk: row.desk, wingId: row.wingId, status: info?.status ?? "idle", model: info?.model ?? "" }, runs: out };
+    return { agent: { id: row.id, role: row.role, name: row.name, desk: row.desk, wingId: row.wingId, status: info?.status ?? "idle", model: info?.model ?? "" }, instructions, systemPrompt, runs: out };
+  }
+
+  // What Paperclip handed Claude for a run: the prompt itself and the system-prompt file it
+  // appended. Kept once a run is finished, since it never changes.
+  private invocations = new Map<string, { prompt: string | null; systemFile: string | null }>();
+
+  private async invocation(runId: string, finished: boolean) {
+    const cached = this.invocations.get(runId);
+    if (cached) return cached;
+    const events = await this.pc.runEvents(runId).catch(() => []);
+    const ev = events.find((e) => e.eventType === "adapter.invoke" || JSON.stringify(e).includes('"adapter.invoke"'));
+    const p = (ev?.payload ?? {}) as { prompt?: string; commandArgs?: string[] };
+    const args = Array.isArray(p.commandArgs) ? p.commandArgs : [];
+    const i = args.indexOf("--append-system-prompt-file");
+    const found = { prompt: typeof p.prompt === "string" ? p.prompt.slice(0, 40_000) : null, systemFile: i >= 0 ? args[i + 1] ?? null : null };
+    if (finished || found.prompt) this.invocations.set(runId, found);
+    return found;
   }
 
   // ----- the snapshot the browser draws from -----------------------------------------------
@@ -975,6 +1060,8 @@ export class Bureau implements BureauApi {
         settings: this.settingsOf(rt.wing),
         asks: this.store.asks(rt.wing.id).map((a) => ({ id: a.id, title: String(a.task.title ?? ""), reason: a.reason, details: String(a.task.details ?? ""), createdAt: a.createdAt })),
         paused: row.heldReason === PAUSED,
+        nextWake: this.nextWake(rt),
+        houseRules: rt.prov?.workspace ? readHouseRules(rt.prov.workspace.integrationDir)?.files ?? [] : [],
         edit: {
           name: rt.wing.name,
           charter: rt.wing.charter,

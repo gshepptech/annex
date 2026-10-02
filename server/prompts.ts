@@ -57,12 +57,19 @@ needs next. Then post exactly one comment containing one fenced block tagged \`$
       "done_check": "A shell command that exits 0 only when this task is done",
       "size": "S | M | L",
       "details": "What the worker needs to know: files, approach, what not to touch",
+      "house_rules": "Which of the repo's CLAUDE.md rules this touches, and how it keeps each one",
       "ask_first": false,
       "ask_reason": "Only when ask_first is true: what the person is being asked to approve"
     }
-  ]
+  ],
+  "hire": { "count": 0, "reason": "Only when more workers would finish the queued work sooner" }
 }
 \`\`\`
+
+The repo's house rules come first. The wake issue carries its CLAUDE.md (and AGENTS.md). You are
+their enforcer: read them in full on every wake, never propose work that would break one, and
+write into each task the rules it touches so the worker and reviewer are held to them too. When a
+rule and the charter disagree, the rule wins and you say so in \`note\`.
 
 Rules Annex enforces, so a task that breaks one is thrown away:
 - At most 3 tasks.
@@ -75,7 +82,11 @@ Rules Annex enforces, so a task that breaks one is thrown away:
   Latest is a newer major than Wanted, so "grep finds nothing" can never pass for a within-range
   bump. A task whose check cannot pass is stopped after three tries and wastes the crew's work.
 - Do not repeat a task that is open or was closed in the last 7 days.
+- When the repo has house rules, \`house_rules\` must say which apply and how the task keeps them.
 - An empty list is a correct answer when nothing is worth doing. Say why in \`note\`.
+- Hire when open tasks are waiting for a free worker and more could run side by side without
+  touching the same files: set \`hire.count\` and say why. Annex will not go past the crew limit
+  in the wake issue. Do not hire for a single task.
 - Set \`ask_first\` to true for a task the person must approve before it starts: anything that
   falls under the brief's "Call me back when", or under these: ${w.settings.askBefore.length ? w.settings.askBefore.map((a) => `"${a}"`).join(", ") : "(none set)"}.
   Annex holds it and shows the person your \`ask_reason\`; nothing starts until they say yes.
@@ -111,7 +122,9 @@ Each task you get is one piece of work, in your own git worktree (your current d
 own branch). Annex created the task; the lead chose it.
 
 How to do a task:
-1. Read the task. It names the charter line it serves, the evidence, and the done check.
+1. Read the repo's CLAUDE.md (and AGENTS.md) first; they bind everything you do here, including
+   your commit messages. Then read the task: it names the charter line it serves, the evidence,
+   the done check and the house rules the lead flagged.
 2. Make the smallest change that does the job. Do not wander into other work.
 3. Commit your changes on your branch with a clear message. Do not push. Do not switch branches.
 4. Run the done check yourself. Fix what it finds until it passes.
@@ -140,6 +153,9 @@ Read the diff in your current directory against the branch it started from
 - Would a careful developer on this repo accept it: naming, idiom, no dead code, no
   half-finished edits, no unrelated reformatting?
 - Did it weaken a test or a type to make the check pass?
+- Does it keep every rule in the repo's CLAUDE.md (and AGENTS.md)? Your worktree has them; read
+  them first. Check the diff and the commit message against each rule. Any breach is an automatic
+  send-back: quote the rule and the line that breaks it.
 
 Approve by marking the issue done with a comment saying what you checked. Send it back by
 setting it to in_progress with a comment that names the file and line and what has to change.
@@ -155,11 +171,24 @@ export function wakeIssue(opts: {
   open: { identifier: string; title: string; status: string }[];
   closed: { identifier: string; title: string; status: string; why?: string }[];
   dropIns: { title: string; detail: string }[];
+  houseRules?: string | null;
+  crew?: { workers: number; maxWorkers: number };
 }): { title: string; description: string } {
   const { wing } = opts;
   const lines: string[] = [];
   lines.push(`Annex woke the ${wing.name} lead. Read this, then post your \`${PROPOSAL_FENCE}\` comment and mark this issue done.`);
+  if (opts.houseRules) {
+    lines.push(
+      "",
+      "## House rules (the repo's own CLAUDE.md / AGENTS.md)",
+      "",
+      "These bind every task. Read them before you choose anything. A task that would break one is not proposed at all. Each task must name, in `house_rules`, the rules it touches and how it keeps them.",
+      "",
+      opts.houseRules,
+    );
+  }
   if (opts.brief) lines.push("", "## Approved brief", "", opts.brief);
+  if (opts.crew) lines.push("", "## Crew", "", `${opts.crew.workers} worker(s) now; you may grow the crew to ${opts.crew.maxWorkers}.`);
   lines.push("", "## Signals");
   for (const s of opts.signals) {
     lines.push("", `### ${s.name}: \`${s.run}\` (exit ${s.exitCode})`, "", "```", s.output.trim().slice(-6000) || "(no output)", "```");

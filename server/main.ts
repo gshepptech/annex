@@ -13,6 +13,7 @@ import { Paperclip } from "./engine/paperclip.ts";
 import { writeAgentSettings } from "./provision.ts";
 import { Bureau } from "./bureau.ts";
 import { startHttp } from "./http.ts";
+import { Logger } from "./logger.ts";
 
 const root = join(import.meta.dirname, "..");
 const stateDir = join(root, ".annex");
@@ -39,18 +40,20 @@ try {
 }
 
 const store = new Store(join(stateDir, "annex.db"));
+const logger = new Logger(join(stateDir, "logs"));
 const bureau = new Bureau({
   store,
   pc: new Paperclip(process.env.PAPERCLIP_URL),
   wings,
   stateDir,
   wingsDir: join(root, "wings"),
+  logger,
   claudeCommand: findClaude(),
   settingsFile: writeAgentSettings(stateDir),
 });
 
-await startHttp({ bureau, store, port, webDir: join(root, "web", "dist") });
-console.log(`[annex] the office is at http://127.0.0.1:${port}`);
+await startHttp({ bureau, store, logger, port, webDir: join(root, "web", "dist") });
+logger.info(null, `the office is at http://127.0.0.1:${port}; this log is ${logger.file}`);
 await bureau.start();
 
 // A wing file edited by hand is applied without a restart; editors save in bursts, so wait for

@@ -30,6 +30,7 @@ export interface SettingsView {
   quietHours: string | null;
   backOffWhenIdle: boolean;
   askBefore: string[];
+  maxWorkers: number;
 }
 
 // What the settings form edits. Every field is optional; what is left out keeps its value.
@@ -49,6 +50,7 @@ export interface WingEdit {
   quietHours?: string | null;
   backOffWhenIdle?: boolean;
   askBefore?: string[];
+  maxWorkers?: number;
   allow?: string[];
 }
 
@@ -75,11 +77,17 @@ export interface RunView {
   finishedAt: string | null;
   task: { identifier: string; title: string } | null;
   reason: string;
+  // exactly what Paperclip sent Claude for this run
+  prompt: string | null;
   entries: Entry[];
 }
 
 export interface TranscriptView {
   agent: AgentView & { wingId: string };
+  // Annex's standing instructions for this agent (its AGENTS.md)
+  instructions: string;
+  // the full system prompt Paperclip appended on the latest run: its own contract, then ours
+  systemPrompt: string | null;
   runs: RunView[];
 }
 
@@ -124,7 +132,10 @@ export interface WingView {
   settings: SettingsView;
   asks: AskView[];
   paused: boolean;
-  edit: Required<Omit<WingEdit, "wakeEvery" | "maxRunsPerHour" | "quietHours" | "backOffWhenIdle" | "askBefore">>;
+  edit: Required<Omit<WingEdit, "wakeEvery" | "maxRunsPerHour" | "quietHours" | "backOffWhenIdle" | "askBefore" | "maxWorkers">>;
+  // when an autonomous lead next wakes, or why it will not
+  nextWake: { at: string | null; blockedBy: string | null };
+  houseRules: string[];
 }
 
 export interface StateView {

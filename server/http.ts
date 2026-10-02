@@ -7,6 +7,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import type { Store } from "./db.ts";
+import type { Logger } from "./logger.ts";
 import type { StateView, WingEdit, NewWing, TranscriptView } from "./api-types.ts";
 
 export interface Bureau {
@@ -20,6 +21,7 @@ export interface Bureau {
   updateWing(wingId: string, edit: WingEdit): Promise<void>;
   createWing(n: NewWing): Promise<{ id: string }>;
   decideAsk(wingId: string, askId: number, approve: boolean): Promise<void>;
+  hireFromOffice(wingId: string, count: number): Promise<{ hired: number }>;
   pause(wingId: string): void;
   resume(wingId: string): void;
 }
@@ -41,8 +43,8 @@ const TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
 };
 
-export function startHttp(opts: { bureau: Bureau; store: Store; port: number; webDir: string }): Promise<Server> {
-  const { bureau, store, webDir } = opts;
+export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string }): Promise<Server> {
+  const { bureau, store, webDir, logger } = opts;
 
   const server = createServer(async (req, res) => {
     try {
@@ -50,6 +52,9 @@ export function startHttp(opts: { bureau: Bureau; store: Store; port: number; we
       const path = url.pathname;
 
       if (req.method === "GET" && path === "/api/state") return json(res, 200, await bureau.state());
+      if (req.method === "GET" && path === "/api/logs") {
+        return json(res, 200, { file: logger?.file ?? null, lines: logger?.since(Number(url.searchParams.get("after") ?? 0), url.searchParams.get("wing") ?? undefined) ?? [] });
+      }
       if (req.method === "GET" && path === "/api/stream") return streamEvents(req, res, store, Number(url.searchParams.get("after") ?? 0));
 
       const agent = /^\/api\/agents\/([^/]+)\/transcript$/.exec(path);
@@ -76,6 +81,12 @@ export function startHttp(opts: { bureau: Bureau; store: Store; port: number; we
       if (req.method === "POST" && ask) {
         await bureau.decideAsk(decodeURIComponent(ask[1]!), Number(ask[2]), ask[3] === "approve");
         return json(res, 200, { ok: true });
+      }
+
+      const hire = /^\/api\/wings\/([^/]+)\/hire$/.exec(path);
+      if (req.method === "POST" && hire) {
+        const body = await readJson(req);
+        return json(res, 200, await bureau.hireFromOffice(decodeURIComponent(hire[1]!), Number(body.count ?? 1)));
       }
 
       const hold = /^\/api\/wings\/([^/]+)\/(pause|resume)$/.exec(path);

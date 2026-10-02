@@ -37,7 +37,7 @@ export function applyEdit(w: Wing, e: WingEdit): Wing {
 const q = (s: string) => JSON.stringify(s);
 const tilde = (p: string) => (p.startsWith(homedir() + "/") ? "~" + p.slice(homedir().length) : p);
 
-export function toToml(w: Wing, settings: { wakeEvery: string; maxRunsPerHour: number | null; quietHours: string | null; backOffWhenIdle: boolean; askBefore: string[] }): string {
+export function toToml(w: Wing, settings: { wakeEvery: string; maxRunsPerHour: number | null; quietHours: string | null; backOffWhenIdle: boolean; askBefore: string[]; maxWorkers: number }): string {
   const out: string[] = [
     `# ${w.name}. Edited in Annex's office or by hand; Annex applies changes without a restart.`,
     "",
@@ -59,6 +59,7 @@ export function toToml(w: Wing, settings: { wakeEvery: string; maxRunsPerHour: n
   out.push(settings.quietHours ? `quiet_hours = ${q(settings.quietHours)}` : `# quiet_hours = "00:00-07:00"`);
   out.push(settings.backOffWhenIdle ? "back_off_when_idle = true" : "# back_off_when_idle = true");
   out.push(settings.askBefore.length ? `ask_before = [${settings.askBefore.map(q).join(", ")}]` : `# ask_before = ["adding a new dependency"]`);
+  out.push(`max_workers = ${settings.maxWorkers}`);
   if (w.allow.length) out.push("", "[permissions]", `allow = [${w.allow.map(q).join(", ")}]`);
   return out.join("\n") + "\n";
 }

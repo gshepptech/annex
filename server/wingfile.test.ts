@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { parseWing } from "./wing.ts";
 import { applyEdit, toToml } from "./wingfile.ts";
 
-const settings = { wakeEvery: "15m", maxRunsPerHour: null, quietHours: null, backOffWhenIdle: false, askBefore: [] };
+const settings = { wakeEvery: "15m", maxRunsPerHour: null, quietHours: null, backOffWhenIdle: false, askBefore: [] as string[], maxWorkers: 6 };
 
 test("a shipped wing survives a round trip through the writer", () => {
   const src = readFileSync(join(import.meta.dirname, "..", "wings", "upkeep", "wing.toml"), "utf8");

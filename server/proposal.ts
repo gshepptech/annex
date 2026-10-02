@@ -13,6 +13,8 @@ export interface ProposedTask {
   // the lead wants the person's yes before this starts (ask_before, or the brief's call-backs)
   askFirst: boolean;
   askReason: string;
+  // which of the repo's house rules apply and how this task keeps them
+  houseRules: string;
 }
 
 export interface Verdict {
@@ -29,7 +31,7 @@ export function findFence(body: string, tag: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
-export function parseProposal(body: string): { note: string; tasks: ProposedTask[] } | { error: string } {
+export function parseProposal(body: string): { note: string; tasks: ProposedTask[]; hire: { count: number; reason: string } | null } | { error: string } {
   const raw = findFence(body, PROPOSAL_FENCE);
   if (raw === null) return { error: `no \`${PROPOSAL_FENCE}\` block in the lead's comment` };
   let data: unknown;
@@ -55,9 +57,12 @@ export function parseProposal(body: string): { note: string; tasks: ProposedTask
       details: s("details"),
       askFirst: o.ask_first === true,
       askReason: s("ask_reason"),
+      houseRules: s("house_rules"),
     };
   });
-  return { note: typeof d.note === "string" ? d.note.trim() : "", tasks };
+  const h = (typeof (d as { hire?: unknown }).hire === "object" && (d as { hire?: unknown }).hire) || null;
+  const hire = h ? { count: Math.max(0, Math.floor(Number((h as { count?: unknown }).count) || 0)), reason: String((h as { reason?: unknown }).reason ?? "") } : null;
+  return { note: typeof d.note === "string" ? d.note.trim() : "", tasks, hire: hire && hire.count > 0 ? hire : null };
 }
 
 export function parseBrief(body: string): string | null {
@@ -73,6 +78,8 @@ export interface Context {
   signals: { name: string; output: string }[];
   // titles of open tasks and of tasks closed in the last 7 days
   existingTitles: string[];
+  // the repo has a CLAUDE.md or AGENTS.md, so every task must say which of its rules apply
+  houseRules?: boolean;
 }
 
 export function judge(tasks: ProposedTask[], ctx: Context): Verdict[] {
@@ -93,6 +100,7 @@ function rejectReason(t: ProposedTask, ctx: Context, taken: string[], index: num
   if (danger) return `the done check ${danger}`;
   if (!t.charterLine) return "no charter line";
   if (!lineInText(t.charterLine, ctx.charter)) return `"${t.charterLine}" is not a line of the charter or brief`;
+  if (ctx.houseRules && t.houseRules.length < 12) return "it does not say which of the repo's house rules (CLAUDE.md) apply and how it keeps them";
   if (!t.evidence) return "no evidence";
   if (!evidenceInSignals(t.evidence, ctx.signals)) return "the evidence does not quote any signal output";
   const dup = taken.find((x) => similar(x, t.title));

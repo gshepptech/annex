@@ -22,6 +22,7 @@ const task = (over: Partial<ProposedTask> = {}): ProposedTask => ({
   details: "",
   askFirst: false,
   askReason: "",
+  houseRules: "",
   ...over,
 });
 
@@ -81,4 +82,17 @@ test("a brief needs all four headings", () => {
   const good = "```annex-brief\n## Goal\nShip it\n## Decided\nX\n## Off limits\nY\n## Call me back when\nZ\n```";
   assert.match(parseBrief(good)!, /## Goal/);
   assert.equal(parseBrief("```annex-brief\n## Goal\nonly this\n```"), null);
+});
+
+test("when the repo has house rules, a task must say which apply", () => {
+  const [bare] = judge([task()], { charter, signals, existingTitles: [], houseRules: true });
+  assert.match(bare!.reason!, /house rules/);
+  const [ok] = judge([task({ houseRules: "Local git only: no push. No Claude attribution in the commit." })], { charter, signals, existingTitles: [], houseRules: true });
+  assert.equal(ok!.reason, null);
+});
+
+test("a hire request is read with its count and reason", () => {
+  const p = parseProposal('```annex-proposal\n{"note":"","tasks":[],"hire":{"count":2,"reason":"three tasks are waiting"}}\n```');
+  assert.ok(!("error" in p));
+  assert.deepEqual(p.hire, { count: 2, reason: "three tasks are waiting" });
 });
