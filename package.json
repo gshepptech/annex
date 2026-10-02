@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node server/main.ts",
-    "test": "node --test \"server/**/*.test.ts\"",
+    "test": "node --test \"server/**/*.test.ts\" \"web/src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
     "web:dev": "vite web",
     "web:build": "vite build web"
@@ -17,7 +17,11 @@
     "smol-toml": "1.9.0"
   },
   "devDependencies": {
+    "@fontsource/archivo-narrow": "^5.3.0",
+    "@fontsource/courier-prime": "^5.3.0",
+    "@fontsource/stardos-stencil": "^5.3.0",
     "@types/node": "^24.11.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "^8.3.2"
   }
 }

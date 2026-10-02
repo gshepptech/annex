@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { parse } from "smol-toml";
 
-export type Mode = "with_you" | "autonomous";
+import type { Mode } from "./api-types.ts";
+export type { Mode };
 
 export interface Signal {
   name: string;

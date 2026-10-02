@@ -10,7 +10,13 @@
     "verbatimModuleSyntax": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["server/**/*.ts", "spike/**/*.ts"]
+  "include": [
+    "server/**/*.ts",
+    "spike/**/*.ts",
+    "web/src/**/*.test.ts"
+  ]
 }

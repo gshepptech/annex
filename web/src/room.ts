@@ -1,0 +1,120 @@
+// One wing's room on the page: its door sign, the canvas, and the text laid over it.
+
+import type { WingView } from "../../server/api-types.ts";
+import type { BourneEvent } from "../../server/events.ts";
+import { sceneFromSnapshot, applyEvent, tick, type RoomScene } from "./office/scene.ts";
+import { renderRoom } from "./office/render.ts";
+import { TILE } from "./office/sprites.ts";
+import { h } from "./dom.ts";
+
+const STAMP_MS = 1800;
+
+export class Room {
+  readonly el: HTMLElement;
+  scene: RoomScene;
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private overlay: HTMLElement;
+  private sign: HTMLElement;
+  private meta: HTMLElement;
+  private stampEl: HTMLElement;
+  private doorEl: HTMLElement;
+  private bubbles = new Map<string, HTMLElement>();
+  private names = new Map<string, HTMLElement>();
+  private wing: WingView;
+
+  constructor(wing: WingView, lastEventId: number, onSelect: (id: string) => void) {
+    this.wing = wing;
+    this.scene = sceneFromSnapshot(wing, lastEventId);
+    const { w, h: rows } = this.scene.layout;
+    this.canvas = h("canvas", { width: w * TILE, height: rows * TILE, "aria-hidden": "true" });
+    this.ctx = this.canvas.getContext("2d")!;
+    this.overlay = h("div", { class: "overlay" });
+    this.stampEl = h("div", { class: "stamp", hidden: true });
+    this.doorEl = h("div", { class: "door-sign", hidden: true });
+    this.overlay.append(this.stampEl, this.doorEl);
+    const { review, door } = this.scene.layout;
+    this.stampEl.style.left = `${((review.at.x + 1) / w) * 100}%`;
+    this.stampEl.style.top = `${((review.at.y + 0.5) / rows) * 100}%`;
+    this.doorEl.style.left = `${((door.at.x + 0.5) / w) * 100}%`;
+    this.doorEl.style.top = `${((door.at.y - 0.6) / rows) * 100}%`;
+    this.sign = h("h2", { class: "room-sign" }, wing.name);
+    this.meta = h("p", { class: "room-meta" });
+    this.el = h(
+      "section",
+      { class: "room", "data-wing": wing.id },
+      h(
+        "button",
+        { class: "room-head", type: "button", onclick: () => onSelect(wing.id), "aria-label": `Open ${wing.name}` },
+        this.sign,
+        this.meta,
+      ),
+      h("div", { class: "floor", style: `aspect-ratio: ${w} / ${rows}` }, this.canvas, this.overlay),
+    );
+    for (const a of this.scene.actors.values()) {
+      const name = h("span", { class: "name" }, a.name);
+      const bubble = h("span", { class: "bubble", hidden: true });
+      this.names.set(a.id, name);
+      this.bubbles.set(a.id, bubble);
+      this.overlay.append(name, bubble);
+    }
+    this.update(wing);
+  }
+
+  // When the crew is unchanged a fresh snapshot only updates the labels, so animations already in
+  // flight keep going. A changed crew needs a new Room.
+  sameCrew(wing: WingView): boolean {
+    return wing.agents.length === this.wing.agents.length && wing.agents.every((a, i) => a.id === this.wing.agents[i]?.id);
+  }
+
+  update(wing: WingView) {
+    this.wing = wing;
+    const open = wing.tasks.filter((t) => t.status !== "done" && t.status !== "cancelled").length;
+    const mode = wing.mode === "autonomous" ? "On its own" : "With you";
+    const where = wing.repo ? `${wing.repo.split("/").pop()} · ${wing.integrationBranch}` : "no repo yet";
+    this.meta.textContent = `${mode} · ${where} · ${open} open · ${wing.filedCount} filed`;
+    this.el.classList.toggle("offline", wing.offline !== null);
+    this.el.dataset.mode = wing.mode;
+  }
+
+  apply(e: BourneEvent, now: number) {
+    applyEvent(this.scene, e, now);
+  }
+
+  frame(dt: number, now: number, reducedMotion: boolean) {
+    tick(this.scene, dt, now);
+    renderRoom(this.ctx, this.scene, now);
+    const { w, h: rows } = this.scene.layout;
+    for (const a of this.scene.actors.values()) {
+      const left = `${((a.pos.x + 0.5) / w) * 100}%`;
+      const name = this.names.get(a.id)!;
+      name.style.left = left;
+      name.style.top = `${((a.pos.y + 0.55) / rows) * 100}%`;
+      const bubble = this.bubbles.get(a.id)!;
+      if (a.bubble) {
+        bubble.hidden = false;
+        if (bubble.textContent !== a.bubble.text) bubble.textContent = a.bubble.text;
+        bubble.style.left = left;
+        bubble.style.top = `${((a.pos.y - 1.1) / rows) * 100}%`;
+      } else {
+        bubble.hidden = true;
+      }
+    }
+    const s = this.scene.stamp;
+    if (s && now - s.at < STAMP_MS) {
+      this.stampEl.hidden = false;
+      this.stampEl.textContent = s.text;
+      this.stampEl.dataset.kind = s.text.toLowerCase();
+      // the thump: lands large and settles, unless the person has asked for less motion
+      const t = Math.min(1, (now - s.at) / 160);
+      const scale = reducedMotion ? 1 : 1.9 - 0.9 * t;
+      const fade = now - s.at > STAMP_MS - 400 ? (STAMP_MS - (now - s.at)) / 400 : 1;
+      this.stampEl.style.transform = `translate(-50%, -50%) rotate(-9deg) scale(${scale})`;
+      this.stampEl.style.opacity = String(fade);
+    } else {
+      this.stampEl.hidden = true;
+    }
+    this.doorEl.hidden = !this.scene.doorSign;
+    if (this.scene.doorSign) this.doorEl.textContent = this.scene.doorSign;
+  }
+}
