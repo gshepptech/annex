@@ -23,6 +23,10 @@ npm run up
 time), waits for it, builds the page if needed, and runs Annex. Open http://127.0.0.1:4300.
 While working on the page, `npm run web:dev` serves it at :4301 with live reload.
 
+To stop, press Ctrl-C where `npm run up` is running. It stops what it started; a Paperclip that
+was already running is left alone. If Annex was started in the background:
+`pkill -f annex/server/main.ts`.
+
 ## Playing it
 
 - **The HUD** shows offices, crew, who is working, how much is verified, and whether Annex is
