@@ -17,6 +17,7 @@
   "include": [
     "server/**/*.ts",
     "spike/**/*.ts",
-    "web/src/**/*.test.ts"
+    "web/src/**/*.test.ts",
+    "scripts/**/*.ts"
   ]
 }
