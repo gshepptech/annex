@@ -14,6 +14,8 @@ export interface AgentView {
   // Paperclip's view: "running" while a run is in progress
   status: string;
   model: string;
+  // tasks this agent did that were verified and merged
+  filed: number;
 }
 
 export interface AskView {

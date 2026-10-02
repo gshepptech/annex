@@ -50,12 +50,14 @@ export function describe(e: BourneEvent, nameOf: (agentId: string) => string, ti
     case "approval.decided":
       return line(`${p.decision === "approved" ? "approved" : "declined"} ${p.title ?? "the request"}`);
     case "wing.mode_changed":
-      return line(p.mode === "autonomous" ? "handed the wing off. It runs on its own now." : "came back in. The lead waits for you.");
+      return line(p.mode === "autonomous" ? "handed the office off. It runs on its own now." : "came back in. The lead waits for you.");
     case "wing.held":
-      return line(`held the wing${p.reason ? `: ${p.reason}` : ""}${p.until ? ` until ${new Date(String(p.until)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`, "ask");
+      return line(`closed the office${p.reason ? `: ${p.reason}` : ""}${p.until ? ` until ${new Date(String(p.until)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}`, "ask");
     case "wing.resumed":
-      return line("resumed the wing");
+      return line("opened the office again");
     case "chat.message":
       return line(String(p.text ?? ""));
+    case "agent.hired":
+      return line(`hired ${p.name ?? "a worker"}${p.reason ? `: ${p.reason}` : ""}`, "good");
   }
 }

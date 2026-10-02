@@ -1,6 +1,6 @@
-import "@fontsource-variable/bricolage-grotesque";
-import "@fontsource-variable/geist";
-import "@fontsource-variable/jetbrains-mono";
+import "@fontsource/silkscreen/400.css";
+import "@fontsource-variable/pixelify-sans";
+import "@fontsource/vt323/400.css";
 import "./styles.css";
 
 import type { StateView } from "../../server/api-types.ts";
@@ -11,18 +11,22 @@ import { Panel } from "./panel.ts";
 import { Sidebar } from "./sidebar.ts";
 import { Terminal } from "./terminal.ts";
 import { newWingDialog } from "./newwing.ts";
+import { logDialog } from "./syslog.ts";
 import { h } from "./dom.ts";
 
 const app = document.getElementById("app")!;
 const rooms = new Map<string, Room>();
-const building = h("main", { class: "building", "aria-label": "Wings" });
-const drawer = h("aside", { class: "drawer" });
+const world = h("main", { class: "world", "aria-label": "Offices" });
+const drawer = h("aside", { class: "drawer box" });
+const toasts = h("div", { class: "toasts", "aria-live": "polite" });
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
 let state: StateView | null = null;
 let selectedWing: string | null = null;
 let selectedAgent: string | null = null;
 let recent: BourneEvent[] = [];
+// agents hired since the last snapshot: their room is rebuilt and they walk in from the door
+const arriving = new Set<string>();
 
 const panel = new Panel(() => scheduleRefresh(0));
 const terminal = new Terminal(
@@ -32,18 +36,38 @@ const terminal = new Terminal(
 const sidebar = new Sidebar({
   wing: (id) => selectWing(id, true),
   agent: (id) => selectAgent(id, true),
-  newWing: () => dialog.showModal(),
+  newWing: () => newOffice.showModal(),
 });
-const dialog = newWingDialog((id) => {
+const newOffice = newWingDialog((id) => {
   selectedWing = id;
   scheduleRefresh(0);
 });
+const syslog = logDialog();
 
-app.append(h("div", { class: "shell" }, sidebar.el, building, drawer), dialog);
+// the HUD: the game's top bar
+const stats = h("div", { class: "stats" });
+const openState = h("span", { class: "state", role: "status" }, "CONNECTING...");
+const hud = h(
+  "header",
+  { class: "hud box" },
+  h("h1", { class: "logo" }, "ANNEX"),
+  stats,
+  openState,
+  h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "SYSTEM LOG"),
+);
 
-// on narrow screens the drawer sits below the rooms, so bring it into view when chosen
+app.append(h("div", { class: "shell" }, hud, sidebar.el, world, drawer), toasts, newOffice, syslog.el);
+
+function toast(text: string, colour: string) {
+  const t = h("div", { class: "toast", style: `--c: ${colour}` }, text);
+  toasts.append(t);
+  setTimeout(() => t.remove(), 4200);
+  while (toasts.childElementCount > 4) toasts.firstElementChild?.remove();
+}
+
+// on narrow screens the dialog sits below the offices, so bring it into view when chosen
 function reveal(fromTap: boolean) {
-  if (fromTap && matchMedia("(max-width: 1280px)").matches) requestAnimationFrame(() => drawer.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth" }));
+  if (fromTap && matchMedia("(max-width: 1300px)").matches) requestAnimationFrame(() => drawer.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth" }));
 }
 
 function selectWing(id: string, fromTap = false) {
@@ -84,21 +108,37 @@ function applyState(next: StateView) {
     if (existing && existing.sameCrew(w)) {
       existing.update(w);
     } else {
-      const room = new Room(w, existing?.scene.lastEventId ?? next.lastEventId, (id) => selectWing(id, true), (id) => selectAgent(id, true));
+      const arrivals = new Set(w.agents.filter((a) => arriving.has(a.id)).map((a) => a.id));
+      for (const id of arrivals) arriving.delete(id);
+      const room = new Room(w, existing?.scene.lastEventId ?? next.lastEventId, (id) => selectWing(id, true), (id) => selectAgent(id, true), arrivals);
       if (existing) existing.el.replaceWith(room.el);
-      else building.append(room.el);
+      else world.append(room.el);
       rooms.set(w.id, room);
     }
   }
   if (!selectedWing || !next.wings.some((w) => w.id === selectedWing)) selectedWing = next.wings[0]?.id ?? null;
+
+  const crew = next.wings.flatMap((w) => w.agents);
+  const working = crew.filter((a) => a.status === "running").length;
+  const filed = next.wings.reduce((n, w) => n + w.filedCount, 0);
+  const quests = next.wings.reduce((n, w) => n + w.asks.length, 0);
+  stats.replaceChildren(
+    h("span", {}, "OFFICES", h("b", {}, String(next.wings.length))),
+    h("span", {}, "CREW", h("b", {}, String(crew.length))),
+    h("span", {}, "WORKING", h("b", {}, String(working))),
+    h("span", {}, "FILED", h("b", {}, `★${filed}`)),
+  );
+  if (quests) stats.append(h("span", { style: "color: var(--gold)" }, "ASKS", h("b", {}, `!${quests}`)));
   const held = next.wings.find((w) => w.held && !w.paused);
-  const own = next.wings.filter((w) => w.mode === "autonomous").length;
-  const working = next.wings.flatMap((w) => w.agents).filter((a) => a.status === "running").length;
-  if (held) {
-    const until = held.held!.until ? new Date(held.held!.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
-    sidebar.setStatus(`Held${until ? ` until ${until}` : ""}: ${held.held!.reason}`, true);
+  if (held?.held) {
+    const until = held.held.until ? new Date(held.held.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+    openState.textContent = `CLOSED${until ? ` UNTIL ${until}` : ""}`;
+    openState.title = held.held.reason;
+    openState.classList.add("closed");
   } else {
-    sidebar.setStatus(`${next.wings.length} wings · ${own} on their own · ${working} working`);
+    openState.textContent = working ? `● ${working} AT WORK` : "OPEN";
+    openState.title = "";
+    openState.classList.remove("closed");
   }
   draw();
 }
@@ -111,14 +151,26 @@ function scheduleRefresh(ms = 400) {
     try {
       applyState(await getState());
     } catch (err) {
-      sidebar.setStatus((err as Error).message, true);
+      openState.textContent = "NO SIGNAL";
+      openState.title = (err as Error).message;
     }
   }, ms);
 }
 
-// Events that change what the labels, the sidebar and the case file show; movement itself comes
-// from the event.
-const REFRESH_ON = new Set(["task.created", "task.started", "task.done", "task.stopped", "wing.mode_changed", "wing.held", "wing.resumed", "chat.message", "approval.requested", "approval.decided", "lead.woke", "lead.idle", "agent.said"]);
+// Real events become game notifications; nothing is announced that did not happen.
+function announce(e: BourneEvent) {
+  const wing = state?.wings.find((w) => w.id === e.wingId);
+  const office = wing?.name.toUpperCase() ?? "";
+  const title = String(e.payload.title ?? "").slice(0, 48);
+  if (e.kind === "task.done") toast(`★ VERIFIED · ${office} · ${title}`, "var(--ok)");
+  if (e.kind === "task.stopped") toast(`✖ STOPPED · ${office} · ${title}`, "var(--bad)");
+  if (e.kind === "agent.hired") toast(`✚ HIRED · ${String(e.payload.name ?? "").toUpperCase()} JOINS ${office}`, "var(--worker)");
+  if (e.kind === "approval.requested") toast(`! ${office} ASKS · ${String(e.payload.title ?? "").slice(0, 48)}`, "var(--gold)");
+  if (e.kind === "wing.held") toast(`⏸ ${office} CLOSED${e.payload.reason ? ` · ${String(e.payload.reason).toUpperCase()}` : ""}`, "var(--warn)");
+  if (e.kind === "wing.resumed") toast(`▶ ${office} OPEN AGAIN`, "var(--ok)");
+}
+
+const REFRESH_ON = new Set(["task.created", "task.started", "task.done", "task.stopped", "wing.mode_changed", "wing.held", "wing.resumed", "chat.message", "approval.requested", "approval.decided", "lead.woke", "lead.idle", "agent.said", "agent.hired"]);
 
 async function boot() {
   try {
@@ -130,22 +182,29 @@ async function boot() {
       (e) => {
         recent.push(e);
         if (recent.length > 1000) recent = recent.slice(-1000);
+        if (e.kind === "agent.hired" && typeof e.payload.agentId === "string") arriving.add(e.payload.agentId);
         rooms.get(e.wingId)?.apply(e, performance.now());
         panel.push(e);
+        announce(e);
         if (selectedAgent && e.actor === selectedAgent) terminal.poke();
         if (REFRESH_ON.has(e.kind)) scheduleRefresh();
       },
       (connected) => {
-        if (!connected) sidebar.setStatus("Lost the connection to Annex. Reconnecting...", true);
-        else scheduleRefresh(0);
+        if (!connected) {
+          openState.textContent = "RECONNECTING...";
+          openState.classList.add("closed");
+        } else {
+          scheduleRefresh(0);
+        }
       },
     );
   } catch (err) {
-    sidebar.setStatus(`${(err as Error).message}. Is \`npm start\` running?`, true);
+    openState.textContent = "NO SIGNAL";
+    openState.title = `${(err as Error).message}. Is \`npm start\` running?`;
     setTimeout(boot, 3000);
     return;
   }
-  // agent status (working or idle) comes from Paperclip, so it is re-read now and then
+  // working or idle comes from Paperclip, so it is re-read now and then
   setInterval(() => scheduleRefresh(0), 10_000);
   let last = performance.now();
   const frame = (now: number) => {

@@ -447,6 +447,19 @@ export class Store {
     return (this.db.prepare(sql + " order by created_at").all(...args) as Record<string, unknown>[]).map(toTask);
   }
 
+  // How many verified, merged tasks each worker did, from who each task was first given to.
+  filedBy(wingId: string): Map<string, number> {
+    const rows = this.db
+      .prepare(
+        `select json_extract(e.payload, '$.assigneeId') as agent, count(*) as n
+         from event e join task t on t.id = e.task_id
+         where e.kind = 'task.created' and e.wing_id = ? and t.state = 'merged'
+         group by agent`,
+      )
+      .all(wingId) as { agent: string | null; n: number }[];
+    return new Map(rows.filter((r) => r.agent).map((r) => [r.agent!, r.n]));
+  }
+
   closeTask(id: string, state: "merged" | "stopped") {
     this.db.prepare("update task set state = ?, closed_at = ? where id = ?").run(state, now(), id);
   }

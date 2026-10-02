@@ -1,4 +1,4 @@
-// "New wing": a wing file written for you. It starts with you, so nothing runs until you plan with
+// "New office": a wing file written for you. It starts with you, so nothing runs until you plan with
 // its lead and hand it off.
 
 import { post } from "./api.ts";
@@ -14,7 +14,7 @@ export function newWingDialog(done: (id: string) => void): HTMLDialogElement {
   name.addEventListener("input", () => {
     if (!idTouched) id.value = name.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 31);
   });
-  const dialog = h("dialog", { "aria-label": "New wing" }) as HTMLDialogElement;
+  const dialog = h("dialog", { class: "box", "aria-label": "New office" }) as HTMLDialogElement;
   const form = h(
     "form",
     {
@@ -34,14 +34,14 @@ export function newWingDialog(done: (id: string) => void): HTMLDialogElement {
         }
       },
     },
-    h("h2", {}, "New wing"),
-    h("p", {}, "A new room with its own lead, crew and reviewer. It starts with you: plan with the lead, then hand it off."),
+    h("h2", {}, "NEW OFFICE"),
+    h("p", {}, "A new room with its own lead, crew and reviewer. It starts with you: plan with the lead, then hand it off. You can hire more crew any time."),
     error,
     h("div", { class: "two" }, h("div", { class: "field" }, h("label", {}, "Name", name)), h("div", { class: "field" }, h("label", {}, "Id", id))),
     h("div", { class: "field" }, h("label", {}, "Repo (optional)", h("input", { name: "repoPath", placeholder: "~/Projects/my-app" }))),
     h("div", { class: "field" }, h("label", {}, "Base branch", h("input", { name: "baseBranch", value: "main" }))),
     h("div", { class: "field" }, h("label", {}, "Charter (optional)", h("textarea", { name: "charter", rows: 3, placeholder: "What should this wing keep true?" }))),
-    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "Open the wing"), h("button", { class: "btn ghost", type: "button", onclick: () => dialog.close() }, "Cancel")),
+    h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "OPEN THE OFFICE"), h("button", { class: "btn ghost", type: "button", onclick: () => dialog.close() }, "CANCEL")),
   );
   dialog.append(form);
   return dialog;

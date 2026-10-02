@@ -1006,7 +1006,7 @@ export class Bureau implements BureauApi {
     const instructions = await this.pc.instructions(agentId).catch(() => "");
     const systemPrompt = systemFile && existsSync(systemFile) ? readFileSync(systemFile, "utf8") : null;
     const info = rt.agentInfo.get(agentId);
-    return { agent: { id: row.id, role: row.role, name: row.name, desk: row.desk, wingId: row.wingId, status: info?.status ?? "idle", model: info?.model ?? "" }, instructions, systemPrompt, runs: out };
+    return { agent: { id: row.id, role: row.role, name: row.name, desk: row.desk, wingId: row.wingId, status: info?.status ?? "idle", model: info?.model ?? "", filed: this.store.filedBy(row.wingId).get(row.id) ?? 0 }, instructions, systemPrompt, runs: out };
   }
 
   // What Paperclip handed Claude for a run: the prompt itself and the system-prompt file it
@@ -1041,6 +1041,7 @@ export class Bureau implements BureauApi {
       const merged = this.store.tasks(rt.wing.id, { state: "merged" }).length;
       const brief = this.store.currentBrief(rt.wing.id);
       const draft = this.store.latestDraft(rt.wing.id);
+      const filed = this.store.filedBy(rt.wing.id);
       wings.push({
         id: rt.wing.id,
         name: rt.wing.name,
@@ -1050,7 +1051,7 @@ export class Bureau implements BureauApi {
         integrationBranch: rt.wing.repo?.integrationBranch ?? null,
         held: row.heldUntil ? { until: row.heldUntil, reason: row.heldReason ?? "held" } : null,
         offline: rt.offline,
-        agents: this.store.agents(rt.wing.id).map((a) => ({ id: a.id, role: a.role, name: a.name, desk: a.desk, status: rt.agentInfo.get(a.id)?.status ?? "idle", model: rt.agentInfo.get(a.id)?.model ?? "" })),
+        agents: this.store.agents(rt.wing.id).map((a) => ({ id: a.id, role: a.role, name: a.name, desk: a.desk, status: rt.agentInfo.get(a.id)?.status ?? "idle", model: rt.agentInfo.get(a.id)?.model ?? "", filed: filed.get(a.id) ?? 0 })),
         tasks,
         filedCount: merged,
         brief: brief ? { id: brief.id, version: brief.version, text: brief.text, status: brief.status } : null,

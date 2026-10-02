@@ -1,10 +1,10 @@
-// One wing's room on the page: its door sign, the canvas, and the text laid over it.
+// One office on the page: its nameplate, the canvas, and the text laid over it.
 
 import type { WingView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
 import { sceneFromSnapshot, applyEvent, tick, type RoomScene } from "./office/scene.ts";
 import { renderRoom, actorAt } from "./office/render.ts";
-import { wingPill } from "./sidebar.ts";
+import { officeBadge } from "./sidebar.ts";
 import { TILE } from "./office/sprites.ts";
 import { h } from "./dom.ts";
 
@@ -18,16 +18,17 @@ export class Room {
   private overlay: HTMLElement;
   private sign: HTMLElement;
   private pill: HTMLElement;
-  private meta: HTMLElement;
   private stampEl: HTMLElement;
   private doorEl: HTMLElement;
   private bubbles = new Map<string, HTMLElement>();
   private names = new Map<string, HTMLElement>();
   private wing: WingView;
 
-  constructor(wing: WingView, lastEventId: number, onSelect: (id: string) => void, onAgent: (agentId: string) => void) {
+  private next: HTMLElement;
+
+  constructor(wing: WingView, lastEventId: number, onSelect: (id: string) => void, onAgent: (agentId: string) => void, arrivals: Set<string> = new Set()) {
     this.wing = wing;
-    this.scene = sceneFromSnapshot(wing, lastEventId);
+    this.scene = sceneFromSnapshot(wing, lastEventId, arrivals);
     const { w, h: rows } = this.scene.layout;
     this.canvas = h("canvas", { width: w * TILE, height: rows * TILE, "aria-hidden": "true" });
     this.ctx = this.canvas.getContext("2d")!;
@@ -40,18 +41,18 @@ export class Room {
     this.stampEl.style.top = `${((review.at.y + 0.5) / rows) * 100}%`;
     this.doorEl.style.left = `${((door.at.x + 0.5) / w) * 100}%`;
     this.doorEl.style.top = `${((door.at.y - 0.6) / rows) * 100}%`;
-    this.sign = h("h2", { class: "room-sign" }, wing.name);
+    this.sign = h("h2", {}, wing.name.toUpperCase());
     this.pill = h("span", {});
-    this.meta = h("p", { class: "room-meta" });
+    this.next = h("span", { class: "next" });
     this.el = h(
       "section",
-      { class: "room", "data-wing": wing.id },
+      { class: "room box", "data-wing": wing.id },
       h(
         "button",
-        { class: "room-head", type: "button", onclick: () => onSelect(wing.id), "aria-label": `Open ${wing.name}` },
+        { class: "plaque", type: "button", onclick: () => onSelect(wing.id), "aria-label": `Open ${wing.name}` },
         this.sign,
         this.pill,
-        this.meta,
+        this.next,
       ),
       h("div", { class: "floor", style: `aspect-ratio: ${w} / ${rows}` }, this.canvas, this.overlay),
     );
@@ -82,12 +83,28 @@ export class Room {
 
   update(wing: WingView) {
     this.wing = wing;
-    const open = wing.tasks.filter((t) => t.status !== "done" && t.status !== "cancelled").length;
-    const where = wing.repo ? wing.repo.split("/").pop() : "no repo yet";
-    this.pill.replaceChildren(wingPill(wing));
-    this.meta.textContent = `${where} · ${open} open · ${wing.filedCount} filed`;
+    this.sign.textContent = wing.name.toUpperCase();
+    this.pill.replaceChildren(officeBadge(wing));
     this.el.classList.toggle("offline", wing.offline !== null);
     this.el.dataset.mode = wing.mode;
+  }
+
+  // The nameplate's right side: when the lead next wakes, counting down, or why it will not.
+  private tickNext() {
+    const n = this.wing.nextWake;
+    const hhmm = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    let text = "";
+    let closed = false;
+    if (this.wing.paused) [text, closed] = ["PAUSED", true];
+    else if (this.wing.held) [text, closed] = [`CLOSED · ${this.wing.held.until ? hhmm(this.wing.held.until) : ""}`, true];
+    else if (this.wing.mode === "with_you") text = "WAITING FOR YOU";
+    else if (n.blockedBy) text = n.blockedBy.toUpperCase();
+    else if (n.at) {
+      const s = Math.max(0, Math.round((new Date(n.at).getTime() - Date.now()) / 1000));
+      text = s === 0 ? "WAKING..." : `NEXT WAKE ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    }
+    if (this.next.textContent !== text) this.next.textContent = text;
+    this.next.classList.toggle("closed", closed);
   }
 
   apply(e: BourneEvent, now: number) {
@@ -96,6 +113,7 @@ export class Room {
 
   frame(dt: number, now: number, reducedMotion: boolean) {
     tick(this.scene, dt, now);
+    this.tickNext();
     renderRoom(this.ctx, this.scene, now);
     const { w, h: rows } = this.scene.layout;
     for (const a of this.scene.actors.values()) {

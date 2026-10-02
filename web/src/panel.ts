@@ -6,14 +6,14 @@ import type { BourneEvent } from "../../server/events.ts";
 import { describe } from "./log.ts";
 import { post } from "./api.ts";
 import { h } from "./dom.ts";
-import { wingPill } from "./sidebar.ts";
+import { officeBadge } from "./sidebar.ts";
 
 type Tab = "log" | "talk" | "brief" | "settings";
 
 const MODELS = ["claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-4-5-20251001"];
 
 export class Panel {
-  readonly el = h("section", { class: "panel", "aria-label": "Selected wing" });
+  readonly el = h("section", { class: "panel", "aria-label": "Selected office" });
   private wing: WingView | null = null;
   private tab: Tab = "log";
   private events: BourneEvent[] = [];
@@ -115,26 +115,35 @@ export class Panel {
 
     const modeButton =
       w.mode === "with_you"
-        ? h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Asking the lead to write the brief", `${base}/handoff`, {}, () => (this.tab = "brief")) }, "Hand off")
-        : h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Bringing the lead back", `${base}/come-back`, {}, () => (this.tab = "talk")) }, "Come back in");
+        ? h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Asking the lead to write the brief", `${base}/handoff`, {}, () => (this.tab = "brief")) }, "HAND OFF")
+        : h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Bringing the lead back", `${base}/come-back`, {}, () => (this.tab = "talk")) }, "COME BACK IN");
+    const crew = w.agents.filter((a) => a.role === "worker").length;
+    const hireButton = h(
+      "button",
+      { class: "btn", type: "button", disabled: busy || !!w.offline || crew >= w.settings.maxWorkers, title: `${crew} of ${w.settings.maxWorkers} workers`, onclick: () => this.act("Hiring", `${base}/hire`, { count: 1 }) },
+      `+ HIRE (${crew}/${w.settings.maxWorkers})`,
+    );
     const holdButton = w.held
-      ? h("button", { class: "btn", type: "button", disabled: busy, onclick: () => this.act("Resuming", `${base}/resume`) }, w.paused ? "Resume" : "Resume now")
-      : h("button", { class: "btn ghost", type: "button", disabled: busy, onclick: () => this.act("Pausing", `${base}/pause`) }, "Pause");
+      ? h("button", { class: "btn", type: "button", disabled: busy, onclick: () => this.act("Resuming", `${base}/resume`) }, w.paused ? "RESUME" : "RESUME NOW")
+      : h("button", { class: "btn ghost", type: "button", disabled: busy, onclick: () => this.act("Pausing", `${base}/pause`) }, "PAUSE");
 
     this.el.append(
       h(
         "header",
         { class: "panel-head" },
-        h("div", { class: "row-top" }, wingPill(w)),
-        h("h2", {}, w.name),
-        h("p", { class: "where" }, w.repo ? `${w.repo.replace(/^\/Users\/[^/]+/, "~")} → ${w.integrationBranch}` : "No repo yet. Set one in Settings to hand this wing off."),
-        h("div", { class: "actions" }, modeButton, holdButton),
+        officeBadge(w),
+        h("h2", {}, w.name.toUpperCase()),
+        h("p", { class: "where" }, w.repo ? `${w.repo.replace(/^\/Users\/[^/]+/, "~")} → ${w.integrationBranch}` : "No repo yet. Set one in Settings to hand this office off."),
+        w.houseRules.length ? h("p", { class: "where" }, `House rules: ${w.houseRules.join(", ")} (enforced on every task)`) : null,
+        h("div", { class: "actions" }, modeButton, hireButton, holdButton),
       ),
     );
     if (w.offline) this.el.append(h("p", { class: "notice bad" }, `Not connected to the engine: ${w.offline}`));
     if (w.held && !w.paused) {
       const until = w.held.until ? new Date(w.held.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
-      this.el.append(h("div", { class: "notice warn" }, h("span", {}, `Held${until ? ` until ${until}` : ""}: ${w.held.reason}. It starts again by itself.`)));
+      this.el.append(h("div", { class: "notice warn" }, h("b", {}, `CLOSED${until ? ` UNTIL ${until}` : ""}. `), `${w.held.reason}. Nobody works until then; it opens again by itself, or press Resume now.`));
+    } else if (w.mode === "autonomous" && w.nextWake.blockedBy) {
+      this.el.append(h("div", { class: "notice" }, `The lead is not waking: ${w.nextWake.blockedBy}.`));
     }
     if (this.busy) this.el.append(h("p", { class: "notice" }, `${this.busy}...`));
     if (this.error) this.el.append(h("p", { class: "notice bad", role: "alert" }, this.error));
@@ -143,19 +152,19 @@ export class Panel {
       this.el.append(
         h(
           "div",
-          { class: "asks" },
+          { class: "quests" },
           ...w.asks.map((a) =>
             h(
               "div",
-              { class: "ask" },
-              h("div", { class: "label" }, "The lead is asking"),
+              { class: "quest" },
+              h("div", { class: "label" }, "! THE LEAD ASKS"),
               h("h3", {}, a.title),
               h("p", {}, a.reason),
               h(
                 "div",
                 { class: "row" },
-                h("button", { class: "btn good", type: "button", disabled: busy, onclick: () => this.act("Approving", `${base}/asks/${a.id}/approve`) }, "Approve and start"),
-                h("button", { class: "btn bad", type: "button", disabled: busy, onclick: () => this.act("Declining", `${base}/asks/${a.id}/decline`) }, "Decline"),
+                h("button", { class: "btn good", type: "button", disabled: busy, onclick: () => this.act("Approving", `${base}/asks/${a.id}/approve`) }, "ACCEPT"),
+                h("button", { class: "btn bad", type: "button", disabled: busy, onclick: () => this.act("Declining", `${base}/asks/${a.id}/decline`) }, "DECLINE"),
               ),
             ),
           ),
@@ -163,13 +172,13 @@ export class Panel {
       );
     }
 
-    const tabs: [Tab, string, number][] = [["log", "Log", 0], ["talk", "Talk", 0], ["brief", "Brief", w.draft ? 1 : 0], ["settings", "Settings", 0]];
+    const tabs: [Tab, string, number][] = [["log", "LOG", 0], ["talk", "TALK", 0], ["brief", "BRIEF", w.draft ? 1 : 0], ["settings", "SETTINGS", 0]];
     this.el.append(
       h(
         "nav",
         { class: "tabs", role: "tablist" },
         ...tabs.map(([id, label, badge]) =>
-          h("button", { type: "button", role: "tab", "aria-selected": String(this.tab === id), onclick: () => { this.tab = id; this.saved = ""; this.render(); } }, label, badge ? h("span", { class: "badge" }, String(badge)) : null),
+          h("button", { type: "button", role: "tab", "aria-selected": String(this.tab === id), onclick: () => { this.tab = id; this.saved = ""; this.render(); } }, label, badge ? h("span", { class: "dot" }, "●") : null),
         ),
       ),
     );
@@ -184,7 +193,7 @@ export class Panel {
 
   private drawLog(body: HTMLElement, w: WingView, base: string, busy: boolean) {
     const list = h("ol", { class: "log" }, ...this.events.map((e) => this.logItem(e)));
-    if (this.events.length === 0) list.append(h("li", { class: "empty" }, "Nothing has happened in this wing yet."));
+    if (this.events.length === 0) list.append(h("li", { class: "empty" }, "Nothing has happened in this office yet."));
     const title = h("input", { "data-keep": "title", required: true, placeholder: "What needs doing", "aria-label": "Task title" });
     const detail = h("textarea", { "data-keep": "detail", rows: 2, placeholder: "Details the lead should know (optional)", "aria-label": "Task details" });
     body.append(
@@ -212,7 +221,7 @@ export class Panel {
       return;
     }
     const list = h("ol", { class: "chat" }, ...w.chat.map((m) => h("li", { class: m.who }, h("b", {}, m.who === "you" ? "You" : "Lead"), h("p", {}, m.text))));
-    if (w.chat.length === 0) list.append(h("li", { class: "empty" }, "Tell the lead what this wing should work on. When you're done planning, press Hand off."));
+    if (w.chat.length === 0) list.append(h("li", { class: "empty" }, "Tell the lead what this office should work on. When you're done planning, press Hand off."));
     const text = h("textarea", { "data-keep": "message", rows: 3, required: true, placeholder: "Message the lead", "aria-label": "Message the lead" });
     text.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) (ev.target as HTMLTextAreaElement).form?.requestSubmit();
@@ -244,7 +253,7 @@ export class Panel {
     }
     if (w.brief) body.append(h("h3", {}, `Brief in force, version ${w.brief.version}`), h("pre", { class: "brief" }, w.brief.text));
     if (!w.draft && !w.brief) {
-      body.append(h("p", { class: "empty" }, w.charter ? "This wing runs on its charter:" : "No brief yet. Plan with the lead in Talk, then press Hand off and it writes one for you to approve."));
+      body.append(h("p", { class: "empty" }, w.charter ? "This office runs on its charter:" : "No brief yet. Plan with the lead in Talk, then press Hand off and it writes one for you to approve."));
       if (w.charter) body.append(h("pre", { class: "brief" }, w.charter));
     }
   }
@@ -283,17 +292,18 @@ export class Panel {
             maxRunsPerHour: val("maxRunsPerHour") ? Number(val("maxRunsPerHour")) : null,
             quietHours: val("quietFrom") && val("quietTo") ? `${val("quietFrom")}-${val("quietTo")}` : null,
             backOffWhenIdle: backoff.checked,
+            maxWorkers: Number(val("maxWorkers")),
             askBefore: val("askBefore").split("\n"),
             allow: val("allow").split(/[,\s]+/).filter(Boolean),
           };
-          void this.act("Saving and applying", base, edit, () => (this.saved = "Saved. The wing is using the new settings."), "PUT");
+          void this.act("Saving and applying", base, edit, () => (this.saved = "Saved. The office is using the new settings."), "PUT");
         },
       },
       h("datalist", { id: "models" }, ...MODELS.map((m) => h("option", { value: m }))),
       h(
         "fieldset",
         {},
-        h("legend", {}, "The wing"),
+        h("legend", {}, "THE OFFICE"),
         field("Name", input("name", e.name, { required: true })),
         field("Charter", charter, "What the lead works toward. Each task must quote a line of it."),
         h("div", { class: "two" }, field("Repo", input("repoPath", e.repoPath ?? "", { placeholder: "~/Projects/my-app" })), field("Base branch", input("baseBranch", e.baseBranch))),
@@ -303,8 +313,8 @@ export class Panel {
       h(
         "fieldset",
         {},
-        h("legend", {}, "The crew"),
-        field("Workers", input("workers", String(e.workers), { type: "number", min: 1, max: 8 })),
+        h("legend", {}, "THE CREW"),
+        h("div", { class: "two" }, field("Workers", input("workers", String(e.workers), { type: "number", min: 1, max: 8 })), field("Most workers", input("maxWorkers", String(s.maxWorkers), { type: "number", min: 1, max: 8 }), "The lead may hire up to this.")),
         h("div", { class: "two" }, field("Lead model", input("leadModel", e.leadModel, { list: "models" })), field("Crew model", input("workerModel", e.workerModel, { list: "models" }))),
         field("Reviewer model", input("reviewerModel", e.reviewerModel, { list: "models" })),
         field("Commands the crew may run", input("allow", e.allow.join(", "), { placeholder: "npm, npx, node" })),
@@ -312,13 +322,13 @@ export class Panel {
       h(
         "fieldset",
         {},
-        h("legend", {}, "Pace and limits (all optional)"),
+        h("legend", {}, "PACE AND LIMITS (ALL OPTIONAL)"),
         h("div", { class: "two" }, field("Wake every", input("wakeEvery", s.wakeEvery, { placeholder: "15m" })), field("Runs per hour", input("maxRunsPerHour", s.maxRunsPerHour === null ? "" : String(s.maxRunsPerHour), { type: "number", min: 1, placeholder: "No limit" }))),
         h("div", { class: "two" }, field("Quiet from", input("quietFrom", s.quietHours?.split("-")[0] ?? "", { type: "time" })), field("Quiet until", input("quietTo", s.quietHours?.split("-")[1] ?? "", { type: "time" }))),
         h("div", { class: "field check" }, backoff, h("label", { for: "backoff" }, "Back off when idle: wait longer after wakes that found nothing")),
         field("Ask me before", askBefore, "The lead raises its hand for these instead of starting them."),
       ),
-      h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", disabled: busy }, "Save settings"), this.saved ? h("span", { class: "saved" }, this.saved) : null),
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", disabled: busy }, "SAVE"), this.saved ? h("span", { class: "saved" }, this.saved) : null),
     );
     body.append(form);
   }

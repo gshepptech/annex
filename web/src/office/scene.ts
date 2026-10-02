@@ -69,7 +69,8 @@ export interface RoomScene {
 
 const WALK_TILES_PER_SEC = 4.5;
 
-export function sceneFromSnapshot(w: WingView, lastEventId: number): RoomScene {
+// `arrivals` are agents just hired: they start at the door and walk to their desk.
+export function sceneFromSnapshot(w: WingView, lastEventId: number, arrivals: Set<string> = new Set()): RoomScene {
   // enough desks for the highest desk number in use, so a gap left by a departed worker is fine
   const layout = defaultLayout(Math.max(1, ...w.agents.filter((a) => a.role === "worker").map((a) => a.desk)));
   const scene: RoomScene = {
@@ -85,10 +86,11 @@ export function sceneFromSnapshot(w: WingView, lastEventId: number): RoomScene {
     doorSign: w.held ? holdSign(w.held.until) : null,
     lastEventId,
   };
-  w.agents.forEach((a, index) => {
+  w.agents.forEach((a) => {
     const actor: Actor = {
       ...a,
-      index,
+      // the same face as in the roster and the terminal
+      index: a.desk < 0 ? 7 : a.desk,
       pos: { x: 0, y: 0 },
       path: [],
       queue: [],
@@ -97,7 +99,12 @@ export function sceneFromSnapshot(w: WingView, lastEventId: number): RoomScene {
       working: false,
       facing: 1,
     };
-    actor.pos = { ...home(scene, actor) };
+    if (arrivals.has(a.id)) {
+      actor.pos = { ...scene.layout.door.stand };
+      actor.queue.push({ kind: "walk", to: home(scene, actor) });
+    } else {
+      actor.pos = { ...home(scene, actor) };
+    }
     scene.actors.set(a.id, actor);
   });
   for (const t of w.tasks) placeFromStatus(scene, t);
