@@ -490,7 +490,10 @@ export class Bureau implements BureauApi {
         return out;
       });
       const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
-      const view = (t: TaskRow) => ({ identifier: t.identifier, title: t.title, status: rt.issues.get(t.id)?.status ?? t.state });
+      const view = (t: TaskRow) => {
+        const last = t.state === "stopped" ? this.store.checks(t.id).at(-1) : undefined;
+        return { identifier: t.identifier, title: t.title, status: t.state === "open" ? rt.issues.get(t.id)?.status ?? "open" : t.state, why: last?.outputTail ? lastLines(last.outputTail, 8) : undefined };
+      };
       const dropIns = this.store.pendingDropIns(wingId);
       const brief = this.store.currentBrief(wingId);
       const { title, description } = wakeIssue({

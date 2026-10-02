@@ -68,6 +68,10 @@ Rules Annex enforces, so a task that breaks one is thrown away:
 - \`evidence\` must point at real signal output in the issue. No evidence, no task.
 - \`done_check\` must be a command Annex can run in the repo. Prefer the wing's default
   (${w.doneCheck ? `\`${w.doneCheck}\`` : "none set"}) and add to it rather than replace it.
+- The done check must be able to pass once the task is done. Picture the signal output after
+  the change before you write it. For example, \`npm outdated\` keeps listing a package whose
+  Latest is a newer major than Wanted, so "grep finds nothing" can never pass for a within-range
+  bump. A task whose check cannot pass is stopped after three tries and wastes the crew's work.
 - Do not repeat a task that is open or was closed in the last 7 days.
 - An empty list is a correct answer when nothing is worth doing. Say why in \`note\`.
 
@@ -144,7 +148,7 @@ export function wakeIssue(opts: {
   brief: string | null;
   signals: { name: string; run: string; exitCode: number; output: string }[];
   open: { identifier: string; title: string; status: string }[];
-  closed: { identifier: string; title: string; status: string }[];
+  closed: { identifier: string; title: string; status: string; why?: string }[];
   dropIns: { title: string; detail: string }[];
 }): { title: string; description: string } {
   const { wing } = opts;
@@ -156,7 +160,7 @@ export function wakeIssue(opts: {
     lines.push("", `### ${s.name}: \`${s.run}\` (exit ${s.exitCode})`, "", "```", s.output.trim().slice(-6000) || "(no output)", "```");
   }
   lines.push("", "## Open tasks", "", ...(opts.open.length ? opts.open.map((t) => `- ${t.identifier} [${t.status}] ${t.title}`) : ["None."]));
-  lines.push("", "## Closed in the last 7 days", "", ...(opts.closed.length ? opts.closed.map((t) => `- ${t.identifier} [${t.status}] ${t.title}`) : ["None."]));
+  lines.push("", "## Closed in the last 7 days", "", ...(opts.closed.length ? opts.closed.map((t) => `- ${t.identifier} [${t.status}] ${t.title}${t.why ? `\n  Why it stopped, from Annex's last check:\n  \`\`\`\n${t.why}\n  \`\`\`` : ""}`) : ["None."]));
   if (opts.dropIns.length) {
     lines.push("", "## Dropped in by the person", "", "Triage these first. They skip the duplicate rule.");
     for (const d of opts.dropIns) lines.push("", `- **${d.title}**${d.detail ? `: ${d.detail}` : ""}`);
