@@ -71,6 +71,8 @@ export interface Run {
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out";
   invocationSource: string;
   errorCode: string | null;
+  createdAt?: string;
+  startedAt?: string | null;
 }
 
 export interface Frame {

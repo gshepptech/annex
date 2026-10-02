@@ -102,6 +102,30 @@ export async function mergeTask(ws: WingWorkspace, taskKey: string, message: str
   }
 }
 
+export async function head(dir: string): Promise<string> {
+  return git(dir, "rev-parse", "HEAD");
+}
+
+// Merge any branch (Paperclip names task branches) into the integration branch.
+export async function mergeBranch(ws: WingWorkspace, branch: string, message: string): Promise<MergeResult> {
+  try {
+    await git(ws.integrationDir, "merge", "--no-ff", "--no-edit", "-m", message, branch);
+    return { ok: true, commit: await head(ws.integrationDir) };
+  } catch (err) {
+    try {
+      await git(ws.integrationDir, "merge", "--abort");
+    } catch {
+      // nothing to abort: the merge failed before it started
+    }
+    return { ok: false, reason: (err as { stderr?: string }).stderr?.trim() || (err as Error).message };
+  }
+}
+
+// Only ever used on Annex's own integration worktree, to undo a merge that broke the checks.
+export async function resetIntegration(ws: WingWorkspace, commit: string) {
+  await git(ws.integrationDir, "reset", "--hard", commit);
+}
+
 export async function removeTaskWorktree(ws: WingWorkspace, taskKey: string, deleteBranch: boolean) {
   const dir = join(ws.tasksDir, taskKey);
   if (existsSync(dir)) await git(ws.repo, "worktree", "remove", "--force", dir);

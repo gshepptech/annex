@@ -117,6 +117,11 @@ const MIGRATIONS: string[] = [
     outcome text
   );
   `,
+  `
+  -- the Paperclip comment a chat line came from, so a reply is stored once however often it is seen
+  alter table chat add column comment_id text;
+  create unique index chat_comment on chat (comment_id) where comment_id is not null;
+  `,
 ];
 
 export interface TaskRow {
@@ -367,11 +372,16 @@ export class Store {
 
   // Chat
 
-  addChat(wingId: string, who: ChatRow["who"], text: string): ChatRow {
+  // Returns undefined when that Paperclip comment is already stored.
+  addChat(wingId: string, who: ChatRow["who"], text: string, commentId: string | null = null): ChatRow | undefined {
     const r = this.db
-      .prepare("insert into chat (wing_id, at, who, text) values (?, ?, ?, ?) returning *")
-      .get(wingId, now(), who, text) as Record<string, unknown>;
-    return { id: r.id as number, wingId: r.wing_id as string, at: r.at as string, who: r.who as ChatRow["who"], text: r.text as string };
+      .prepare("insert into chat (wing_id, at, who, text, comment_id) values (?, ?, ?, ?, ?) on conflict do nothing returning *")
+      .get(wingId, now(), who, text, commentId) as Record<string, unknown> | undefined;
+    return r && { id: r.id as number, wingId: r.wing_id as string, at: r.at as string, who: r.who as ChatRow["who"], text: r.text as string };
+  }
+
+  hasChatComment(commentId: string): boolean {
+    return this.db.prepare("select 1 from chat where comment_id = ?").get(commentId) !== undefined;
   }
 
   chat(wingId: string, limit = 200): ChatRow[] {
@@ -487,6 +497,10 @@ export class Store {
       ? this.db.prepare("select * from event where id > ? and wing_id = ? order by id limit ?").all(afterId, wingId, limit)
       : this.db.prepare("select * from event where id > ? order by id limit ?").all(afterId, limit);
     return (rows as Record<string, unknown>[]).map(toEvent);
+  }
+
+  recentEvents(limit: number): BourneEvent[] {
+    return (this.db.prepare("select * from (select * from event order by id desc limit ?) order by id").all(limit) as Record<string, unknown>[]).map(toEvent);
   }
 
   lastEvents(wingId: string, kinds: EventKind[], limit: number): BourneEvent[] {

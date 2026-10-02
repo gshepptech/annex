@@ -48,6 +48,8 @@ export interface Wing {
   repo: Repo | null;
   signals: Signal[];
   doneCheck: string | null;
+  // run in a fresh worktree before its checks and signals, e.g. "npm ci"
+  setup: string | null;
   crew: Crew;
   settings: WingSettings;
   allow: string[];
@@ -138,6 +140,7 @@ export function parseWing(id: string, source: string): Wing {
     repo,
     signals,
     doneCheck: str(raw.done_check, at("done_check")) ?? null,
+    setup: str(raw.setup, at("setup")) ?? null,
     crew,
     settings,
     allow: strList(perms.allow, at("permissions.allow")),
