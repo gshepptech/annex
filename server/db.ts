@@ -122,6 +122,10 @@ const MIGRATIONS: string[] = [
   alter table chat add column comment_id text;
   create unique index chat_comment on chat (comment_id) where comment_id is not null;
   `,
+  `
+  -- the signal output the lead was shown, so its proposal is judged against exactly that
+  alter table wake add column signals text;
+  `,
 ];
 
 export interface TaskRow {
@@ -447,8 +451,13 @@ export class Store {
     return toWake(r);
   }
 
-  setWakeIssue(id: number, issueId: string) {
-    this.db.prepare("update wake set issue_id = ? where id = ?").run(issueId, id);
+  setWakeIssue(id: number, issueId: string, signals: { name: string; output: string }[]) {
+    this.db.prepare("update wake set issue_id = ?, signals = ? where id = ?").run(issueId, JSON.stringify(signals), id);
+  }
+
+  wakeSignals(id: number): { name: string; output: string }[] | null {
+    const r = this.db.prepare("select signals from wake where id = ?").get(id) as { signals: string | null } | undefined;
+    return r?.signals ? JSON.parse(r.signals) : null;
   }
 
   finishWake(id: number, outcome: string) {

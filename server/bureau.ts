@@ -8,6 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Store, TaskRow } from "./db.ts";
 import type { Wing } from "./wing.ts";
 import { inQuietHours } from "./wing.ts";
@@ -16,7 +17,7 @@ import type { NewEvent } from "./events.ts";
 import { BOARD_USER_ID, type Paperclip, type Issue, type Frame } from "./engine/paperclip.ts";
 import { provision, type Provisioned } from "./provision.ts";
 import { runCommand, type RunResult } from "./run.ts";
-import { hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration } from "./git.ts";
+import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration } from "./git.ts";
 import { parseProposal, parseBrief, judge } from "./proposal.ts";
 import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
@@ -40,6 +41,8 @@ interface Runtime {
   lastTool: Map<string, number>;
   startedRuns: Set<string>;
   waking: boolean;
+  // Merges, setup and signal runs all use the one integration worktree, so they take turns.
+  integration: Promise<unknown>;
 }
 
 export interface BureauOptions {
@@ -62,6 +65,7 @@ export class Bureau implements BureauApi {
   private now: () => Date;
   private log: (msg: string) => void;
   private ticking = false;
+  private experimentsOn = false;
   private inflight = new Set<Promise<unknown>>();
 
   constructor(opts: BureauOptions) {
@@ -72,18 +76,11 @@ export class Bureau implements BureauApi {
     this.log = opts.log ?? ((m) => console.log(`[annex] ${m}`));
     for (const wing of opts.wings) {
       this.store.ensureWing(wing.id, wing.initialMode);
-      this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false });
+      this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve() });
     }
   }
 
   async start() {
-    try {
-      await this.pc.health();
-      await this.pc.enableExperiments();
-    } catch (err) {
-      for (const rt of this.rts.values()) rt.offline = (err as Error).message;
-      this.log(`Paperclip is not reachable; retrying on each tick. ${(err as Error).message}`);
-    }
     await this.connectAll();
     this.timer = setInterval(() => void this.tick(), TICK_MS);
     await this.tick();
@@ -105,6 +102,19 @@ export class Bureau implements BureauApi {
   }
 
   private async connectAll() {
+    // Without isolated workspaces Paperclip ignores the worktree policy and agents would work in
+    // the person's own checkout, so no wing connects until the flag is confirmed on.
+    if (!this.experimentsOn) {
+      try {
+        await this.pc.health();
+        await this.pc.enableExperiments();
+        this.experimentsOn = true;
+      } catch (err) {
+        for (const rt of this.rts.values()) rt.offline = (err as Error).message;
+        this.log(`Paperclip is not ready; retrying on each tick. ${(err as Error).message}`);
+        return;
+      }
+    }
     for (const rt of this.rts.values()) {
       if (rt.prov) continue;
       try {
@@ -117,6 +127,12 @@ export class Bureau implements BureauApi {
         this.log(`${rt.wing.id}: not connected: ${rt.offline}`);
       }
     }
+  }
+
+  private inIntegration<T>(rt: Runtime, fn: () => Promise<T>): Promise<T> {
+    const run = rt.integration.then(fn, fn);
+    rt.integration = run.catch(() => {});
+    return run;
   }
 
   private emit(e: NewEvent) {
@@ -167,17 +183,36 @@ export class Bureau implements BureauApi {
   }
 
   private async refreshAll(rt: Runtime) {
-    const issues = await this.pc.issues(rt.prov!.companyId);
-    for (const cur of issues) await this.observe(rt, cur, null);
+    const seen = new Set<string>();
+    for (const cur of await this.pc.issues(rt.prov!.companyId)) {
+      seen.add(cur.id);
+      await this.observeSafely(rt, cur, null);
+    }
+    // the list is capped, so open work that has scrolled past it is read one by one
+    const wake = this.store.openWake(rt.wing.id);
+    const open = [...this.store.tasks(rt.wing.id, { state: "open" }).map((t) => t.id), ...(wake?.issueId ? [wake.issueId] : [])];
+    for (const id of open) if (!seen.has(id)) await this.refreshIssue(rt, id, null);
     rt.seeded = true;
+    await this.syncChat(rt).catch((e) => this.log(`${rt.wing.id}: chat sync failed: ${e.message}`));
+  }
+
+  private async observeSafely(rt: Runtime, cur: Issue, actor: string | null) {
+    try {
+      await this.observe(rt, cur, actor);
+    } catch (err) {
+      this.log(`${rt.wing.id}: could not handle ${cur.identifier}: ${(err as Error).message}`);
+    }
   }
 
   private async refreshIssue(rt: Runtime, issueId: string, actor: string | null) {
+    let cur: Issue;
     try {
-      await this.observe(rt, await this.pc.issue(issueId), actor);
+      cur = await this.pc.issue(issueId);
     } catch (err) {
       this.log(`${rt.wing.id}: could not read issue ${issueId}: ${(err as Error).message}`);
+      return;
     }
+    await this.observeSafely(rt, cur, actor);
   }
 
   // ----- frames ----------------------------------------------------------------------------
@@ -226,6 +261,8 @@ export class Bureau implements BureauApi {
 
   private async observe(rt: Runtime, cur: Issue, actor: string | null) {
     const prev = rt.issues.get(cur.id);
+    // a copy fetched before a newer one was seen describes the past; acting on it re-runs gates
+    if (prev && new Date(cur.updatedAt) < new Date(prev.updatedAt)) return;
     rt.issues.set(cur.id, cur);
     const fresh = rt.seeded && prev !== undefined;
     const changed = !prev || prev.status !== cur.status || participantKey(prev) !== participantKey(cur);
@@ -239,7 +276,13 @@ export class Bureau implements BureauApi {
     const task = this.store.task(cur.id);
     if (!task || task.state !== "open") return;
     const wingId = rt.wing.id;
-    const atBourne = cur.status === "in_review" && cur.executionState?.currentParticipant?.type === "user";
+    const atBourne = isAtBourne(cur);
+    const escalated = cur.status === "in_review" && cur.executionState?.currentParticipant?.type === "user" && !atBourne;
+    if (escalated) {
+      // after repeated rejections Paperclip hands the review to a person; Annex never signs that off
+      this.stopAfterReview(rt, cur, task, "the reviewer rejected it repeatedly and Paperclip escalated it to the board");
+      return;
+    }
 
     if (atBourne) {
       if (fresh && changed) {
@@ -252,6 +295,7 @@ export class Bureau implements BureauApi {
     if (!fresh || !changed) {
       // first sight after a restart: only finish work that was left half done
       if (cur.status === "done") this.track(this.merge(rt, cur, task));
+      if (cur.status === "cancelled") this.store.closeTask(cur.id, "stopped");
       return;
     }
     const reviewerId = rt.prov!.reviewer.id;
@@ -277,35 +321,48 @@ export class Bureau implements BureauApi {
 
   // ----- the done check gate (design D6) ---------------------------------------------------
 
-  private async workspaceFor(rt: Runtime, issueId: string) {
+  private async workspaceFor(rt: Runtime, issueId: string, includeArchived = false) {
     const all = await this.pc.executionWorkspaces(rt.prov!.companyId);
-    return all.find((w) => w.sourceIssueId === issueId && w.status !== "archived") ?? null;
+    return all.find((w) => w.sourceIssueId === issueId && (includeArchived || w.status !== "archived")) ?? null;
   }
 
-  private async gate(rt: Runtime, issue: Issue, task: TaskRow) {
-    const key = `gate:${issue.id}`;
+  private async gate(rt: Runtime, seen: Issue, task: TaskRow) {
+    const key = `gate:${seen.id}`;
     if (rt.busy.has(key)) return;
     rt.busy.add(key);
     const wingId = rt.wing.id;
     try {
+      // the copy that triggered this may be old; only a current one at Annex's stage counts
+      const issue = await this.pc.issue(seen.id);
+      if (!isAtBourne(issue)) return;
       const ws = await this.workspaceFor(rt, issue.id);
       const base = ws?.baseRef ?? rt.wing.repo?.integrationBranch ?? "HEAD";
       let result: RunResult;
       let where = "";
       if (!ws || !existsSync(ws.cwd)) {
         result = fail("Annex could not find this task's worktree, so there is nothing to check.");
+      } else if (rt.wing.repo && resolve(ws.cwd) === resolve(rt.wing.repo.path)) {
+        result = fail("This task ran in the person's own checkout instead of its own worktree. Annex will not check or merge work done there.");
       } else if (!(await hasCommitsBeyond(ws.cwd, base))) {
         result = fail(`There are no commits on ${ws.branchName} beyond ${base}. Commit your work, then mark the task done again.`);
-      } else if (!(await isClean(ws.cwd))) {
-        result = fail("The worktree has uncommitted changes. Commit or discard them so the check runs on what will be merged.");
       } else {
-        where = `${ws.branchName} at ${(await head(ws.cwd)).slice(0, 8)}`;
-        this.emit({ wingId, kind: "check.started", actor: "annex", taskId: issue.id, payload: { title: task.title, command: task.doneCheck } });
-        result = await this.runWithSetup(rt, task.doneCheck, ws.cwd);
+        const setup = rt.wing.setup ? await runCommand(rt.wing.setup, ws.cwd, CHECK_TIMEOUT_MS) : null;
+        if (setup && setup.exitCode !== 0) {
+          result = { ...setup, output: `[setup \`${rt.wing.setup}\` failed]\n${setup.output}` };
+        } else if (!(await isClean(ws.cwd))) {
+          result = fail("The worktree has uncommitted changes. Commit or discard them so the check runs on what will be merged.");
+        } else {
+          where = `${ws.branchName} at ${(await head(ws.cwd)).slice(0, 8)}`;
+          this.emit({ wingId, kind: "check.started", actor: "annex", taskId: issue.id, payload: { title: task.title, command: task.doneCheck } });
+          result = await runCommand(task.doneCheck, ws.cwd, CHECK_TIMEOUT_MS);
+        }
       }
       const run = this.store.startCheck({ wingId, taskId: issue.id, command: task.doneCheck, cwd: ws?.cwd ?? "" });
       this.store.finishCheck(run.id, result.exitCode, result.output);
       const tail = lastLines(result.output, 40);
+
+      // the check can take minutes; decide only if the issue is still waiting on Annex
+      if (!isAtBourne(await this.pc.issue(issue.id))) return;
 
       if (result.exitCode === 0) {
         this.emit({ wingId, kind: "check.passed", actor: "annex", taskId: issue.id, payload: { title: task.title, command: task.doneCheck } });
@@ -313,16 +370,21 @@ export class Bureau implements BureauApi {
         return;
       }
       this.emit({ wingId, kind: "check.failed", actor: "annex", taskId: issue.id, payload: { title: task.title, command: task.doneCheck, exitCode: result.exitCode } });
+      const why = result.timedOut ? `timed out after ${Math.round(CHECK_TIMEOUT_MS / 60_000)} minutes` : `failed (exit ${result.exitCode})`;
       if (run.attempt >= MAX_CHECK_ATTEMPTS) {
-        await this.pc.setStatus(issue.id, "cancelled", `The done check failed ${run.attempt} times, so Annex stopped this task. The lead will see it on its next wake.\n\n\`\`\`\n${tail}\n\`\`\``);
+        // In review, any status but done is a send-back, so it has to leave review before it
+        // can be cancelled.
         this.store.closeTask(issue.id, "stopped");
+        await this.pc.setStatus(issue.id, "in_progress", `Annex ran \`${task.doneCheck}\` and it ${why}, attempt ${run.attempt} of ${MAX_CHECK_ATTEMPTS}. Annex is stopping this task; the lead will see it on its next wake.\n\n\`\`\`\n${tail}\n\`\`\``);
+        await this.pc.setStatus(issue.id, "cancelled", "Stopped by Annex after repeated done check failures.");
+        const after = await this.pc.issue(issue.id);
+        if (after.status !== "cancelled") this.log(`${wingId}: ${issue.identifier} did not cancel (now ${after.status})`);
         this.emit({ wingId, kind: "task.stopped", actor: "annex", taskId: issue.id, payload: { title: task.title, reason: `done check failed ${run.attempt} times` } });
         return;
       }
-      const why = result.timedOut ? `timed out after ${Math.round(CHECK_TIMEOUT_MS / 60_000)} minutes` : `failed (exit ${result.exitCode})`;
       await this.pc.setStatus(issue.id, "in_progress", `Annex ran \`${task.doneCheck}\`${where ? ` on ${where}` : ""} and it ${why}. Attempt ${run.attempt} of ${MAX_CHECK_ATTEMPTS}. Fix this and mark the task done again.\n\n\`\`\`\n${tail}\n\`\`\``);
     } catch (err) {
-      this.log(`${wingId}: gate for ${issue.identifier} failed: ${(err as Error).message}`);
+      this.log(`${wingId}: gate for ${seen.identifier} failed: ${(err as Error).message}`);
     } finally {
       rt.busy.delete(key);
     }
@@ -342,6 +404,16 @@ export class Bureau implements BureauApi {
     const key = `merge:${issue.id}`;
     if (rt.busy.has(key)) return;
     rt.busy.add(key);
+    try {
+      await this.inIntegration(rt, () => this.mergeNow(rt, issue));
+    } finally {
+      rt.busy.delete(key);
+    }
+  }
+
+  private async mergeNow(rt: Runtime, issue: Issue) {
+    const task = this.store.task(issue.id);
+    if (!task || task.state !== "open") return;
     const wingId = rt.wing.id;
     const ws = rt.prov!.workspace;
     try {
@@ -350,10 +422,12 @@ export class Bureau implements BureauApi {
         this.emit({ wingId, kind: "task.done", actor: "annex", taskId: issue.id, payload: { title: task.title } });
         return;
       }
-      const ew = await this.workspaceFor(rt, issue.id);
-      if (!ew?.branchName) throw new Error("no branch recorded for this task");
+      const ew = await this.workspaceFor(rt, issue.id, true);
+      const branch = ew?.branchName ?? `${ws.integrationBranch}--${issue.identifier}`;
+      // Annex owns this worktree; anything left in it is from an earlier setup or a failed run
+      await cleanWorktree(ws.integrationDir);
       const before = await head(ws.integrationDir);
-      const merged = await mergeBranch(ws, ew.branchName, `Merge ${issue.identifier}: ${task.title}`);
+      const merged = await mergeBranch(ws, branch, `Merge ${issue.identifier}: ${task.title}`);
       if (!merged.ok) return this.stopAfterReview(rt, issue, task, `it no longer merges cleanly into ${ws.integrationBranch}: ${merged.reason.split("\n")[0]}`);
       const check = await this.runWithSetup(rt, task.doneCheck, ws.integrationDir);
       if (check.exitCode !== 0) {
@@ -364,8 +438,6 @@ export class Bureau implements BureauApi {
       this.emit({ wingId, kind: "task.done", actor: "annex", taskId: issue.id, payload: { title: task.title, commit: merged.commit, branch: ws.integrationBranch } });
     } catch (err) {
       this.log(`${wingId}: merge of ${issue.identifier} failed: ${(err as Error).message}`);
-    } finally {
-      rt.busy.delete(key);
     }
   }
 
@@ -407,12 +479,16 @@ export class Bureau implements BureauApi {
     const wakeRow = this.store.startWake(wingId);
     try {
       this.emit({ wingId, kind: "lead.woke", actor: rt.prov!.lead.id, taskId: null, payload: {} });
-      if (rt.wing.setup) await runCommand(rt.wing.setup, ws.integrationDir, CHECK_TIMEOUT_MS);
-      const signals = [];
-      for (const sig of rt.wing.signals) {
-        const r = await runCommand(sig.run, ws.integrationDir, 5 * 60_000);
-        signals.push({ name: sig.name, run: sig.run, exitCode: r.exitCode, output: r.output });
-      }
+      const signals = await this.inIntegration(rt, async () => {
+        await cleanWorktree(ws.integrationDir);
+        if (rt.wing.setup) await runCommand(rt.wing.setup, ws.integrationDir, CHECK_TIMEOUT_MS);
+        const out = [];
+        for (const sig of rt.wing.signals) {
+          const r = await runCommand(sig.run, ws.integrationDir, 5 * 60_000);
+          out.push({ name: sig.name, run: sig.run, exitCode: r.exitCode, output: r.output });
+        }
+        return out;
+      });
       const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
       const view = (t: TaskRow) => ({ identifier: t.identifier, title: t.title, status: rt.issues.get(t.id)?.status ?? t.state });
       const dropIns = this.store.pendingDropIns(wingId);
@@ -432,10 +508,8 @@ export class Bureau implements BureauApi {
         assigneeAgentId: rt.prov!.lead.id,
         priority: "high",
       });
-      this.store.setWakeIssue(wakeRow.id, issue.id);
+      this.store.setWakeIssue(wakeRow.id, issue.id, signals.map((s) => ({ name: s.name, output: s.output })));
       this.store.takeDropIns(dropIns.map((d) => d.id));
-      // keep the signal output for judging the proposal against
-      this.signalCache.set(wakeRow.id, signals.map((s) => ({ name: s.name, output: s.output })));
     } catch (err) {
       this.store.finishWake(wakeRow.id, `failed: ${(err as Error).message}`);
       this.emit({ wingId, kind: "lead.idle", actor: rt.prov!.lead.id, taskId: null, payload: { reason: `the wake failed: ${(err as Error).message}` } });
@@ -443,8 +517,6 @@ export class Bureau implements BureauApi {
       rt.waking = false;
     }
   }
-
-  private signalCache = new Map<number, { name: string; output: string }[]>();
 
   private async expireWake(rt: Runtime) {
     const open = this.store.openWake(rt.wing.id);
@@ -454,6 +526,12 @@ export class Bureau implements BureauApi {
       if (issue && (await this.finishWake(rt, issue))) return;
     }
     this.store.finishWake(open.id, "timed out");
+    if (open.issueId) {
+      for (const r of await this.pc.runsFor(open.issueId).catch(() => [])) {
+        if (r.status === "running" || r.status === "queued") await this.pc.cancelRun(r.id).catch(() => {});
+      }
+      await this.pc.setStatus(open.issueId, "cancelled", "Annex closed this wake: the lead did not answer within 30 minutes.").catch(() => {});
+    }
     this.emit({ wingId: rt.wing.id, kind: "lead.idle", actor: rt.prov!.lead.id, taskId: null, payload: { reason: "the lead did not answer within 30 minutes" } });
   }
 
@@ -486,7 +564,7 @@ export class Bureau implements BureauApi {
       const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
       const existingTitles = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })].map((t) => t.title);
       const charter = [rt.wing.charter, this.store.currentBrief(wingId)?.text ?? ""].join("\n");
-      const signals = this.signalCache.get(wake.id) ?? (await this.rerunSignals(rt));
+      const signals = this.store.wakeSignals(wake.id) ?? [];
       const verdicts = judge(parsed.tasks, { charter, signals, existingTitles });
 
       let created = 0;
@@ -506,18 +584,11 @@ export class Bureau implements BureauApi {
       const row = this.store.wing(wingId)!;
       if (rt.wing.settings.backOffWhenIdle) this.store.setBackoff(wingId, created === 0 ? row.backoffLevel + 1 : 0);
       this.store.finishWake(wake.id, `${created} task(s) created, ${verdicts.length - created} thrown away`);
-      this.signalCache.delete(wake.id);
       if (issue.status !== "done" && issue.status !== "cancelled") await this.pc.setStatus(issue.id, "done", `Annex read the proposal: ${created} task(s) created.`).catch(() => {});
       return true;
     } finally {
       rt.busy.delete(key);
     }
-  }
-
-  private async rerunSignals(rt: Runtime) {
-    const out = [];
-    for (const sig of rt.wing.signals) out.push({ name: sig.name, output: (await runCommand(sig.run, rt.prov!.workspace!.integrationDir, 5 * 60_000)).output });
-    return out;
   }
 
   private async createTask(rt: Runtime, t: { title: string; charterLine: string; evidence: string; doneCheck: string; size: string; details: string; source: "lead" | "you" }) {
@@ -589,9 +660,9 @@ export class Bureau implements BureauApi {
   }
 
   private async draftBrief(rt: Runtime & { prov: Provisioned }, text: string) {
+    // Approved in Annex, not as a Paperclip approval: approving one of those wakes the lead with
+    // no task (spike gotcha 5).
     const draft = this.store.addBrief(rt.wing.id, text);
-    const approval = await this.pc.createApproval(rt.prov.companyId, { requestedByAgentId: rt.prov.lead.id, title: `Handoff brief v${draft.version}`, body: text });
-    this.store.setBriefApproval(draft.id, approval.id);
     this.emit({ wingId: rt.wing.id, kind: "approval.requested", actor: rt.prov.lead.id, taskId: null, payload: { title: `Approve the handoff brief (v${draft.version})`, briefId: draft.id } });
   }
 
@@ -615,7 +686,6 @@ export class Bureau implements BureauApi {
     if (!brief || brief.wingId !== wingId) throw new UserError("That brief does not belong to this wing", 404);
     if (brief.status !== "draft") throw new UserError(`Brief v${brief.version} is already ${brief.status}`, 409);
     if (!rt.wing.repo) throw new UserError(`Add a [repo] section to wings/${wingId}/wing.toml before handing ${rt.wing.name} off.`, 409);
-    if (brief.approvalId) await this.pc.approve(brief.approvalId, "Approved in Annex").catch((e) => this.log(`approval ${brief.approvalId}: ${e.message}`));
     this.store.approveBrief(briefId);
     this.store.setMode(wingId, "autonomous");
     this.emit({ wingId, kind: "approval.decided", actor: "you", taskId: null, payload: { decision: "approved", title: `handoff brief v${brief.version}` } });
@@ -636,8 +706,8 @@ export class Bureau implements BureauApi {
     const d = this.store.addDropIn(wingId, title, detail);
     this.emit({ wingId, kind: "agent.said", actor: "you", taskId: null, payload: { text: `Dropped in: ${title}` } });
     if (this.store.wing(wingId)!.mode === "with_you") {
-      this.store.takeDropIns([d.id]);
       await this.say(rt, `The person dropped in a task: "${title}"${detail ? `\n\n${detail}` : ""}\n\nTalk it through with them.`, false);
+      this.store.takeDropIns([d.id]);
     } else {
       // an autonomous lead triages drop-ins on its next wake; make that now rather than in 15m
       this.track(this.tick());
@@ -690,6 +760,18 @@ export class Bureau implements BureauApi {
     const recent = this.store.recentEvents(400);
     return { wings, lastEventId: recent[recent.length - 1]?.id ?? 0, recent };
   }
+}
+
+// Annex's own stage is the first one, held by the board user. A later user stage is an
+// escalation to a person, which Annex must not sign off.
+function isAtBourne(i: Issue): boolean {
+  const p = i.executionState?.currentParticipant;
+  return i.status === "in_review" && p?.type === "user" && p.userId === BOARD_USER_ID && (i.executionState?.currentStageIndex ?? 0) === 0;
+}
+
+async function cleanWorktree(dir: string) {
+  await git(dir, "reset", "--hard");
+  await git(dir, "clean", "-fd");
 }
 
 function participantKey(i: Issue): string {

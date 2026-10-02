@@ -26,11 +26,23 @@ const CODENAMES = ["Kestrel", "Marlin", "Wren", "Otter", "Heron", "Lynx", "Finch
 // Read-only tools every agent may use, plus the shell commands its role needs. A command the
 // list does not cover is refused rather than asked about, because nobody is there to answer.
 const BASE_TOOLS = ["Read", "Glob", "Grep", "Skill", "TodoWrite"];
-const BASE_SHELL = ["ls", "cat", "head", "tail", "pwd", "wc", "diff", "curl", "git"];
+const BASE_SHELL = ["ls", "cat", "head", "tail", "pwd", "wc", "diff", "curl"];
+// Git, by subcommand: everyone may read history, only the crew may commit, and nobody may move
+// branches, push, or point git at another directory (DENIED_GIT below wins over any allow).
+const READ_GIT = ["git status", "git log", "git diff", "git show", "git rev-parse", "git branch --show-current", "git ls-files"];
+const WORKER_GIT = ["git add", "git commit", "git restore", "git rm", "git mv", "git stash"];
+export const DENIED_GIT = [
+  "git push", "git -C", "git --git-dir", "git --work-tree", "git checkout", "git switch", "git reset",
+  "git rebase", "git merge", "git worktree", "git branch -D", "git branch -d", "git branch -f", "git clean", "git remote", "git config",
+];
 
 export function toolsFor(role: AgentRow["role"], wing: Wing): string[] {
-  const shell = new Set(BASE_SHELL);
-  if (role === "worker") for (const c of wing.allow) shell.add(c);
+  const shell = new Set([...BASE_SHELL, ...READ_GIT]);
+  if (role === "worker") {
+    for (const c of WORKER_GIT) shell.add(c);
+    // `git` in a wing's allow list means the commit-level commands above, never all of git
+    for (const c of wing.allow) if (c !== "git") shell.add(c);
+  }
   const edit = role === "worker" ? ["Write", "Edit"] : [];
   return [...BASE_TOOLS, ...edit, ...[...shell].map((c) => `Bash(${c}:*)`)];
 }
@@ -43,6 +55,8 @@ export function writeAgentSettings(dir: string): string {
   const settings = {
     claudeMdExcludes: [join(homedir(), ".claude", "CLAUDE.md"), join(homedir(), ".claude", "**", "CLAUDE.md")],
     autoMemoryEnabled: false,
+    // deny rules beat any allow, so these hold whatever a wing file lists
+    permissions: { deny: DENIED_GIT.map((c) => `Bash(${c}:*)`) },
   };
   writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
   return file;

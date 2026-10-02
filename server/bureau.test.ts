@@ -240,3 +240,73 @@ test("handing off needs a repo, and coming back flips the mode", async () => {
   await assert.rejects(bureau.chat("nope", "hi"), /no wing called/);
 });
 
+
+// Shared setup for the review-finding tests: one accepted task with a worktree the test controls.
+async function oneTask() {
+  const env = await setup();
+  const { pc, store, bureau, repo } = env;
+  const lead = store.agents("upkeep").find((a) => a.role === "lead")!;
+  const wakeIssue = [...pc.issues.values()].find((i) => i.title.startsWith("Wake:"))!;
+  pc.agentComment(wakeIssue.id, lead.id, "```annex-proposal\n" + JSON.stringify({ note: "", tasks: [
+    { title: "Add done.txt", charter_line: "done.txt exists on the integration branch.", evidence: "missing: done.txt (needed by charter)", done_check: "test -f done.txt", size: "S" },
+  ] }) + "\n```");
+  wakeIssue.status = "done";
+  await bureau.tick();
+  const task = [...pc.issues.values()].find((i) => i.title === "Add done.txt")!;
+  const branch = `annex/upkeep--${task.identifier}`;
+  const wt = join(repo, "..", "wt");
+  await git(repo, "worktree", "add", "-q", "-b", branch, wt, "annex/upkeep");
+  pc.workspaces.push({ id: "EW1", sourceIssueId: task.id, cwd: wt, branchName: branch, baseRef: "annex/upkeep", status: "active" });
+  return { ...env, task, wt };
+}
+
+test("three failed checks stop the task: sent back out of review first, then cancelled", async () => {
+  const { pc, store, bureau, task, wt } = await oneTask();
+  writeFileSync(join(wt, "other.txt"), "not the file\n");
+  await git(wt, "add", ".");
+  await git(wt, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "wrong file");
+  for (let i = 0; i < 3; i++) {
+    pc.workerFinishes(task.id);
+    await bureau.tick();
+    await bureau.idle();
+  }
+  assert.equal(pc.issues.get(task.id)!.status, "cancelled", "really cancelled in Paperclip");
+  assert.equal(store.task(task.id)!.state, "stopped");
+  assert.deepEqual(pc.statusCalls.slice(-2).map((c) => c.status), ["in_progress", "cancelled"]);
+  assert.ok(store.eventsSince(0).some((e) => e.kind === "task.stopped"));
+});
+
+test("Annex never signs off a review that was escalated to the board", async () => {
+  const { pc, store, bureau, task } = await oneTask();
+  const i = pc.issues.get(task.id)!;
+  i.status = "in_review";
+  i.executionState = { status: "pending", currentStageId: "s2", currentStageIndex: 1, currentStageType: "review", currentParticipant: { type: "user", userId: "local-board", agentId: null }, returnAssignee: { type: "agent", agentId: i.assigneeAgentId, userId: null }, lastDecisionOutcome: "changes_requested", changesRequestedCount: 3 };
+  i.updatedAt = new Date(Date.now() + 1000).toISOString();
+  await bureau.tick();
+  await bureau.idle();
+  assert.equal(pc.statusCalls.some((c) => c.id === task.id && c.status === "done"), false, "no approval");
+  assert.equal(store.task(task.id)!.state, "stopped");
+  // the redo goes to the lead: the drop-in makes the next wake due at once
+  const wakes = [...pc.issues.values()].filter((x) => x.title.startsWith("Wake:"));
+  assert.match(wakes.at(-1)!.description!, new RegExp(`Redo ${task.identifier}`));
+});
+
+test("a stale copy of an issue does not re-run the gate", async () => {
+  const { pc, bureau, task, wt } = await oneTask();
+  writeFileSync(join(wt, "done.txt"), "yes\n");
+  await git(wt, "add", ".");
+  await git(wt, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "add done.txt");
+  pc.workerFinishes(task.id);
+  const stale = structuredClone(pc.issues.get(task.id)!);
+  await bureau.tick();
+  await bureau.idle();
+  const approvals = pc.statusCalls.filter((c) => c.id === task.id && c.status === "done").length;
+  assert.equal(approvals, 1);
+  // the newer copy is now with the reviewer; replaying the older one must change nothing
+  pc.issues.get(task.id)!.updatedAt = new Date(Date.now() + 5000).toISOString();
+  await bureau.tick();
+  await (bureau as unknown as { observe: (rt: unknown, i: unknown, a: null) => Promise<void> }).observe(
+    (bureau as unknown as { rts: Map<string, unknown> }).rts.get("upkeep"), stale, null);
+  await bureau.idle();
+  assert.equal(pc.statusCalls.filter((c) => c.id === task.id && c.status === "done").length, approvals);
+});
