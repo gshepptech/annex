@@ -1,0 +1,23 @@
+{
+  "name": "annex",
+  "private": true,
+  "type": "module",
+  "description": "An office of Claude agents you can watch. Wings, leads, crews, and two modes.",
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "scripts": {
+    "start": "node server/main.ts",
+    "test": "node --test \"server/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
+    "web:dev": "vite web",
+    "web:build": "vite build web"
+  },
+  "dependencies": {
+    "smol-toml": "1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.11.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "annex-runtime",
+  "private": true,
+  "description": "Pinned Paperclip engine that Annex drives over HTTP.",
+  "dependencies": {
+    "paperclipai": "2026.1001.0"
+  },
+  "allowScripts": {
+    "@embedded-postgres/darwin-arm64@18.1.0-beta.16": true
+  }
+}
