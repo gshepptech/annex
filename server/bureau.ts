@@ -956,7 +956,6 @@ export class Bureau implements BureauApi {
       const merged = this.store.tasks(rt.wing.id, { state: "merged" }).length;
       const brief = this.store.currentBrief(rt.wing.id);
       const draft = this.store.latestDraft(rt.wing.id);
-      const s = rt.wing.settings;
       wings.push({
         id: rt.wing.id,
         name: rt.wing.name,
@@ -972,7 +971,8 @@ export class Bureau implements BureauApi {
         brief: brief ? { id: brief.id, version: brief.version, text: brief.text, status: brief.status } : null,
         draft: draft ? { id: draft.id, version: draft.version, text: draft.text, status: draft.status } : null,
         chat: this.store.chat(rt.wing.id).map((c) => ({ id: c.id, at: c.at, who: c.who, text: c.text })),
-        settings: { ...this.settingsOf(rt.wing), wakeEvery: formatSec(Math.min(s.wakeEverySec * 2 ** row.backoffLevel, MAX_BACKOFF_SEC)) },
+        // the wing file's own values, so saving the form never writes a backed-off interval
+        settings: this.settingsOf(rt.wing),
         asks: this.store.asks(rt.wing.id).map((a) => ({ id: a.id, title: String(a.task.title ?? ""), reason: a.reason, details: String(a.task.details ?? ""), createdAt: a.createdAt })),
         paused: row.heldReason === PAUSED,
         edit: {

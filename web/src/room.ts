@@ -3,7 +3,8 @@
 import type { WingView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
 import { sceneFromSnapshot, applyEvent, tick, type RoomScene } from "./office/scene.ts";
-import { renderRoom } from "./office/render.ts";
+import { renderRoom, actorAt } from "./office/render.ts";
+import { wingPill } from "./sidebar.ts";
 import { TILE } from "./office/sprites.ts";
 import { h } from "./dom.ts";
 
@@ -16,6 +17,7 @@ export class Room {
   private ctx: CanvasRenderingContext2D;
   private overlay: HTMLElement;
   private sign: HTMLElement;
+  private pill: HTMLElement;
   private meta: HTMLElement;
   private stampEl: HTMLElement;
   private doorEl: HTMLElement;
@@ -23,7 +25,7 @@ export class Room {
   private names = new Map<string, HTMLElement>();
   private wing: WingView;
 
-  constructor(wing: WingView, lastEventId: number, onSelect: (id: string) => void) {
+  constructor(wing: WingView, lastEventId: number, onSelect: (id: string) => void, onAgent: (agentId: string) => void) {
     this.wing = wing;
     this.scene = sceneFromSnapshot(wing, lastEventId);
     const { w, h: rows } = this.scene.layout;
@@ -39,6 +41,7 @@ export class Room {
     this.doorEl.style.left = `${((door.at.x + 0.5) / w) * 100}%`;
     this.doorEl.style.top = `${((door.at.y - 0.6) / rows) * 100}%`;
     this.sign = h("h2", { class: "room-sign" }, wing.name);
+    this.pill = h("span", {});
     this.meta = h("p", { class: "room-meta" });
     this.el = h(
       "section",
@@ -47,13 +50,23 @@ export class Room {
         "button",
         { class: "room-head", type: "button", onclick: () => onSelect(wing.id), "aria-label": `Open ${wing.name}` },
         this.sign,
+        this.pill,
         this.meta,
       ),
       h("div", { class: "floor", style: `aspect-ratio: ${w} / ${rows}` }, this.canvas, this.overlay),
     );
+    // clicking a person opens their terminal; clicking anywhere else opens the wing
+    this.canvas.addEventListener("click", (ev) => {
+      const r = this.canvas.getBoundingClientRect();
+      const x = ((ev.clientX - r.left) / r.width) * this.canvas.width;
+      const y = ((ev.clientY - r.top) / r.height) * this.canvas.height;
+      const hit = actorAt(this.scene, x, y);
+      if (hit) onAgent(hit.id);
+      else onSelect(wing.id);
+    });
     for (const a of this.scene.actors.values()) {
-      const name = h("span", { class: "name" }, a.name);
-      const bubble = h("span", { class: "bubble", hidden: true });
+      const name = h("span", { class: `tag role-${a.role}` }, a.name);
+      const bubble = h("span", { class: `bubble role-${a.role}`, hidden: true });
       this.names.set(a.id, name);
       this.bubbles.set(a.id, bubble);
       this.overlay.append(name, bubble);
@@ -70,9 +83,9 @@ export class Room {
   update(wing: WingView) {
     this.wing = wing;
     const open = wing.tasks.filter((t) => t.status !== "done" && t.status !== "cancelled").length;
-    const mode = wing.mode === "autonomous" ? "On its own" : "With you";
-    const where = wing.repo ? `${wing.repo.split("/").pop()} · ${wing.integrationBranch}` : "no repo yet";
-    this.meta.textContent = `${mode} · ${where} · ${open} open · ${wing.filedCount} filed`;
+    const where = wing.repo ? wing.repo.split("/").pop() : "no repo yet";
+    this.pill.replaceChildren(wingPill(wing));
+    this.meta.textContent = `${where} · ${open} open · ${wing.filedCount} filed`;
     this.el.classList.toggle("offline", wing.offline !== null);
     this.el.dataset.mode = wing.mode;
   }

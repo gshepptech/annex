@@ -27,10 +27,22 @@ You need Node 24.11 or newer and Claude Code logged in with your subscription.
 
 While working on the page, `npm run web:dev` serves it at :4301 with live reload.
 
+## Using the office
+
+- **Sidebar:** every wing and everyone in it. Click an agent (or the agent in a room) to open its
+  terminal: every run, each tool call and what came back, the way Claude Code shows it, live while
+  it works.
+- **A wing's case file:** Hand off / Come back in, Pause / Resume, the log, the chat with the
+  lead, the brief, and **Settings**, where every option is editable and applies at once.
+- **Asks:** a lead that wants your yes first (anything under "Ask me before", or the brief's
+  "Call me back when") raises its hand; approve or decline it in the case file.
+- **+ New wing** opens a new room, which starts with you.
+
 ## Add work
 
-A wing is one file, `wings/<id>/wing.toml`. A new kind of work is a new file; restart Annex to
-pick it up. To hand an existing wing a task, use **Drop in a task** in its Log tab.
+A wing is one file, `wings/<id>/wing.toml`. **+ New wing** and the Settings tab write it for you,
+and edits made by hand are picked up without a restart. To hand an existing wing a task, use
+**Drop in a task** in its Log tab.
 
 ```toml
 name = "Upkeep"

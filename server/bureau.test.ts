@@ -314,3 +314,52 @@ test("a stale copy of an issue does not re-run the gate", async () => {
   await bureau.idle();
   assert.equal(pc.statusCalls.filter((c) => c.id === task.id && c.status === "done").length, approvals);
 });
+
+test("an ask_first task waits for the person; approving it creates the task, declining drops it", async () => {
+  const { pc, store, bureau } = await setup();
+  const lead = store.agents("upkeep").find((a) => a.role === "lead")!;
+  const wakeIssue = [...pc.issues.values()].find((i) => i.title.startsWith("Wake:"))!;
+  const t = (title: string) => ({ title, charter_line: "done.txt exists on the integration branch.", evidence: "missing: done.txt (needed by charter)", done_check: "test -f done.txt", size: "S", ask_first: true, ask_reason: "It adds a file" });
+  pc.agentComment(wakeIssue.id, lead.id, "```annex-proposal\n" + JSON.stringify({ note: "", tasks: [t("Add done.txt"), t("Write a changelog entry for the release")] }) + "\n```");
+  wakeIssue.status = "done";
+  await bureau.tick();
+  assert.equal([...pc.issues.values()].some((i) => i.title === "Add done.txt"), false, "nothing starts before a yes");
+  const asks = store.asks("upkeep");
+  assert.equal(asks.length, 2);
+  await bureau.decideAsk("upkeep", asks[0]!.id, true);
+  await bureau.decideAsk("upkeep", asks[1]!.id, false);
+  assert.ok([...pc.issues.values()].some((i) => i.title === "Add done.txt"));
+  assert.equal([...pc.issues.values()].some((i) => i.title.includes("changelog")), false);
+  await assert.rejects(bureau.decideAsk("upkeep", asks[0]!.id, true), /already approved/);
+  assert.equal((await bureau.state()).wings[0]!.asks.length, 0);
+});
+
+test("settings edited in the office are written to the file and used at once", async () => {
+  const { dir, store, bureau } = await setup();
+  const { mkdirSync, readFileSync } = await import("node:fs");
+  mkdirSync(join(dir, "wings", "upkeep"), { recursive: true });
+  await bureau.updateWing("upkeep", { wakeEvery: "30m", maxRunsPerHour: 4, askBefore: ["adding a dependency", " "], workers: 2 });
+  const text = readFileSync(join(dir, "wings", "upkeep", "wing.toml"), "utf8");
+  assert.match(text, /wake_every = "30m"/);
+  assert.match(text, /max_runs_per_hour = 4/);
+  assert.match(text, /ask_before = \["adding a dependency"\]/);
+  const s = (await bureau.state()).wings[0]!;
+  assert.equal(s.settings.wakeEvery, "30m");
+  assert.equal(store.agents("upkeep").filter((a) => a.role === "worker").length, 2, "a second worker was hired");
+  await assert.rejects(bureau.updateWing("upkeep", { wakeEvery: "soon" }), /must look like/);
+});
+
+test("a new wing opens from the office, and pause and resume hold and free it", async () => {
+  const { dir, bureau, store } = await setup();
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(dir, "wings"), { recursive: true });
+  await bureau.createWing({ id: "docs", name: "Docs", charter: "Keep the docs true." });
+  const state = await bureau.state();
+  assert.ok(state.wings.some((w) => w.id === "docs" && w.mode === "with_you"));
+  await assert.rejects(bureau.createWing({ id: "docs", name: "Docs" }), /already a wing/);
+  await assert.rejects(bureau.createWing({ id: "Bad Id", name: "x" }), /lowercase/);
+  bureau.pause("upkeep");
+  assert.equal((await bureau.state()).wings.find((w) => w.id === "upkeep")!.paused, true);
+  bureau.resume("upkeep");
+  assert.equal(store.wing("upkeep")!.heldUntil, null);
+});

@@ -69,6 +69,10 @@ export function defaultLayout(workerDesks: number): RoomLayout {
   const cabinet = { at: { x: 19, y: 10 }, stand: { x: 18, y: 11 } };
   block(cabinet.at.x, cabinet.at.y, 2, 2);
 
+  // two plants, drawn by the renderer at these tiles
+  block(1, h - 2);
+  block(w - 2, 1);
+
   return { w, h, solid, desks, review, door, table, cabinet };
 }
 

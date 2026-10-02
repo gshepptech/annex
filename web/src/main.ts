@@ -1,9 +1,6 @@
-import "@fontsource/stardos-stencil/400.css";
-import "@fontsource/stardos-stencil/700.css";
-import "@fontsource/courier-prime/400.css";
-import "@fontsource/courier-prime/700.css";
-import "@fontsource/archivo-narrow/400.css";
-import "@fontsource/archivo-narrow/600.css";
+import "@fontsource-variable/bricolage-grotesque";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
 import type { StateView } from "../../server/api-types.ts";
@@ -11,30 +8,73 @@ import type { BourneEvent } from "../../server/events.ts";
 import { getState, stream } from "./api.ts";
 import { Room } from "./room.ts";
 import { Panel } from "./panel.ts";
+import { Sidebar } from "./sidebar.ts";
+import { Terminal } from "./terminal.ts";
+import { newWingDialog } from "./newwing.ts";
 import { h } from "./dom.ts";
 
 const app = document.getElementById("app")!;
 const rooms = new Map<string, Room>();
 const building = h("main", { class: "building", "aria-label": "Wings" });
-const status = h("p", { class: "status", role: "status" }, "Connecting...");
+const drawer = h("aside", { class: "drawer" });
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
 let state: StateView | null = null;
-let selected: string | null = null;
+let selectedWing: string | null = null;
+let selectedAgent: string | null = null;
 let recent: BourneEvent[] = [];
+
 const panel = new Panel(() => scheduleRefresh(0));
-
-app.append(
-  h("header", { class: "top" }, h("h1", { class: "wordmark" }, "Annex"), status),
-  h("div", { class: "layout" }, building, panel.el),
+const terminal = new Terminal(
+  () => selectWing(selectedWing ?? state?.wings[0]?.id ?? ""),
+  (id) => state?.wings.find((w) => w.id === id)?.name ?? "Back",
 );
+const sidebar = new Sidebar({
+  wing: (id) => selectWing(id, true),
+  agent: (id) => selectAgent(id, true),
+  newWing: () => dialog.showModal(),
+});
+const dialog = newWingDialog((id) => {
+  selectedWing = id;
+  scheduleRefresh(0);
+});
 
-function select(id: string, fromTap = false) {
-  selected = id;
-  // on a phone the case file sits below the rooms, so bring it into view
-  if (fromTap && matchMedia("(max-width: 960px)").matches) requestAnimationFrame(() => panel.el.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth" }));
-  for (const [wid, r] of rooms) r.el.classList.toggle("selected", wid === id);
-  const w = state?.wings.find((x) => x.id === id);
-  if (w) panel.show(w, recent);
+app.append(h("div", { class: "shell" }, sidebar.el, building, drawer), dialog);
+
+// on narrow screens the drawer sits below the rooms, so bring it into view when chosen
+function reveal(fromTap: boolean) {
+  if (fromTap && matchMedia("(max-width: 1280px)").matches) requestAnimationFrame(() => drawer.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth" }));
+}
+
+function selectWing(id: string, fromTap = false) {
+  selectedWing = id;
+  selectedAgent = null;
+  terminal.close();
+  draw();
+  reveal(fromTap);
+}
+
+function selectAgent(id: string, fromTap = false) {
+  const wing = state?.wings.find((w) => w.agents.some((a) => a.id === id));
+  if (!wing) return;
+  selectedWing = wing.id;
+  selectedAgent = id;
+  terminal.open(id);
+  draw();
+  reveal(fromTap);
+}
+
+function draw() {
+  if (!state) return;
+  for (const [wid, r] of rooms) r.el.classList.toggle("selected", wid === selectedWing);
+  sidebar.render(state, selectedWing, selectedAgent);
+  if (selectedAgent) {
+    if (drawer.firstChild !== terminal.el) drawer.replaceChildren(terminal.el);
+  } else {
+    const w = state.wings.find((x) => x.id === selectedWing);
+    if (w) panel.show(w, recent);
+    if (drawer.firstChild !== panel.el) drawer.replaceChildren(panel.el);
+  }
 }
 
 function applyState(next: StateView) {
@@ -44,18 +84,23 @@ function applyState(next: StateView) {
     if (existing && existing.sameCrew(w)) {
       existing.update(w);
     } else {
-      const room = new Room(w, existing?.scene.lastEventId ?? next.lastEventId, (id) => select(id, true));
+      const room = new Room(w, existing?.scene.lastEventId ?? next.lastEventId, (id) => selectWing(id, true), (id) => selectAgent(id, true));
       if (existing) existing.el.replaceWith(room.el);
       else building.append(room.el);
       rooms.set(w.id, room);
     }
   }
-  if (!selected && next.wings[0]) selected = next.wings[0].id;
-  if (selected) select(selected);
-  const held = next.wings.filter((w) => w.held);
-  status.textContent = held.length
-    ? `Held: ${held[0]!.held!.reason}`
-    : `${next.wings.length} wings · ${next.wings.filter((w) => w.mode === "autonomous").length} on their own`;
+  if (!selectedWing || !next.wings.some((w) => w.id === selectedWing)) selectedWing = next.wings[0]?.id ?? null;
+  const held = next.wings.find((w) => w.held && !w.paused);
+  const own = next.wings.filter((w) => w.mode === "autonomous").length;
+  const working = next.wings.flatMap((w) => w.agents).filter((a) => a.status === "running").length;
+  if (held) {
+    const until = held.held!.until ? new Date(held.held!.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+    sidebar.setStatus(`Held${until ? ` until ${until}` : ""}: ${held.held!.reason}`, true);
+  } else {
+    sidebar.setStatus(`${next.wings.length} wings · ${own} on their own · ${working} working`);
+  }
+  draw();
 }
 
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -66,13 +111,14 @@ function scheduleRefresh(ms = 400) {
     try {
       applyState(await getState());
     } catch (err) {
-      status.textContent = (err as Error).message;
+      sidebar.setStatus((err as Error).message, true);
     }
   }, ms);
 }
 
-// Events that change what the labels and the panel show; movement itself comes from the event.
-const REFRESH_ON = new Set(["task.created", "task.done", "task.stopped", "wing.mode_changed", "wing.held", "wing.resumed", "chat.message", "approval.requested", "approval.decided"]);
+// Events that change what the labels, the sidebar and the case file show; movement itself comes
+// from the event.
+const REFRESH_ON = new Set(["task.created", "task.started", "task.done", "task.stopped", "wing.mode_changed", "wing.held", "wing.resumed", "chat.message", "approval.requested", "approval.decided", "lead.woke", "lead.idle", "agent.said"]);
 
 async function boot() {
   try {
@@ -86,18 +132,21 @@ async function boot() {
         if (recent.length > 1000) recent = recent.slice(-1000);
         rooms.get(e.wingId)?.apply(e, performance.now());
         panel.push(e);
+        if (selectedAgent && e.actor === selectedAgent) terminal.poke();
         if (REFRESH_ON.has(e.kind)) scheduleRefresh();
       },
       (connected) => {
-        if (!connected) status.textContent = "Lost the connection to Annex. Reconnecting...";
-        else if (state) applyState(state);
+        if (!connected) sidebar.setStatus("Lost the connection to Annex. Reconnecting...", true);
+        else scheduleRefresh(0);
       },
     );
   } catch (err) {
-    status.textContent = `${(err as Error).message}. Is \`npm start\` running?`;
+    sidebar.setStatus(`${(err as Error).message}. Is \`npm start\` running?`, true);
     setTimeout(boot, 3000);
     return;
   }
+  // agent status (working or idle) comes from Paperclip, so it is re-read now and then
+  setInterval(() => scheduleRefresh(0), 10_000);
   let last = performance.now();
   const frame = (now: number) => {
     const dt = Math.min(100, now - last);
