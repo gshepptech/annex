@@ -71,7 +71,8 @@ test("a task goes lead -> worker -> review -> filed, and the office goes quiet a
   assert.equal(scene.folders.get("T1")?.place.kind, "desk");
   t = settle(scene, t);
   assert.deepEqual(scene.folders.get("T1")?.place, { kind: "desk", desk: 1 });
-  assert.deepEqual(scene.actors.get("L")!.pos, scene.layout.desks[0]!.seat, "lead walked back to its desk");
+  assert.deepEqual(scene.actors.get("L")!.pos, scene.layout.desks[0]!.seat, "the lead stays in charge at its desk");
+  assert.deepEqual(scene.actors.get("W1")!.pos, scene.layout.desks[1]!.seat, "the worker walked to the lead and back");
 
   applyEvent(scene, ev("task.started", "W1", "T1"), t);
   assert.equal(scene.actors.get("W1")!.working, true);

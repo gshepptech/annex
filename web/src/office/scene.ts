@@ -161,12 +161,13 @@ export function applyEvent(scene: RoomScene, e: BourneEvent, now: number) {
       const f: Folder = { id: e.taskId, title: String(p.title ?? "Task"), assigneeId, place: { kind: "desk", desk: by?.desk ?? 0 } };
       scene.folders.set(f.id, f);
       if (by && assignee && assignee.id !== by.id) {
-        const target = deskOf(scene.layout, assignee.desk);
-        by.queue.push(
+        // the worker reports to whoever is in charge, takes the file, and goes back to work
+        say(by, `Next: ${f.title}`, 3200, now);
+        assignee.queue.push(
+          { kind: "walk", to: beside(scene, home(scene, by)) },
           { kind: "pick", taskId: f.id },
-          { kind: "walk", to: beside(scene, target.seat) },
+          { kind: "walk", to: home(scene, assignee) },
           { kind: "drop", taskId: f.id, place: { kind: "desk", desk: assignee.desk } },
-          { kind: "walk", to: home(scene, by) },
         );
       } else if (assignee) {
         f.place = { kind: "desk", desk: assignee.desk };
