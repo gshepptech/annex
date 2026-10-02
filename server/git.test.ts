@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { git, prepareWing, taskWorktree, mergeTask, hasCommitsBeyond, removeTaskWorktree } from "./git.ts";
+import { git, prepareWing, taskWorktree, mergeTask, hasCommitsBeyond, removeTaskWorktree, isClean } from "./git.ts";
 import { runCommand } from "./run.ts";
 
 async function makeRepo() {
@@ -66,4 +66,12 @@ test("commands report exit codes, output and timeouts", async () => {
   const slow = await runCommand("sleep 5", tmpdir(), 200);
   assert.equal(slow.timedOut, true);
   assert.notEqual(slow.exitCode, 0);
+});
+
+test("untracked scratch files do not make a worktree dirty, edits to tracked files do", async () => {
+  const { repo } = await makeRepo();
+  writeFileSync(join(repo, "payload_tmp.json"), "{}");
+  assert.equal(await isClean(repo), true);
+  writeFileSync(join(repo, "a.txt"), "changed\n");
+  assert.equal(await isClean(repo), false);
 });

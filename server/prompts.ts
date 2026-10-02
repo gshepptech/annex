@@ -2,7 +2,29 @@
 // contract, which tells agents to delegate and ask colleagues; in Annex, Annex does the
 // delegating, so these say so plainly.
 
+import { join } from "node:path";
 import type { Wing } from "./wing.ts";
+
+// Agents report to Paperclip through this script, and may run it but not `node` in general.
+export const REPORT_SCRIPT = join(import.meta.dirname, "agent-tools", "report.mjs");
+
+// How every role writes back to Paperclip. Shell commands containing `$VARIABLES` are refused in
+// these runs, so agents must not hand-roll curl calls with the API variables.
+const REPORTING = `## Reporting back
+
+Use only this command to change your task's status or comment on it. Write the comment between
+the quote-marked heredoc lines exactly as shown:
+
+\`\`\`sh
+node ${REPORT_SCRIPT} done <<'MD'
+What you did, and the evidence.
+MD
+\`\`\`
+
+The first word is one of \`done\`, \`in_progress\`, \`blocked\` or \`comment\`. It prints the new status;
+if it prints FAILED, say so in your final message. Do not use curl with \`$PAPERCLIP_...\` variables
+and do not write payload files: those commands are refused here.
+`;
 
 export const PROPOSAL_FENCE = "annex-proposal";
 export const BRIEF_FENCE = "annex-brief";
@@ -49,7 +71,8 @@ Rules Annex enforces, so a task that breaks one is thrown away:
 - Do not repeat a task that is open or was closed in the last 7 days.
 - An empty list is a correct answer when nothing is worth doing. Say why in \`note\`.
 
-After posting the comment, mark the wake issue done.
+Post it with \`node ${REPORT_SCRIPT} done <<'MD'\` (the proposal block is the comment). That marks the
+wake issue done in the same step.
 
 ### 2. A chat with the person
 
@@ -68,7 +91,8 @@ When Annex asks you to write the handoff brief, reply with one fenced block tagg
 
 Write only what the conversation settled. The person approves this brief, and from then on it is
 what you are held to when you run on your own.
-`;
+
+${REPORTING}`;
 }
 
 export function workerInstructions(w: Wing): string {
@@ -91,7 +115,8 @@ back, the comment says why; fix that and mark it done again.
 If you cannot do the task (the check cannot pass, the task is wrong, you need something you are
 not allowed to do), set the issue to blocked with a comment saying exactly what stopped you. Do
 not create new issues and do not assign anyone.
-`;
+
+${REPORTING}`;
 }
 
 export function reviewerInstructions(w: Wing): string {
@@ -110,7 +135,8 @@ Read the diff in your current directory against the branch it started from
 Approve by marking the issue done with a comment saying what you checked. Send it back by
 setting it to in_progress with a comment that names the file and line and what has to change.
 Never approve work you have not read.
-`;
+
+${REPORTING}`;
 }
 
 export function wakeIssue(opts: {

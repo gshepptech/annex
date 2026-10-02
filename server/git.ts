@@ -78,8 +78,10 @@ export async function hasCommitsBeyond(dir: string, base: string): Promise<boole
   return (await git(dir, "rev-list", "--count", `${base}..HEAD`)) !== "0";
 }
 
+// Tracked files only: untracked scratch files (agents' API payloads, logs) are never merged, so
+// they do not make a worktree dirty for Annex's purposes.
 export async function isClean(dir: string): Promise<boolean> {
-  return (await git(dir, "status", "--porcelain")) === "";
+  return (await git(dir, "status", "--porcelain", "--untracked-files=no")) === "";
 }
 
 export type MergeResult = { ok: true; commit: string } | { ok: false; reason: string };

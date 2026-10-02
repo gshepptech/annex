@@ -304,7 +304,7 @@ export class Bureau implements BureauApi {
       this.track(this.merge(rt, cur, task));
     } else if (prev.status === "in_review" && cur.status === "in_progress" && prev.executionState?.currentParticipant?.agentId === reviewerId) {
       this.emit({ wingId, kind: "review.rejected", actor: reviewerId, taskId: cur.id, payload: { title: task.title, reason: await this.lastCommentBy(cur.id, reviewerId) } });
-    } else if (cur.status === "blocked") {
+    } else if (cur.status === "blocked" && prev.status !== "blocked") {
       const by = cur.assigneeAgentId ?? actor ?? "annex";
       this.emit({ wingId, kind: "agent.said", actor: by, taskId: cur.id, payload: { text: `Blocked: ${await this.lastCommentBy(cur.id, by)}` } });
     } else if (cur.status === "cancelled") {

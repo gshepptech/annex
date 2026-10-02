@@ -9,7 +9,7 @@ import type { Store, AgentRow } from "./db.ts";
 import type { Wing } from "./wing.ts";
 import { prepareWing, type WingWorkspace } from "./git.ts";
 import type { Paperclip, AgentSpec } from "./engine/paperclip.ts";
-import { leadInstructions, workerInstructions, reviewerInstructions } from "./prompts.ts";
+import { leadInstructions, workerInstructions, reviewerInstructions, REPORT_SCRIPT } from "./prompts.ts";
 
 export interface Provisioned {
   wing: Wing;
@@ -37,7 +37,7 @@ export const DENIED_GIT = [
 ];
 
 export function toolsFor(role: AgentRow["role"], wing: Wing): string[] {
-  const shell = new Set([...BASE_SHELL, ...READ_GIT]);
+  const shell = new Set([...BASE_SHELL, ...READ_GIT, `node ${REPORT_SCRIPT}`]);
   if (role === "worker") {
     for (const c of WORKER_GIT) shell.add(c);
     // `git` in a wing's allow list means the commit-level commands above, never all of git
