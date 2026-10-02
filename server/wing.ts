@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { parse } from "smol-toml";
 
 import type { Mode } from "./api-types.ts";
+import { PLUGIN_ID } from "./plugins.ts";
 export type { Mode };
 
 export interface Signal {
@@ -62,6 +63,8 @@ export interface Wing {
   crew: Crew;
   settings: WingSettings;
   allow: string[];
+  // Claude Code plugins the crew may use, as "name@marketplace"
+  plugins: string[];
 }
 
 export class WingFileError extends Error {}
@@ -159,6 +162,10 @@ export function parseWing(id: string, source: string): Wing {
     crew,
     settings,
     allow: strList(perms.allow, at("permissions.allow")),
+    plugins: strList(raw.plugins, at("plugins")).map((p) => {
+      if (!PLUGIN_ID.test(p)) throw new WingFileError(`${at("plugins")} entries look like "smith@the-tavern", got "${p}"`);
+      return p;
+    }),
   };
 }
 

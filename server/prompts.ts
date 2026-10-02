@@ -4,6 +4,7 @@
 
 import { join } from "node:path";
 import type { Wing } from "./wing.ts";
+import type { PluginInfo } from "./plugins.ts";
 
 // Agents report to Paperclip through this script, and may run it but not `node` in general.
 export const REPORT_SCRIPT = join(import.meta.dirname, "agent-tools", "report.mjs");
@@ -37,7 +38,34 @@ and do not write payload files: those commands are refused here.
 export const PROPOSAL_FENCE = "annex-proposal";
 export const BRIEF_FENCE = "annex-brief";
 
-export function leadInstructions(w: Wing): string {
+// What an office's plugins add, for the lead (who plans with them) or the crew (who run them).
+function pluginSection(plugins: PluginInfo[], role: "lead" | "worker"): string {
+  if (!plugins.length) return "";
+  const list = plugins.map((p) => `- ${p.id}: ${p.commands.length ? p.commands.map((c) => `\`${c}\``).join(", ") : "no commands"}`).join("\n");
+  if (role === "lead") {
+    return `## Plugins the crew has
+
+${list}
+
+When a task is best done with one of these, say so in the task's detail and name the command,
+for example "run \`${plugins[0]!.commands[0] ?? plugins[0]!.name}\` on this". Only name one when it
+fits the task; the done check and the house rules still decide whether the work is done.
+
+`;
+  }
+  return `## Plugins you may use
+
+${list}
+
+Run a command with the Skill tool when the task names it or it clearly fits. Nobody is there to
+answer a plugin's questions: pick the choice that keeps to the task and say which you picked in
+your report, or set the issue to blocked if the plugin cannot go on without a person. A plugin
+never changes the rules above: same worktree, same branch, no push, the done check still decides.
+
+`;
+}
+
+export function leadInstructions(w: Wing, plugins: PluginInfo[] = []): string {
   return `# You lead the ${w.name} wing in Annex
 
 Annex is the system that runs this wing. Annex creates every task, assigns it, runs the done
@@ -133,10 +161,10 @@ When Annex asks you to write the handoff brief, reply with one fenced block tagg
 Write only what the conversation settled. The person approves this brief, and from then on it is
 what you are held to when you run on your own.
 
-${REPORTING}`;
+${pluginSection(plugins, "lead")}${REPORTING}`;
 }
 
-export function workerInstructions(w: Wing): string {
+export function workerInstructions(w: Wing, plugins: PluginInfo[] = []): string {
   return `# You are on the ${w.name} wing's crew in Annex
 
 Each task you get is one piece of work, in your own git worktree (your current directory, on its
@@ -159,7 +187,7 @@ If you cannot do the task (the check cannot pass, the task is wrong, you need so
 not allowed to do), set the issue to blocked with a comment saying exactly what stopped you. Do
 not create new issues and do not assign anyone.
 
-${REPORTING}`;
+${pluginSection(plugins, "worker")}${REPORTING}`;
 }
 
 export function reviewerInstructions(w: Wing): string {

@@ -10,6 +10,7 @@ import type { Wing } from "./wing.ts";
 import { prepareWing, type WingWorkspace } from "./git.ts";
 import type { Paperclip, AgentSpec } from "./engine/paperclip.ts";
 import { leadInstructions, workerInstructions, reviewerInstructions, REPORT_SCRIPT } from "./prompts.ts";
+import { findPlugin, mcpRule, type PluginInfo } from "./plugins.ts";
 
 export interface Provisioned {
   wing: Wing;
@@ -19,6 +20,8 @@ export interface Provisioned {
   lead: AgentRow;
   workers: AgentRow[];
   reviewer: AgentRow;
+  // plugins the wing file names that are not installed, so they could not be enabled
+  missingPlugins: string[];
 }
 
 // Names are unique across every office, so the party roster never shows two of the same person.
@@ -54,7 +57,7 @@ export const DENIED_GIT = [
   "git rebase", "git merge", "git worktree", "git branch -D", "git branch -d", "git branch -f", "git clean", "git remote", "git config",
 ];
 
-export function toolsFor(role: AgentRow["role"], wing: Wing): string[] {
+export function toolsFor(role: AgentRow["role"], wing: Wing, plugins: PluginInfo[] = []): string[] {
   const shell = new Set([...BASE_SHELL, ...READ_GIT, `node ${REPORT_SCRIPT}`]);
   if (role === "worker") {
     for (const c of WORKER_GIT) shell.add(c);
@@ -62,12 +65,15 @@ export function toolsFor(role: AgentRow["role"], wing: Wing): string[] {
     for (const c of wing.allow) if (c !== "git") shell.add(c);
   }
   const edit = role === "worker" ? ["Write", "Edit"] : [];
-  return [...BASE_TOOLS, ...edit, ...[...shell].map((c) => `Bash(${c}:*)`)];
+  // a plugin's commands may start subagents and call its own MCP servers
+  const fromPlugins = plugins.length ? ["Agent", ...plugins.flatMap((p) => p.mcpServers.map((s) => mcpRule(p.name, s)))] : [];
+  return [...BASE_TOOLS, ...edit, ...fromPlugins, ...[...shell].map((c) => `Bash(${c}:*)`)];
 }
 
 // Claude settings every Annex agent runs with: the person's global CLAUDE.md and auto-memory are
 // hidden, and together with `--setting-sources project,local` so are their hooks and plugins.
-export function writeAgentSettings(dir: string): string {
+// Plugins an office names are the exception: they are enabled here, for that office only.
+export function writeAgentSettings(dir: string, plugins: string[] = []): string {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, "claude-settings.json");
   const settings = {
@@ -75,6 +81,7 @@ export function writeAgentSettings(dir: string): string {
     autoMemoryEnabled: false,
     // deny rules beat any allow, so these hold whatever a wing file lists
     permissions: { deny: DENIED_GIT.map((c) => `Bash(${c}:*)`) },
+    ...(plugins.length ? { enabledPlugins: Object.fromEntries(plugins.map((p) => [p, true])) } : {}),
   };
   writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
   return file;
@@ -120,6 +127,10 @@ export async function provision(opts: {
     }
   }
 
+  const plugins = wing.plugins.map((id) => findPlugin(id)).filter((p): p is PluginInfo => p !== null);
+  const missingPlugins = wing.plugins.filter((id) => !plugins.some((p) => p.id === id));
+  const settingsFile = plugins.length ? writeAgentSettings(wingDir, plugins.map((p) => p.id)) : opts.settingsFile;
+
   const existing = new Set((await pc.agents(companyId)).map((a) => a.id));
   for (const a of store.agents(wing.id)) if (!existing.has(a.id)) store.removeAgent(a.id);
 
@@ -128,10 +139,10 @@ export async function provision(opts: {
     role: role === "lead" ? "ceo" : role === "reviewer" ? "qa" : "engineer",
     title: role === "lead" ? `${wing.name} lead` : role === "reviewer" ? `${wing.name} reviewer` : `${wing.name} crew`,
     model: role === "lead" ? wing.crew.leadModel : role === "reviewer" ? wing.crew.reviewerModel : wing.crew.workerModel,
-    instructions: role === "lead" ? leadInstructions(wing) : role === "reviewer" ? reviewerInstructions(wing) : workerInstructions(wing),
+    instructions: role === "lead" ? leadInstructions(wing, plugins) : role === "reviewer" ? reviewerInstructions(wing) : workerInstructions(wing, plugins),
     claudeCommand: opts.claudeCommand,
-    settingsFile: opts.settingsFile,
-    allowedTools: toolsFor(role, wing),
+    settingsFile,
+    allowedTools: toolsFor(role, wing, role === "reviewer" ? [] : plugins),
     // the lead plans from its own workspace; this lets its Read, Glob and Grep reach the repo
     ...(role === "lead" && workspace ? { readDirs: [workspace.integrationDir] } : {}),
     ...extra,
@@ -160,5 +171,5 @@ export async function provision(opts: {
   const workers = crew().filter((a) => a.role === "worker");
   while (workers.length < wing.crew.workers) workers.push(await hire("worker", nextName("worker", taken()), lead.id));
 
-  return { wing, companyId, projectId, workspace, lead, workers, reviewer };
+  return { wing, companyId, projectId, workspace, lead, workers, reviewer, missingPlugins };
 }

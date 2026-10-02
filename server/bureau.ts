@@ -145,6 +145,7 @@ export class Bureau implements BureauApi {
         rt.offline = null;
         rt.stop = this.pc.subscribe(rt.prov.companyId, (f) => void this.onFrame(rt, f).catch((e) => this.logger.warn(rt.wing.id, `could not handle a live frame: ${e.message}`)));
         this.logger.info(rt.wing.id, `connected (${rt.prov.workers.length} crew, mode ${this.store.wing(rt.wing.id)!.mode})`);
+        if (rt.prov.missingPlugins.length) this.logger.warn(rt.wing.id, `plugins not installed, so not enabled: ${rt.prov.missingPlugins.join(", ")}. Install them with /plugin in Claude Code.`);
       } catch (err) {
         rt.offline = (err as Error).message;
         this.logger.warn(rt.wing.id, `not connected: ${rt.offline}`);
@@ -1171,6 +1172,7 @@ export class Bureau implements BureauApi {
           workerModel: rt.wing.crew.workerModel,
           reviewerModel: rt.wing.crew.reviewerModel,
           allow: rt.wing.allow,
+          plugins: rt.wing.plugins,
         },
       });
     }

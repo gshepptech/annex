@@ -323,6 +323,7 @@ export class Panel {
             maxBackoff: val("maxBackoff"),
             askBefore: val("askBefore").split("\n"),
             allow: val("allow").split(/[,\s]+/).filter(Boolean),
+            plugins: val("plugins").split(/[,\s]+/).filter(Boolean),
           };
           void this.act("Saving and applying", base, edit, () => (this.saved = "Saved. The office is using the new settings."), "PUT");
         },
@@ -346,6 +347,7 @@ export class Panel {
         h("div", { class: "two" }, field("Lead model", input("leadModel", e.leadModel, { list: "models" })), field("Crew model", input("workerModel", e.workerModel, { list: "models" }))),
         field("Reviewer model", input("reviewerModel", e.reviewerModel, { list: "models" })),
         field("Commands the crew may run", input("allow", e.allow.join(", "), { placeholder: "npm, npx, node" })),
+        field("Plugins", input("plugins", e.plugins.join(", "), { placeholder: "smith@the-tavern, sage@the-tavern" }), "Claude Code plugins the crew may use. Install them in Claude Code first; Annex turns them on for this office only."),
       ),
       h(
         "fieldset",

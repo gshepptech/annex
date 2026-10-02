@@ -64,6 +64,7 @@ export interface WingEdit {
   wakeTimeout?: string;
   maxBackoff?: string;
   allow?: string[];
+  plugins?: string[];
 }
 
 export interface NewWing {

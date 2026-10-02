@@ -46,6 +46,19 @@ was already running is left alone. If Annex was started in the background:
   hires, pauses, resumes, or brings an office back to you. Each lead still plans its own work.
 - **SYSTEM LOG**: everything Annex decided and why, also in `.annex/logs/annex.log`.
 
+## Rules and plugins
+
+- **House rules** live in the repo's `CLAUDE.md` (and `AGENTS.md`). Every wake hands them to the
+  lead, every task must quote the ones it touches, and the reviewer checks the diff against them.
+- **What an office is for** is its `charter`; each task cites a line of it.
+- **Ask me before** (Settings tab, or `ask_before` in the wing file) makes the lead wait for your yes.
+- **Plugins**: `plugins = ["smith@the-tavern"]` in a wing file (or the Plugins field in Settings)
+  turns those Claude Code plugins on for that office's lead and crew only. Install them in Claude
+  Code first. Annex enables them in the office's own agent settings, allows their MCP tools and
+  subagents, and tells the lead and crew which commands they bring. Nobody answers a plugin's
+  questions mid-run, so plugins that interview you (Forge's planning) fit an office you work
+  with rather than one on its own. Reviewers never get plugins.
+
 ## How the work is kept honest
 
 - A lead never plans blind: every wake carries the repo's signals and its CLAUDE.md / AGENTS.md,

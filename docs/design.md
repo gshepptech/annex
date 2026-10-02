@@ -405,3 +405,11 @@ What the person asked for after using it, and what was built:
   stays Atkinson Hyperlegible, terminals stay JetBrains Mono on a plain dark screen with no
   scanlines. Labels are sentence case; LOOT is now "Ready to merge". It was kept deliberately away
   from the glassy dark theme rejected in the second round.
+- **Dark mode** is the default, with a switch to light kept per browser; the rooms have a night
+  palette too.
+- **Plugins per office.** `plugins = ["name@marketplace"]` in a wing file enables those installed
+  Claude Code plugins through the office's own `--settings` file (`enabledPlugins`), allows their
+  MCP servers and the Agent tool for the lead and crew, and lists their commands in the standing
+  orders. Verified live: with `--setting-sources project,local`, a plugin enabled this way loads
+  its commands, agents, MCP server and hooks. Plugins that are not installed are logged and skipped.
+

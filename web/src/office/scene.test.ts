@@ -31,7 +31,7 @@ const wing = (over: Partial<WingView> = {}): WingView => ({
   loot: { commits: [], command: null },
   asks: [],
   paused: false,
-  edit: { name: "Upkeep", charter: "", doneCheck: null, setup: null, repoPath: null, baseBranch: "main", workers: 2, leadModel: "", workerModel: "", reviewerModel: "", allow: [] },
+  edit: { name: "Upkeep", charter: "", doneCheck: null, setup: null, repoPath: null, baseBranch: "main", workers: 2, leadModel: "", workerModel: "", reviewerModel: "", allow: [], plugins: [] },
   ...over,
 });
 
