@@ -4,3 +4,4 @@ references/
 .annex/
 dist/
 *.log
+.playwright-mcp/
