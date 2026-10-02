@@ -47,31 +47,45 @@ function describeInput(tool: string, input: Record<string, unknown>): string {
   }
 }
 
-const LIMIT = /usage limit|hit your limit|rate[ -]?limit|limit reached|out of (extra )?usage|5-hour limit|weekly limit/i;
+const LIMIT = /usage limit|hit your (session |weekly |usage )?limit|rate[ -]?limit|limit reached|out of (extra )?usage|5-hour limit|weekly limit|session limit|provider_quota/i;
 
+// Paperclip marks these runs with errorCode "provider_quota"; the text is Claude's own message.
 export function isUsageLimit(text: string | null | undefined): boolean {
   return !!text && LIMIT.test(text);
 }
 
-// "resets 5pm", "resets at 17:30", "resets 3:45am (Europe/London)", or an ISO time. Falls back to
-// an hour from now, so a wing is never held forever on a message Annex could not read.
+// "resets 5pm", "resets at 17:30", "resets 3:40pm (America/New_York)", or an ISO time. A named
+// zone is honoured; otherwise the machine's. Falls back to an hour from now, so a wing is never
+// held forever on a message Annex could not read.
 export function resetTime(text: string, now: Date): Date {
   const iso = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?Z?/.exec(text);
   if (iso) {
     const d = new Date(iso[0]);
     if (d > now) return d;
   }
-  const m = /resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i.exec(text);
+  const m = /resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s*\(([A-Za-z_]+\/[A-Za-z_]+)\))?/i.exec(text);
   if (m) {
     let h = Number(m[1]);
     const min = Number(m[2] ?? 0);
     const ampm = m[3]?.toLowerCase();
     if (ampm === "pm" && h < 12) h += 12;
     if (ampm === "am" && h === 12) h = 0;
-    const d = new Date(now);
-    d.setHours(h, min, 0, 0);
-    if (d <= now) d.setDate(d.getDate() + 1);
-    return d;
+    const zone = m[4] ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    try {
+      const wall = wallClock(now, zone);
+      const offset = Date.UTC(wall.y, wall.mo - 1, wall.d, wall.h, wall.mi) - Math.floor(now.getTime() / 60_000) * 60_000;
+      let target = Date.UTC(wall.y, wall.mo - 1, wall.d, h, min) - offset;
+      if (target <= now.getTime()) target += 86_400_000;
+      return new Date(target);
+    } catch {
+      // unknown zone name: fall through to the default
+    }
   }
   return new Date(now.getTime() + 60 * 60_000);
+}
+
+function wallClock(at: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(at);
+  const n = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+  return { y: n("year"), mo: n("month"), d: n("day"), h: n("hour"), mi: n("minute") };
 }

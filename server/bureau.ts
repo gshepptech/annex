@@ -163,6 +163,7 @@ export class Bureau implements BureauApi {
         if (!rt.prov) continue;
         try {
           await this.refreshAll(rt);
+          await this.catchQuota(rt);
           this.releaseHold(rt);
           await this.maybeWake(rt);
           await this.expireWake(rt);
@@ -173,6 +174,20 @@ export class Bureau implements BureauApi {
     } finally {
       this.ticking = false;
     }
+  }
+
+  // A usage-limit failure missed while Annex was down, or reported without its message, still
+  // holds every wing: read the latest failed runs and hold until the reset they name.
+  private async catchQuota(rt: Runtime) {
+    const runs = await this.pc.companyRuns(rt.prov!.companyId).catch(() => []);
+    const hit = runs.slice(0, 20).find((r) => r.status === "failed" && r.errorCode === "provider_quota");
+    if (!hit) return;
+    const full = await this.pc.run(hit.id).catch(() => null);
+    const failedAt = new Date((full as { finishedAt?: string } | null)?.finishedAt ?? 0);
+    // the reset is the first one after the failure, not after now, or a stale message would
+    // hold everything until the same time tomorrow
+    const until = resetTime(full?.error ?? "", failedAt);
+    if (until > this.now()) this.holdAll(until, "Claude usage limit reached");
   }
 
   private releaseHold(rt: Runtime) {
@@ -243,6 +258,11 @@ export class Bureau implements BureauApi {
       }
       if (p.status === "failed" || p.status === "timed_out") {
         const text = `${p.errorCode ?? ""} ${p.error ?? ""} ${p.finalText ?? ""}`;
+        // a frame may arrive without the message; the run itself carries it
+        if (p.errorCode === "provider_quota" && !/resets/i.test(text)) {
+          const run = await this.pc.run(runId).catch(() => null);
+          if (run) this.holdAll(resetTime(`${run.error ?? ""}`, this.now()), "Claude usage limit reached");
+        } else
         if (isUsageLimit(text)) this.holdAll(resetTime(text, this.now()), "Claude usage limit reached");
       }
       if (issueId && (p.status === "succeeded" || p.status === "failed")) await this.refreshIssue(rt, issueId, agentId);

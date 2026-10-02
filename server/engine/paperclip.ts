@@ -284,6 +284,10 @@ export class Paperclip {
     return this.call<Run[]>("GET", `/api/companies/${companyId}/heartbeat-runs`);
   }
 
+  run(runId: string) {
+    return this.call<Run & { error: string | null; agentId: string }>("GET", `/api/heartbeat-runs/${runId}`);
+  }
+
   cancelRun(runId: string) {
     return this.call("POST", `/api/heartbeat-runs/${runId}/cancel`, {});
   }
