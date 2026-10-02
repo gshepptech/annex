@@ -402,3 +402,21 @@ test("resuming a usage-limit hold sticks; the same failure does not close the of
   await bureau.tick();
   assert.equal(store.wing("upkeep")!.heldUntil, null, "and Resume now keeps it open");
 });
+
+test("a blocked task seen twice at once goes back to the lead once", async () => {
+  const { pc, store, bureau } = await oneTask();
+  const i = pc.issues.get(task0(pc).id)!;
+  i.status = "blocked";
+  i.updatedAt = new Date(Date.now() + 1000).toISOString();
+  const rt = (bureau as unknown as { rts: Map<string, unknown> }).rts.get("upkeep");
+  const observe = (bureau as unknown as { observe: (rt: unknown, i: unknown, a: null) => Promise<void> }).observe.bind(bureau);
+  await Promise.all([observe(rt, structuredClone(i), null), observe(rt, structuredClone(i), null)]);
+  await bureau.tick();
+  assert.equal(store.eventsSince(0).filter((e) => e.kind === "task.stopped").length, 1, "stopped once");
+  const replans = store.db.prepare("select count(*) as n from drop_in where title like 'Re-plan%'").get() as { n: number };
+  assert.equal(replans.n, 1, "one re-plan for the lead");
+});
+
+function task0(pc: { issues: Map<string, { title: string; id: string }> }) {
+  return [...pc.issues.values()].find((x) => x.title === "Add done.txt")!;
+}

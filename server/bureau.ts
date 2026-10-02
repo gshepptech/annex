@@ -374,8 +374,22 @@ export class Bureau implements BureauApi {
   // cannot cancel tasks, so leaving it open would leave it open forever.
   private async replan(rt: Runtime, cur: Issue, task: TaskRow, actor: string | null) {
     const wingId = rt.wing.id;
+    // a live frame and the poll can both see the same block; only the first one acts
+    const key = `replan:${cur.id}`;
+    if (rt.busy.has(key)) return;
+    rt.busy.add(key);
+    try {
+      await this.replanOnce(rt, cur, task, actor, wingId);
+    } finally {
+      rt.busy.delete(key);
+    }
+  }
+
+  private async replanOnce(rt: Runtime, cur: Issue, task: TaskRow, actor: string | null, wingId: string) {
+    if (this.store.task(cur.id)?.state !== "open") return;
     const by = cur.assigneeAgentId ?? actor ?? "annex";
     const reason = await this.lastCommentBy(cur.id, by);
+    if (this.store.task(cur.id)?.state !== "open") return;
     this.emit({ wingId, kind: "agent.said", actor: by, taskId: cur.id, payload: { text: `Blocked: ${reason}` } });
     this.store.closeTask(cur.id, "stopped");
     await this.pc.setStatus(cur.id, "cancelled", "Annex handed this back to the lead to re-plan.");
