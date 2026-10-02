@@ -295,3 +295,31 @@ Annex runs its own small engine instead: a wake queue in SQLite, the lead and cr
 directly. D2 becomes "a wing is a row in Annex's database", D4 becomes the thin chat layer, and
 the rest of this document stands. This costs more than the Paperclip path, which is why it is the
 fallback and not the plan.
+
+## Changes after the spike (2 October 2026)
+
+The spike passed (`docs/spike-findings.md`). What it changed:
+
+- **D7, worktrees.** Paperclip makes them. Each wing's project gets an `executionWorkspacePolicy`
+  of `isolated_workspace` + `git_worktree` with `baseRef` set to the integration branch, so every
+  task starts from verified work. The branch template is `annex/<wing>--{{issue.identifier}}`:
+  a template under `annex/<wing>/` would fail, because git cannot hold `annex/upkeep` and
+  `annex/upkeep/X` at once. Annex keeps `server/git.ts` for creating the integration branch,
+  its own integration worktree, and merging verified task branches into it.
+- **D6, the gate.** Paperclip review stages run in order and a stage's participant can be a user.
+  Every Annex task gets two stages: first Annex's board user, which runs the done check in the
+  task's worktree and approves the stage or sends the task back with the output, then the
+  reviewer agent. The reviewer never sees work that failed the check.
+- **D4, chat.** Agent Chat works over the API and resumes the lead's session. Studio's chat is a
+  client for it.
+- **D12, safety.** By default every run inherits the person's whole `~/.claude` and runs with
+  `--dangerously-skip-permissions`. Annex creates every agent with
+  `dangerouslySkipPermissions: false`, the absolute `claude` path, and
+  `--setting-sources project,local --settings <annex file>` where that file sets
+  `claudeMdExcludes` for the global CLAUDE.md and turns auto-memory off. Checked with a control:
+  without it an agent quotes the person's CLAUDE.md word for word; with it, the agent cannot see
+  it, and the subscription login still works. A separate `CLAUDE_CONFIG_DIR` was rejected because
+  it loses the login.
+- **D5, one wake at a time.** Leads get `maxConcurrentRuns: 1`, and the timer baseline is set so
+  a new lead does not wake the moment it is created.
+- **Never comment on a closed issue.** In Paperclip that reopens it.
