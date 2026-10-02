@@ -341,7 +341,7 @@ button.btn.bad { background: var(--bad); color: var(--ink); border-color: var(--
   overflow: auto;
 }
 
-.log, .chat { list-style: none; margin: 0; padding: 0; overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 120px; }
+.log, .chat { list-style: none; margin: 0; padding: 0; overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 120px; max-height: 60vh; }
 .log li { display: grid; grid-template-columns: 3em 5.2em minmax(0, 1fr); gap: 6px; padding: 2px 0; font: 1.02rem/1.1 var(--term); }
 .log time { color: var(--dim); }
 .log b { color: var(--c, var(--muted)); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -520,3 +520,4 @@ dialog p { margin: 0; color: var(--muted); }
 .hud .director-btn { color: var(--annex); border-color: var(--annex); }
 .chat li.director-line { border-color: var(--annex); }
 .chat li.director-line b { color: var(--annex); }
+.screen .btn.older { display: block; margin: 0 auto 12px; }

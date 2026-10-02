@@ -17,7 +17,7 @@ export interface Bureau {
   approveBrief(wingId: string, briefId: number): Promise<void>;
   comeBack(wingId: string): Promise<void>;
   dropIn(wingId: string, title: string, detail: string): Promise<{ taskId: string }>;
-  transcript(agentId: string): Promise<TranscriptView>;
+  transcript(agentId: string, limit?: number): Promise<TranscriptView>;
   updateWing(wingId: string, edit: WingEdit): Promise<void>;
   createWing(n: NewWing): Promise<{ id: string }>;
   decideAsk(wingId: string, askId: number, approve: boolean): Promise<void>;
@@ -59,7 +59,10 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       if (req.method === "GET" && path === "/api/stream") return streamEvents(req, res, store, Number(url.searchParams.get("after") ?? 0));
 
       const agent = /^\/api\/agents\/([^/]+)\/transcript$/.exec(path);
-      if (req.method === "GET" && agent) return json(res, 200, await bureau.transcript(decodeURIComponent(agent[1]!)));
+      if (req.method === "GET" && agent) {
+        const limit = Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 8) || 8));
+        return json(res, 200, await bureau.transcript(decodeURIComponent(agent[1]!), limit));
+      }
 
       if (req.method === "POST" && path === "/api/director") {
         const body = await readJson(req);

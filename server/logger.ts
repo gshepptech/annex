@@ -2,7 +2,7 @@
 // .annex/logs/annex.log (rotated at 5 MB, one previous file kept), echoed to the console, and
 // kept in memory so the office can show the latest lines.
 
-import { appendFileSync, mkdirSync, renameSync, statSync, existsSync } from "node:fs";
+import { appendFileSync, mkdirSync, renameSync, statSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type Level = "info" | "warn" | "error";
@@ -29,8 +29,27 @@ export class Logger {
     if (dir) {
       mkdirSync(dir, { recursive: true });
       this.file = join(dir, "annex.log");
+      this.loadTail();
     } else {
       this.file = null;
+    }
+  }
+
+  // the end of the file from earlier runs, so the office's log does not start empty on a restart
+  private loadTail() {
+    if (!this.file || !existsSync(this.file)) return;
+    let text = "";
+    try {
+      text = readFileSync(this.file, "utf8").slice(-400_000);
+    } catch {
+      return;
+    }
+    for (const raw of text.split("\n").slice(-KEEP)) {
+      try {
+        if (raw.trim()) this.lines.push({ ...(JSON.parse(raw) as LogLine), id: this.next++ });
+      } catch {
+        // the first line may be cut in half by the slice, or damaged; skip just that line
+      }
     }
   }
 

@@ -23,6 +23,7 @@ const task = (over: Partial<ProposedTask> = {}): ProposedTask => ({
   askFirst: false,
   askReason: "",
   houseRules: "",
+  fromDropIn: "",
   ...over,
 });
 
@@ -53,7 +54,7 @@ test("evidence has to quote signal output, not paraphrase it", () => {
   assert.equal(evidenceInSignals("vite                    6.4.3    6.4.3   8.3.2", signals), true);
   assert.equal(evidenceInSignals("vite is a couple of majors behind", signals), false);
   const [v] = judge([task({ evidence: "React feels old" })], { charter, signals, existingTitles: [] });
-  assert.match(v!.reason!, /does not quote any signal output/);
+  assert.match(v!.reason!, /quotes neither/);
 });
 
 test("done checks only check", () => {
@@ -85,9 +86,12 @@ test("a brief needs all four headings", () => {
 });
 
 test("when the repo has house rules, a task must say which apply", () => {
-  const [bare] = judge([task()], { charter, signals, existingTitles: [], houseRules: true });
+  const rules = "## Hard guardrails\n- **Local git only.** Never run git push.\n- No attribution to Claude anywhere.";
+  const [bare] = judge([task()], { charter, signals, existingTitles: [], houseRules: rules });
   assert.match(bare!.reason!, /house rules/);
-  const [ok] = judge([task({ houseRules: "Local git only: no push. No Claude attribution in the commit." })], { charter, signals, existingTitles: [], houseRules: true });
+  const [vague] = judge([task({ houseRules: "I will follow all of the rules carefully" })], { charter, signals, existingTitles: [], houseRules: rules });
+  assert.match(vague!.reason!, /does not quote any line/);
+  const [ok] = judge([task({ houseRules: "Local git only. Never run git push: commit only." })], { charter, signals, existingTitles: [], houseRules: rules });
   assert.equal(ok!.reason, null);
 });
 
@@ -95,4 +99,29 @@ test("a hire request is read with its count and reason", () => {
   const p = parseProposal('```annex-proposal\n{"note":"","tasks":[],"hire":{"count":2,"reason":"three tasks are waiting"}}\n```');
   assert.ok(!("error" in p));
   assert.deepEqual(p.hire, { count: 2, reason: "three tasks are waiting" });
+});
+
+test("work the person dropped in needs no signal evidence, but must really be theirs", () => {
+  const ctx = { charter, signals, existingTitles: [], dropIns: ["Check the README for the removed --json flag"] };
+  const [ok] = judge([task({ title: "Remove --json from the README", charterLine: "", evidence: "", fromDropIn: "Check the README for the removed --json flag" })], ctx);
+  assert.equal(ok!.reason, null);
+  const [fake] = judge([task({ title: "Rewrite in Rust", charterLine: "", evidence: "", fromDropIn: "Rewrite everything in Rust" })], ctx);
+  assert.match(fake!.reason!, /not something the person dropped in/);
+});
+
+test("evidence can quote a real file in the repo", () => {
+  const files: Record<string, string> = { "README.md": "Run reckon --json to get machine output." };
+  const read = (p: string) => files[p] ?? null;
+  const ctx = { charter, signals, existingTitles: [], readRepoFile: read };
+  const [ok] = judge([task({ evidence: "README.md:3: Run reckon --json to get machine output" })], ctx);
+  assert.equal(ok!.reason, null);
+  const [made] = judge([task({ evidence: "README.md: the docs are confusing in places" })], ctx);
+  assert.match(made!.reason!, /quotes neither/);
+  const [escape] = judge([task({ evidence: "../../etc/passwd: root:x:0:0" })], ctx);
+  assert.notEqual(escape!.reason, null);
+});
+
+test("different versions are different work", () => {
+  assert.equal(similar("Bump @types/node to 22.20.5", "Bump @types/node 22.20.5 → 26.6.4 (major)"), false);
+  assert.equal(similar("Bump @types/node to 26.6.4", "Upgrade @types/node to 26.6.4"), true);
 });

@@ -25,7 +25,7 @@ const wing = (over: Partial<WingView> = {}): WingView => ({
   brief: null,
   draft: null,
   chat: [],
-  settings: { wakeEvery: "15m", maxRunsPerHour: null, quietHours: null, backOffWhenIdle: false, askBefore: [], maxWorkers: 6 },
+  settings: { wakeEvery: "15m", maxRunsPerHour: null, quietHours: null, backOffWhenIdle: false, askBefore: [], maxWorkers: 6, maxTasksPerWake: 3, checkAttempts: 3, checkTimeout: "15m", wakeTimeout: "30m", maxBackoff: "24h" },
   nextWake: { at: null, blockedBy: null },
   houseRules: [],
   loot: { commits: [], command: null },

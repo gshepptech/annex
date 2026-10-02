@@ -21,6 +21,8 @@ export class Terminal {
   private onBack: () => void;
   private wingName: (id: string) => string;
   private lastRender = "";
+  // how many of the newest runs to show; LOAD OLDER RUNS raises it
+  private limit = 8;
 
   constructor(onBack: () => void, wingName: (id: string) => string) {
     this.onBack = onBack;
@@ -35,6 +37,7 @@ export class Terminal {
     if (this.agentId !== agentId) {
       this.agentId = agentId;
       this.stick = true;
+      this.limit = 8;
       this.lastRender = "";
       this.head.replaceChildren();
       this.briefing.replaceChildren();
@@ -63,7 +66,7 @@ export class Terminal {
     if (this.timer) clearTimeout(this.timer);
     let t: TranscriptView;
     try {
-      const r = await fetch(`/api/agents/${encodeURIComponent(id)}/transcript`);
+      const r = await fetch(`/api/agents/${encodeURIComponent(id)}/transcript?limit=${this.limit}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `answered ${r.status}`);
       t = await r.json();
     } catch (err) {
@@ -110,7 +113,10 @@ export class Terminal {
       this.screen.replaceChildren(h("p", { class: "term-empty" }, `${a.name.toUpperCase()} HAS NOT RUN YET.`));
       return;
     }
-    this.screen.replaceChildren(...runs.map((r) => this.run(r)));
+    const older = t.runs.length >= this.limit
+      ? h("button", { class: "btn older", type: "button", onclick: () => { this.limit += 20; this.stick = false; this.lastRender = ""; void this.load(); } }, "▲ LOAD OLDER RUNS")
+      : h("p", { class: "run-reason" }, "— the first run —");
+    this.screen.replaceChildren(older, ...runs.map((r) => this.run(r)));
     for (const d of this.screen.querySelectorAll("details")) if (open.has((d as HTMLElement).dataset.k)) (d as HTMLDetailsElement).open = true;
     if (this.stick) this.screen.scrollTop = this.screen.scrollHeight;
   }

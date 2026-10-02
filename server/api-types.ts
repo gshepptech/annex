@@ -33,6 +33,11 @@ export interface SettingsView {
   backOffWhenIdle: boolean;
   askBefore: string[];
   maxWorkers: number;
+  maxTasksPerWake: number;
+  checkAttempts: number;
+  checkTimeout: string;
+  wakeTimeout: string;
+  maxBackoff: string;
 }
 
 // What the settings form edits. Every field is optional; what is left out keeps its value.
@@ -53,6 +58,11 @@ export interface WingEdit {
   backOffWhenIdle?: boolean;
   askBefore?: string[];
   maxWorkers?: number;
+  maxTasksPerWake?: number;
+  checkAttempts?: number;
+  checkTimeout?: string;
+  wakeTimeout?: string;
+  maxBackoff?: string;
   allow?: string[];
 }
 
@@ -134,7 +144,7 @@ export interface WingView {
   settings: SettingsView;
   asks: AskView[];
   paused: boolean;
-  edit: Required<Omit<WingEdit, "wakeEvery" | "maxRunsPerHour" | "quietHours" | "backOffWhenIdle" | "askBefore" | "maxWorkers">>;
+  edit: Required<Omit<WingEdit, "wakeEvery" | "maxRunsPerHour" | "quietHours" | "backOffWhenIdle" | "askBefore" | "maxWorkers" | "maxTasksPerWake" | "checkAttempts" | "checkTimeout" | "wakeTimeout" | "maxBackoff">>;
   // when an autonomous lead next wakes, or why it will not
   nextWake: { at: string | null; blockedBy: string | null };
   houseRules: string[];

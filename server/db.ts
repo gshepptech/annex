@@ -320,6 +320,16 @@ export class Store {
     return { ...a, desk };
   }
 
+  allAgents(): AgentRow[] {
+    return (this.db.prepare("select * from agent order by wing_id, desk").all() as Record<string, unknown>[]).map(
+      (r) => ({ id: r.id as string, wingId: r.wing_id as string, role: r.role as AgentRow["role"], name: r.name as string, desk: r.desk as number }),
+    );
+  }
+
+  renameAgent(id: string, name: string) {
+    this.db.prepare("update agent set name = ? where id = ?").run(name, id);
+  }
+
   removeAgent(id: string) {
     this.db.prepare("delete from agent where id = ?").run(id);
   }
@@ -489,13 +499,25 @@ export class Store {
     return toWake(r);
   }
 
-  setWakeIssue(id: number, issueId: string, signals: { name: string; output: string }[]) {
-    this.db.prepare("update wake set issue_id = ?, signals = ? where id = ?").run(issueId, JSON.stringify(signals), id);
+  // What the lead was shown on this wake: the signal output and the person's drop-ins.
+  setWakeIssue(id: number, issueId: string, signals: { name: string; output: string }[], dropIns: string[] = []) {
+    this.db.prepare("update wake set issue_id = ?, signals = ? where id = ?").run(issueId, JSON.stringify({ signals, dropIns }), id);
+  }
+
+  private wakeShown(id: number): { signals: { name: string; output: string }[]; dropIns: string[] } | null {
+    const r = this.db.prepare("select signals from wake where id = ?").get(id) as { signals: string | null } | undefined;
+    if (!r?.signals) return null;
+    const v = JSON.parse(r.signals);
+    // rows written before drop-ins were kept hold a bare list of signals
+    return Array.isArray(v) ? { signals: v, dropIns: [] } : v;
   }
 
   wakeSignals(id: number): { name: string; output: string }[] | null {
-    const r = this.db.prepare("select signals from wake where id = ?").get(id) as { signals: string | null } | undefined;
-    return r?.signals ? JSON.parse(r.signals) : null;
+    return this.wakeShown(id)?.signals ?? null;
+  }
+
+  wakeDropIns(id: number): string[] {
+    return this.wakeShown(id)?.dropIns ?? [];
   }
 
   finishWake(id: number, outcome: string) {

@@ -21,7 +21,25 @@ export interface Provisioned {
   reviewer: AgentRow;
 }
 
-const CODENAMES = ["Kestrel", "Marlin", "Wren", "Otter", "Heron", "Lynx", "Finch", "Badger"];
+// Names are unique across every office, so the party roster never shows two of the same person.
+const NAMES = {
+  lead: ["Handler", "Marshal", "Warden", "Skipper", "Foreman", "Keeper", "Captain", "Steward", "Chief", "Bosun"],
+  reviewer: ["Auditor", "Inspector", "Examiner", "Assessor", "Proctor", "Arbiter", "Checker", "Censor", "Verifier", "Notary"],
+  worker: [
+    "Kestrel", "Marlin", "Wren", "Otter", "Heron", "Lynx", "Finch", "Badger", "Osprey", "Puffin", "Ferret", "Plover",
+    "Raven", "Stoat", "Lark", "Gecko", "Pike", "Ibis", "Vole", "Tern", "Moth", "Newt", "Shrike", "Egret", "Hare",
+    "Merlin", "Petrel", "Dace", "Skink", "Robin", "Swift", "Teal", "Marten", "Dunlin", "Sable", "Weasel", "Kite", "Avocet",
+  ],
+} as const;
+
+export function nextName(role: AgentRow["role"], taken: Set<string>): string {
+  const pool = NAMES[role];
+  const free = pool.find((n) => !taken.has(n));
+  if (free) return free;
+  let i = 2;
+  while (taken.has(`${pool[0]} ${i}`)) i++;
+  return `${pool[0]} ${i}`;
+}
 
 // Read-only tools every agent may use, plus the shell commands its role needs. A command the
 // list does not cover is refused rather than asked about, because nobody is there to answer.
@@ -124,18 +142,23 @@ export async function provision(opts: {
     return store.addAgent({ id: created.id, wingId: wing.id, role, name });
   };
 
+  // Anyone whose name another office already uses gets a fresh one; offices are named in order,
+  // so the office that had a name first keeps it.
+  const elsewhere = new Set(store.allAgents().filter((a) => a.wingId !== wing.id && a.wingId < wing.id).map((a) => a.name));
+  const taken = () => new Set(store.allAgents().map((a) => a.name));
+  for (const a of store.agents(wing.id)) {
+    if (!elsewhere.has(a.name)) continue;
+    const name = nextName(a.role, taken());
+    store.renameAgent(a.id, name);
+    await pc.patchAgent(a.id, { name });
+  }
   for (const a of store.agents(wing.id)) await pc.syncAgent(a.id, spec(a.role, a.name, {}));
 
   const crew = () => store.agents(wing.id);
-  const lead = crew().find((a) => a.role === "lead") ?? (await hire("lead", "Handler"));
-  const reviewer = crew().find((a) => a.role === "reviewer") ?? (await hire("reviewer", "Auditor", lead.id));
+  const lead = crew().find((a) => a.role === "lead") ?? (await hire("lead", nextName("lead", taken())));
+  const reviewer = crew().find((a) => a.role === "reviewer") ?? (await hire("reviewer", nextName("reviewer", taken()), lead.id));
   const workers = crew().filter((a) => a.role === "worker");
-  const used = new Set(workers.map((w) => w.name));
-  for (const name of CODENAMES) {
-    if (workers.length >= wing.crew.workers) break;
-    if (used.has(name)) continue;
-    workers.push(await hire("worker", name, lead.id));
-  }
+  while (workers.length < wing.crew.workers) workers.push(await hire("worker", nextName("worker", taken()), lead.id));
 
   return { wing, companyId, projectId, workspace, lead, workers, reviewer };
 }

@@ -29,7 +29,8 @@ export class Panel {
   show(wing: WingView, events: BourneEvent[]) {
     const switched = this.wing?.id !== wing.id;
     this.wing = wing;
-    this.events = events.filter((e) => e.wingId === wing.id);
+    // tool calls belong in each agent's terminal; the office log is for decisions
+    this.events = events.filter((e) => e.wingId === wing.id && e.kind !== "agent.tool");
     if (switched) {
       this.tab = wing.mode === "with_you" ? "talk" : "log";
       this.error = "";
@@ -41,7 +42,7 @@ export class Panel {
   }
 
   push(e: BourneEvent) {
-    if (!this.wing || e.wingId !== this.wing.id) return;
+    if (!this.wing || e.wingId !== this.wing.id || e.kind === "agent.tool") return;
     this.events.push(e);
     if (this.events.length > 400) this.events.splice(0, this.events.length - 400);
     if (this.tab === "log") {
@@ -210,7 +211,7 @@ export class Panel {
         h("h3", {}, "Drop in a task"),
         title,
         detail,
-        h("button", { class: "btn", type: "submit", disabled: busy || !!w.offline }, `Add to ${w.name}'s inbox`),
+        h("button", { class: "btn", type: "submit", disabled: busy || !!w.offline }, w.mode === "with_you" ? "TELL THE LEAD" : "ADD TO THE LEAD'S INBOX"),
       ),
     );
     requestAnimationFrame(() => (list.scrollTop = list.scrollHeight));
@@ -311,6 +312,11 @@ export class Panel {
             quietHours: val("quietFrom") && val("quietTo") ? `${val("quietFrom")}-${val("quietTo")}` : null,
             backOffWhenIdle: backoff.checked,
             maxWorkers: Number(val("maxWorkers")),
+            maxTasksPerWake: Number(val("maxTasksPerWake")),
+            checkAttempts: Number(val("checkAttempts")),
+            checkTimeout: val("checkTimeout"),
+            wakeTimeout: val("wakeTimeout"),
+            maxBackoff: val("maxBackoff"),
             askBefore: val("askBefore").split("\n"),
             allow: val("allow").split(/[,\s]+/).filter(Boolean),
           };
@@ -332,7 +338,7 @@ export class Panel {
         "fieldset",
         {},
         h("legend", {}, "THE CREW"),
-        h("div", { class: "two" }, field("Workers", input("workers", String(e.workers), { type: "number", min: 1, max: 8 })), field("Most workers", input("maxWorkers", String(s.maxWorkers), { type: "number", min: 1, max: 8 }), "The lead may hire up to this.")),
+        h("div", { class: "two" }, field("Workers", input("workers", String(e.workers), { type: "number", min: 1, max: 20 })), field("Most workers", input("maxWorkers", String(s.maxWorkers), { type: "number", min: 1, max: 20 }), "The lead may hire up to this.")),
         h("div", { class: "two" }, field("Lead model", input("leadModel", e.leadModel, { list: "models" })), field("Crew model", input("workerModel", e.workerModel, { list: "models" }))),
         field("Reviewer model", input("reviewerModel", e.reviewerModel, { list: "models" })),
         field("Commands the crew may run", input("allow", e.allow.join(", "), { placeholder: "npm, npx, node" })),
@@ -345,6 +351,9 @@ export class Panel {
         h("div", { class: "two" }, field("Quiet from", input("quietFrom", s.quietHours?.split("-")[0] ?? "", { type: "time" })), field("Quiet until", input("quietTo", s.quietHours?.split("-")[1] ?? "", { type: "time" }))),
         h("div", { class: "field check" }, backoff, h("label", { for: "backoff" }, "Back off when idle: wait longer after wakes that found nothing")),
         field("Ask me before", askBefore, "The lead raises its hand for these instead of starting them."),
+        h("div", { class: "two" }, field("Tasks per wake", input("maxTasksPerWake", String(s.maxTasksPerWake), { type: "number", min: 1, max: 20 })), field("Check attempts", input("checkAttempts", String(s.checkAttempts), { type: "number", min: 1, max: 20 }), "Then the task goes back to the lead.")),
+        h("div", { class: "two" }, field("Check timeout", input("checkTimeout", s.checkTimeout, { placeholder: "15m" })), field("Wake timeout", input("wakeTimeout", s.wakeTimeout, { placeholder: "30m" }), "How long the lead has to answer.")),
+        field("Longest back-off", input("maxBackoff", s.maxBackoff, { placeholder: "24h" })),
       ),
       h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit", disabled: busy }, "SAVE"), this.saved ? h("span", { class: "saved" }, this.saved) : null),
     );

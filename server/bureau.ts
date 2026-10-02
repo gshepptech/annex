@@ -31,10 +31,6 @@ import type { Director } from "./director.ts";
 
 const TICK_MS = 15_000;
 const PAUSED = "Paused by you";
-const WAKE_TIMEOUT_MS = 30 * 60_000;
-const CHECK_TIMEOUT_MS = 15 * 60_000;
-const MAX_CHECK_ATTEMPTS = 3;
-const MAX_BACKOFF_SEC = 24 * 3600;
 const TOOL_EVENT_GAP_MS = 1500;
 const PROPOSAL_GRACE_MS = 30_000;
 
@@ -79,6 +75,8 @@ export class Bureau implements BureauApi {
   private ticking = false;
   private director: Director | null = null;
   private experimentsOn = false;
+  // when the person last overrode a usage-limit hold; failures before it no longer hold anything
+  private quotaOverriddenAt = 0;
   private inflight = new Set<Promise<unknown>>();
 
   constructor(opts: BureauOptions) {
@@ -212,6 +210,7 @@ export class Bureau implements BureauApi {
     const failedAt = new Date((full as { finishedAt?: string } | null)?.finishedAt ?? 0);
     // the reset is the first one after the failure, not after now, or a stale message would
     // hold everything until the same time tomorrow
+    if (failedAt.getTime() <= this.quotaOverriddenAt) return;
     const until = resetTime(full?.error ?? "", failedAt);
     if (until > this.now()) this.holdAll(until, "Claude usage limit reached");
   }
@@ -416,7 +415,7 @@ export class Bureau implements BureauApi {
       } else if (!(await hasCommitsBeyond(ws.cwd, base))) {
         result = fail(`There are no commits on ${ws.branchName} beyond ${base}. Commit your work, then mark the task done again.`);
       } else {
-        const setup = rt.wing.setup ? await runCommand(rt.wing.setup, ws.cwd, CHECK_TIMEOUT_MS) : null;
+        const setup = rt.wing.setup ? await runCommand(rt.wing.setup, ws.cwd, rt.wing.settings.checkTimeoutSec * 1000) : null;
         if (setup && setup.exitCode !== 0) {
           result = { ...setup, output: `[setup \`${rt.wing.setup}\` failed]\n${setup.output}` };
         } else if (!(await isClean(ws.cwd))) {
@@ -424,7 +423,7 @@ export class Bureau implements BureauApi {
         } else {
           where = `${ws.branchName} at ${(await head(ws.cwd)).slice(0, 8)}`;
           this.emit({ wingId, kind: "check.started", actor: "annex", taskId: issue.id, payload: { title: task.title, command: task.doneCheck } });
-          result = await runCommand(task.doneCheck, ws.cwd, CHECK_TIMEOUT_MS);
+          result = await runCommand(task.doneCheck, ws.cwd, rt.wing.settings.checkTimeoutSec * 1000);
         }
       }
       const run = this.store.startCheck({ wingId, taskId: issue.id, command: task.doneCheck, cwd: ws?.cwd ?? "" });
@@ -442,19 +441,19 @@ export class Bureau implements BureauApi {
       }
       this.logger.info(wingId, `${issue.identifier} failed its done check (exit ${result.exitCode}, attempt ${run.attempt}): ${lastLines(result.output, 1).slice(0, 160)}`);
       this.emit({ wingId, kind: "check.failed", actor: "annex", taskId: issue.id, payload: { title: task.title, command: task.doneCheck, exitCode: result.exitCode } });
-      const why = result.timedOut ? `timed out after ${Math.round(CHECK_TIMEOUT_MS / 60_000)} minutes` : `failed (exit ${result.exitCode})`;
-      if (run.attempt >= MAX_CHECK_ATTEMPTS) {
+      const why = result.timedOut ? `timed out after ${Math.round(rt.wing.settings.checkTimeoutSec * 1000 / 60_000)} minutes` : `failed (exit ${result.exitCode})`;
+      if (run.attempt >= rt.wing.settings.checkAttempts) {
         // In review, any status but done is a send-back, so it has to leave review before it
         // can be cancelled.
         this.store.closeTask(issue.id, "stopped");
-        await this.pc.setStatus(issue.id, "in_progress", `Annex ran \`${task.doneCheck}\` and it ${why}, attempt ${run.attempt} of ${MAX_CHECK_ATTEMPTS}. Annex is stopping this task; the lead will see it on its next wake.\n\n\`\`\`\n${tail}\n\`\`\``);
+        await this.pc.setStatus(issue.id, "in_progress", `Annex ran \`${task.doneCheck}\` and it ${why}, attempt ${run.attempt} of ${rt.wing.settings.checkAttempts}. Annex is stopping this task; the lead will see it on its next wake.\n\n\`\`\`\n${tail}\n\`\`\``);
         await this.pc.setStatus(issue.id, "cancelled", "Stopped by Annex after repeated done check failures.");
         const after = await this.pc.issue(issue.id);
         if (after.status !== "cancelled") this.logger.warn(wingId, `${issue.identifier} did not cancel (now ${after.status})`);
         this.emit({ wingId, kind: "task.stopped", actor: "annex", taskId: issue.id, payload: { title: task.title, reason: `done check failed ${run.attempt} times` } });
         return;
       }
-      await this.pc.setStatus(issue.id, "in_progress", `Annex ran \`${task.doneCheck}\`${where ? ` on ${where}` : ""} and it ${why}. Attempt ${run.attempt} of ${MAX_CHECK_ATTEMPTS}. Fix this and mark the task done again.\n\n\`\`\`\n${tail}\n\`\`\``);
+      await this.pc.setStatus(issue.id, "in_progress", `Annex ran \`${task.doneCheck}\`${where ? ` on ${where}` : ""} and it ${why}. Attempt ${run.attempt} of ${rt.wing.settings.checkAttempts}. Fix this and mark the task done again.\n\n\`\`\`\n${tail}\n\`\`\``);
     } catch (err) {
       this.logger.warn(wingId, `gate for ${seen.identifier} failed: ${(err as Error).message}`);
     } finally {
@@ -464,10 +463,10 @@ export class Bureau implements BureauApi {
 
   private async runWithSetup(rt: Runtime, command: string, cwd: string): Promise<RunResult> {
     if (rt.wing.setup) {
-      const setup = await runCommand(rt.wing.setup, cwd, CHECK_TIMEOUT_MS);
+      const setup = await runCommand(rt.wing.setup, cwd, rt.wing.settings.checkTimeoutSec * 1000);
       if (setup.exitCode !== 0) return { ...setup, output: `[setup \`${rt.wing.setup}\` failed]\n${setup.output}` };
     }
-    return runCommand(command, cwd, CHECK_TIMEOUT_MS);
+    return runCommand(command, cwd, rt.wing.settings.checkTimeoutSec * 1000);
   }
 
   // ----- merging verified work (design D7) -------------------------------------------------
@@ -538,7 +537,7 @@ export class Bureau implements BureauApi {
     const s = rt.wing.settings;
     if (inQuietHours(s.quietHours, this.now())) return;
     const last = this.store.lastWake(rt.wing.id);
-    const interval = Math.min(s.wakeEverySec * 2 ** row.backoffLevel, MAX_BACKOFF_SEC) * 1000;
+    const interval = Math.min(s.wakeEverySec * 2 ** row.backoffLevel, rt.wing.settings.maxBackoffSec) * 1000;
     const dropIns = this.store.pendingDropIns(rt.wing.id);
     const due = !last || this.now().getTime() - new Date(last.startedAt).getTime() >= interval || dropIns.length > 0;
     if (!due) return;
@@ -556,7 +555,7 @@ export class Bureau implements BureauApi {
       let houseRules: ReturnType<typeof readHouseRules> = null;
       const signals = await this.inIntegration(rt, async () => {
         await cleanWorktree(ws.integrationDir);
-        if (rt.wing.setup) await runCommand(rt.wing.setup, ws.integrationDir, CHECK_TIMEOUT_MS);
+        if (rt.wing.setup) await runCommand(rt.wing.setup, ws.integrationDir, rt.wing.settings.checkTimeoutSec * 1000);
         houseRules = readHouseRules(ws.integrationDir);
         const out = [];
         for (const sig of rt.wing.signals) {
@@ -590,7 +589,7 @@ export class Bureau implements BureauApi {
         assigneeAgentId: rt.prov!.lead.id,
         priority: "high",
       });
-      this.store.setWakeIssue(wakeRow.id, issue.id, signals.map((s) => ({ name: s.name, output: s.output })));
+      this.store.setWakeIssue(wakeRow.id, issue.id, signals.map((s) => ({ name: s.name, output: s.output })), dropIns.map((d) => d.title));
       this.store.takeDropIns(dropIns.map((d) => d.id));
     } catch (err) {
       this.store.finishWake(wakeRow.id, `failed: ${(err as Error).message}`);
@@ -602,7 +601,7 @@ export class Bureau implements BureauApi {
 
   private async expireWake(rt: Runtime) {
     const open = this.store.openWake(rt.wing.id);
-    if (!open || this.now().getTime() - new Date(open.startedAt).getTime() < WAKE_TIMEOUT_MS) return;
+    if (!open || this.now().getTime() - new Date(open.startedAt).getTime() < rt.wing.settings.wakeTimeoutSec * 1000) return;
     if (open.issueId) {
       const issue = await this.pc.issue(open.issueId).catch(() => null);
       if (issue && (await this.finishWake(rt, issue))) return;
@@ -612,9 +611,9 @@ export class Bureau implements BureauApi {
       for (const r of await this.pc.runsFor(open.issueId).catch(() => [])) {
         if (r.status === "running" || r.status === "queued") await this.pc.cancelRun(r.id).catch(() => {});
       }
-      await this.pc.setStatus(open.issueId, "cancelled", "Annex closed this wake: the lead did not answer within 30 minutes.").catch(() => {});
+      await this.pc.setStatus(open.issueId, "cancelled", `Annex closed this wake: the lead did not answer within ${formatSec(rt.wing.settings.wakeTimeoutSec)}.`).catch(() => {});
     }
-    this.emit({ wingId: rt.wing.id, kind: "lead.idle", actor: rt.prov!.lead.id, taskId: null, payload: { reason: "the lead did not answer within 30 minutes" } });
+    this.emit({ wingId: rt.wing.id, kind: "lead.idle", actor: rt.prov!.lead.id, taskId: null, payload: { reason: `the lead did not answer within ${formatSec(rt.wing.settings.wakeTimeoutSec)}` } });
   }
 
   // Returns true when the wake is finished (with or without tasks).
@@ -650,8 +649,16 @@ export class Bureau implements BureauApi {
       const existingTitles = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })].map((t) => t.title);
       const charter = [rt.wing.charter, this.store.currentBrief(wingId)?.text ?? ""].join("\n");
       const signals = this.store.wakeSignals(wake.id) ?? [];
-      const houseRules = rt.prov!.workspace ? readHouseRules(rt.prov!.workspace.integrationDir) !== null : false;
-      const verdicts = judge(parsed.tasks, { charter, signals, existingTitles, houseRules });
+      const repoDir = rt.prov!.workspace?.integrationDir ?? null;
+      const verdicts = judge(parsed.tasks, {
+        charter,
+        signals,
+        existingTitles,
+        houseRules: repoDir ? readHouseRules(repoDir)?.text ?? null : null,
+        readRepoFile: repoDir ? (p) => readRepoFile(repoDir, p) : undefined,
+        dropIns: this.store.wakeDropIns(wake.id),
+        maxTasks: rt.wing.settings.maxTasksPerWake,
+      });
       if (parsed.hire) await this.hire(rt, parsed.hire.count, parsed.hire.reason, lead.id);
 
       let created = 0;
@@ -752,10 +759,40 @@ export class Bureau implements BureauApi {
       if (c.authorAgentId !== leadId || this.store.hasChatComment(c.id)) continue;
       const brief = parseBrief(c.body);
       const shown = brief ? c.body.replace(new RegExp("```" + BRIEF_FENCE + "[\\s\\S]*?```"), "(Brief drafted. See the Brief tab.)").trim() : c.body;
-      if (!this.store.addChat(rt.wing.id, "lead", shown, c.id)) continue;
-      this.emit({ wingId: rt.wing.id, kind: "chat.message", actor: leadId, taskId: null, payload: { who: "lead", text: shown.slice(0, 500) } });
+      const agreed = c.body.includes("```annex-proposal") ? await this.tasksFromChat(rt as Runtime & { prov: Provisioned }, c.body) : null;
+      const text = agreed ? `${shown.replace(/```annex-proposal[\s\S]*?```/, "").trim()}\n${agreed}`.trim() : shown;
+      if (!this.store.addChat(rt.wing.id, "lead", text, c.id)) continue;
+      this.emit({ wingId: rt.wing.id, kind: "chat.message", actor: leadId, taskId: null, payload: { who: "lead", text: text.slice(0, 500) } });
       if (brief) await this.draftBrief(rt as Runtime & { prov: Provisioned }, brief);
     }
+  }
+
+  // Work agreed with the person in chat becomes tasks at once: their agreement is the reason, so
+  // no signal evidence is needed, but the done check and the house rules still are.
+  private async tasksFromChat(rt: Runtime & { prov: Provisioned }, body: string): Promise<string> {
+    const parsed = parseProposal(body);
+    if ("error" in parsed) return `✖ Annex could not read the tasks: ${parsed.error}`;
+    if (!rt.prov.workspace) return "✖ This office has no repo, so Annex cannot start tasks yet. Set one in Settings.";
+    const repoDir = rt.prov.workspace.integrationDir;
+    const open = this.store.tasks(rt.wing.id, { state: "open" }).map((t) => t.title);
+    const verdicts = judge(parsed.tasks, {
+      charter: rt.wing.charter,
+      signals: [],
+      existingTitles: open,
+      houseRules: readHouseRules(repoDir)?.text ?? null,
+      agreedWithPerson: true,
+      maxTasks: rt.wing.settings.maxTasksPerWake,
+    });
+    const lines: string[] = [];
+    for (const v of verdicts) {
+      if (!v.ok) {
+        lines.push(`✖ Not started "${v.task.title}": ${v.reason}`);
+        continue;
+      }
+      const issue = await this.createTask(rt, { ...v.task, source: "you" });
+      lines.push(`✔ Started ${issue.identifier} "${v.task.title}"`);
+    }
+    return lines.join("\n");
   }
 
   private async draftBrief(rt: Runtime & { prov: Provisioned }, text: string) {
@@ -807,6 +844,7 @@ export class Bureau implements BureauApi {
     if (this.store.wing(wingId)!.mode === "with_you") {
       await this.say(rt, `The person dropped in a task: "${title}"${detail ? `\n\n${detail}` : ""}\n\nTalk it through with them.`, false);
       this.store.takeDropIns([d.id]);
+      this.store.addChat(wingId, "you", `Dropped in: ${title}${detail ? `\n${detail}` : ""}`);
     } else {
       // an autonomous lead triages drop-ins on its next wake; make that now rather than in 15m
       this.track(this.tick());
@@ -823,7 +861,7 @@ export class Bureau implements BureauApi {
     if (rt.offline) return { at: null, blockedBy: `not connected: ${rt.offline}` };
     if (this.store.openWake(rt.wing.id)) return { at: null, blockedBy: "the lead is reading the signals now" };
     const last = this.store.lastWake(rt.wing.id);
-    const interval = Math.min(rt.wing.settings.wakeEverySec * 2 ** row.backoffLevel, MAX_BACKOFF_SEC) * 1000;
+    const interval = Math.min(rt.wing.settings.wakeEverySec * 2 ** row.backoffLevel, rt.wing.settings.maxBackoffSec) * 1000;
     const at = last ? new Date(new Date(last.startedAt).getTime() + interval) : this.now();
     if (inQuietHours(rt.wing.settings.quietHours, at)) return { at: at.toISOString(), blockedBy: "quiet hours" };
     return { at: at.toISOString(), blockedBy: null };
@@ -841,6 +879,11 @@ export class Bureau implements BureauApi {
       backOffWhenIdle: s.backOffWhenIdle,
       askBefore: s.askBefore,
       maxWorkers: s.maxWorkers,
+      maxTasksPerWake: s.maxTasksPerWake,
+      checkAttempts: s.checkAttempts,
+      checkTimeout: formatSec(s.checkTimeoutSec),
+      wakeTimeout: formatSec(s.wakeTimeoutSec),
+      maxBackoff: formatSec(s.maxBackoffSec),
     };
   }
 
@@ -857,6 +900,11 @@ export class Bureau implements BureauApi {
       backOffWhenIdle: e.backOffWhenIdle ?? cur.backOffWhenIdle,
       askBefore: (e.askBefore ?? cur.askBefore).map((x) => x.trim()).filter(Boolean),
       maxWorkers: e.maxWorkers ?? cur.maxWorkers,
+      maxTasksPerWake: e.maxTasksPerWake ?? cur.maxTasksPerWake,
+      checkAttempts: e.checkAttempts ?? cur.checkAttempts,
+      checkTimeout: e.checkTimeout ?? cur.checkTimeout,
+      wakeTimeout: e.wakeTimeout ?? cur.wakeTimeout,
+      maxBackoff: e.maxBackoff ?? cur.maxBackoff,
     };
     let parsed: Wing;
     const text = toToml(next, settings);
@@ -979,7 +1027,11 @@ export class Bureau implements BureauApi {
 
   resume(wingId: string) {
     this.rt(wingId);
-    if (!this.store.wing(wingId)!.heldUntil) throw new UserError("This wing is not held", 409);
+    const row = this.store.wing(wingId)!;
+    if (!row.heldUntil) throw new UserError("This office is not closed", 409);
+    // the person is overriding a usage-limit hold: the failure that caused it must not re-close
+    // the office on the next tick; a new failure still will
+    if (row.heldReason && row.heldReason !== PAUSED) this.quotaOverriddenAt = this.now().getTime();
     this.store.setHold(wingId, null, null);
     this.emit({ wingId, kind: "wing.resumed", actor: "you", taskId: null, payload: {} });
     this.track(this.tick());
@@ -1117,6 +1169,17 @@ function isAtBourne(i: Issue): boolean {
 async function cleanWorktree(dir: string) {
   await git(dir, "reset", "--hard");
   await git(dir, "clean", "-fd");
+}
+
+// A file inside the repo, for checking evidence; nothing outside it is ever read.
+function readRepoFile(repoDir: string, rel: string): string | null {
+  const full = resolve(repoDir, rel);
+  if (!full.startsWith(resolve(repoDir) + "/") || !existsSync(full)) return null;
+  try {
+    return readFileSync(full, "utf8").slice(0, 400_000);
+  } catch {
+    return null;
+  }
 }
 
 function expandHome(p: string): string {

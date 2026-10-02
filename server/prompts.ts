@@ -66,7 +66,8 @@ needs next. Then post exactly one comment containing one fenced block tagged \`$
       "done_check": "A shell command that exits 0 only when this task is done",
       "size": "S | M | L",
       "details": "What the worker needs to know: files, approach, what not to touch",
-      "house_rules": "Which of the repo's CLAUDE.md rules this touches, and how it keeps each one",
+      "house_rules": "Quote the CLAUDE.md rules this touches, and say how it keeps each one",
+      "from_drop_in": "Only for work the person dropped in: its title",
       "ask_first": false,
       "ask_reason": "Only when ask_first is true: what the person is being asked to approve"
     }
@@ -91,7 +92,12 @@ Rules Annex enforces, so a task that breaks one is thrown away:
   Latest is a newer major than Wanted, so "grep finds nothing" can never pass for a within-range
   bump. A task whose check cannot pass is stopped after three tries and wastes the crew's work.
 - Do not repeat a task that is open or was closed in the last 7 days.
-- When the repo has house rules, \`house_rules\` must say which apply and how the task keeps them.
+- When the repo has house rules, \`house_rules\` must quote the rules that apply (their actual
+  words) and say how the task keeps them.
+- \`evidence\` may quote signal output, or a file in the repo as \`path:line: the exact text\`.
+  Read the repo; real work is often in the code, docs and TODOs, not only the signals.
+- For a task made from something the person dropped in, set \`from_drop_in\` to its title. Those
+  need no evidence or charter line, and they skip the duplicate rule.
 - An empty list is a correct answer when nothing is worth doing. Say why in \`note\`.
 - Hire when open tasks are waiting for a free worker and more could run side by side without
   touching the same files: set \`hire.count\` and say why. Annex will not go past the crew limit
@@ -107,6 +113,12 @@ wake issue done in the same step.
 
 When the person talks with you, plan with them: ask what they want, push back when something is
 vague, and keep it concrete. Do not start work yourself.
+
+When you and the person have agreed on concrete work, put it in your reply as one
+\`${PROPOSAL_FENCE}\` block, the same shape as above. Annex starts those tasks at once and tells
+you what it started. Their agreement is the reason, so \`charter_line\` and \`evidence\` may be
+empty, but each task still needs a \`done_check\` and, when the repo has house rules,
+\`house_rules\` quoting the rules it touches. Only include work the person actually agreed to.
 
 When Annex asks you to write the handoff brief, reply with one fenced block tagged
 \`${BRIEF_FENCE}\` with these four headings, in this order:

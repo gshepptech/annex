@@ -15,6 +15,8 @@ export interface ProposedTask {
   askReason: string;
   // which of the repo's house rules apply and how this task keeps them
   houseRules: string;
+  // the title of the person's drop-in this task comes from, when it does
+  fromDropIn: string;
 }
 
 export interface Verdict {
@@ -58,6 +60,7 @@ export function parseProposal(body: string): { note: string; tasks: ProposedTask
       askFirst: o.ask_first === true,
       askReason: s("ask_reason"),
       houseRules: s("house_rules"),
+      fromDropIn: s("from_drop_in"),
     };
   });
   const h = (typeof (d as { hire?: unknown }).hire === "object" && (d as { hire?: unknown }).hire) || null;
@@ -78,8 +81,15 @@ export interface Context {
   signals: { name: string; output: string }[];
   // titles of open tasks and of tasks closed in the last 7 days
   existingTitles: string[];
-  // the repo has a CLAUDE.md or AGENTS.md, so every task must say which of its rules apply
-  houseRules?: boolean;
+  // the repo's CLAUDE.md / AGENTS.md; when present every task must quote a rule it touches
+  houseRules?: string | null;
+  // reads a file in the repo, so evidence can quote the code as well as the signals
+  readRepoFile?: (path: string) => string | null;
+  // what the person dropped in for this wake; a task that names one needs no other evidence
+  dropIns?: string[];
+  // set when the person agreed the work in chat: no signal evidence or charter line needed
+  agreedWithPerson?: boolean;
+  maxTasks?: number;
 }
 
 export function judge(tasks: ProposedTask[], ctx: Context): Verdict[] {
@@ -92,20 +102,43 @@ export function judge(tasks: ProposedTask[], ctx: Context): Verdict[] {
 }
 
 function rejectReason(t: ProposedTask, ctx: Context, taken: string[], index: number): string | null {
-  if (index >= MAX_TASKS_PER_WAKE) return `over the limit of ${MAX_TASKS_PER_WAKE} tasks per wake`;
+  const max = ctx.maxTasks ?? MAX_TASKS_PER_WAKE;
+  if (index >= max) return `over the limit of ${max} tasks per wake`;
   if (!t.title) return "no title";
   if (!t.doneCheck) return "no done check";
   if (t.doneCheck.includes("\n")) return "the done check must be one command line";
   const danger = dangerous(t.doneCheck);
   if (danger) return `the done check ${danger}`;
+  if (ctx.houseRules) {
+    if (t.houseRules.length < 12) return "it does not say which of the repo's house rules (CLAUDE.md) apply and how it keeps them";
+    if (!quotes(t.houseRules, [ctx.houseRules])) return "its house_rules does not quote any line of the repo's CLAUDE.md";
+  }
+  // Work the person asked for, in chat or as a drop-in, is its own justification.
+  const dropIn = t.fromDropIn ? ctx.dropIns?.find((d) => similar(d, t.fromDropIn) || norm(d) === norm(t.fromDropIn)) : undefined;
+  if (t.fromDropIn && !dropIn) return `"${t.fromDropIn}" is not something the person dropped in`;
+  if (dropIn || ctx.agreedWithPerson) return null;
   if (!t.charterLine) return "no charter line";
   if (!lineInText(t.charterLine, ctx.charter)) return `"${t.charterLine}" is not a line of the charter or brief`;
-  if (ctx.houseRules && t.houseRules.length < 12) return "it does not say which of the repo's house rules (CLAUDE.md) apply and how it keeps them";
   if (!t.evidence) return "no evidence";
-  if (!evidenceInSignals(t.evidence, ctx.signals)) return "the evidence does not quote any signal output";
+  if (!evidenceInSignals(t.evidence, ctx.signals) && !evidenceInRepo(t.evidence, ctx.readRepoFile)) {
+    return "the evidence quotes neither signal output nor a file in the repo (path:line: text)";
+  }
   const dup = taken.find((x) => similar(x, t.title));
   if (dup) return `duplicates "${dup}"`;
   return null;
+}
+
+// "src/x.ts:12: the line" or "README.md: the line": the quoted text must be in that file.
+export function evidenceInRepo(evidence: string, read?: (path: string) => string | null): boolean {
+  if (!read) return false;
+  const m = /^\s*`?([\w./@-]+\.[\w]+)`?(?::\d+)?\s*[:-]\s*([\s\S]+)$/.exec(evidence);
+  if (!m || m[1]!.includes("..")) return false;
+  const text = read(m[1]!);
+  return text !== null && quotes(m[2]!, [text]);
+}
+
+function quotes(text: string, sources: string[]): boolean {
+  return evidenceInSignals(text, sources.map((output) => ({ name: "", output })));
 }
 
 // Commands a done check has no business running: it only ever checks.
@@ -149,8 +182,13 @@ export function evidenceInSignals(evidence: string, signals: { name: string; out
   return false;
 }
 
-// Titles are duplicates when most of their meaningful words are shared.
+// Titles are duplicates when most of their meaningful words are shared, and they do not name
+// different versions ("Bump x to 22.20.5" and "Bump x to 26.6.4" are different work).
 export function similar(a: string, b: string): boolean {
+  const versions = (s: string) => [...s.matchAll(/\d+\.\d+(?:\.\d+)?/g)].map((m) => m[0]).sort().join(",");
+  const va = versions(a);
+  const vb = versions(b);
+  if (va && vb && va !== vb) return false;
   const words = (s: string) => new Set(norm(s).split(/[^a-z0-9.@/-]+/).filter((w) => w.length > 2 && !STOP.has(w)));
   const x = words(a);
   const y = words(b);
@@ -160,4 +198,4 @@ export function similar(a: string, b: string): boolean {
   return shared / Math.min(x.size, y.size) >= 0.75;
 }
 
-const STOP = new Set(["the", "and", "for", "with", "from", "into", "that", "this", "update", "fix", "make"]);
+const STOP = new Set(["the", "and", "for", "with", "from", "into", "that", "this", "update", "fix", "make", "bump", "upgrade", "raise", "move"]);

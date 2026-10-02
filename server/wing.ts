@@ -27,6 +27,13 @@ export interface WingSettings {
   askBefore: string[];
   // the most workers the lead may hire up to
   maxWorkers: number;
+  maxTasksPerWake: number;
+  checkAttempts: number;
+  checkTimeoutSec: number;
+  // how long the lead has to answer a wake before Annex closes it
+  wakeTimeoutSec: number;
+  // the longest wait back_off_when_idle can grow to
+  maxBackoffSec: number;
 }
 
 export interface Repo {
@@ -112,8 +119,8 @@ export function parseWing(id: string, source: string): Wing {
 
   const crewRaw = table(raw.crew, at("crew")) ?? {};
   const workers = num(crewRaw.workers, at("crew.workers")) ?? 2;
-  if (!Number.isInteger(workers) || workers < 1 || workers > 8) {
-    throw new WingFileError(`${at("crew.workers")} must be a whole number from 1 to 8`);
+  if (!Number.isInteger(workers) || workers < 1 || workers > 20) {
+    throw new WingFileError(`${at("crew.workers")} must be a whole number from 1 to 20`);
   }
   const crew: Crew = {
     leadModel: str(crewRaw.lead_model, at("crew.lead_model")) ?? DEFAULT_MODEL,
@@ -130,11 +137,13 @@ export function parseWing(id: string, source: string): Wing {
     quietHours: parseQuietHours(s.quiet_hours, at("settings.quiet_hours")),
     backOffWhenIdle: bool(s.back_off_when_idle, at("settings.back_off_when_idle")) ?? false,
     askBefore: strList(s.ask_before, at("settings.ask_before")),
-    maxWorkers: num(s.max_workers, at("settings.max_workers")) ?? 6,
+    maxWorkers: wholeIn(s.max_workers, 6, 1, 20, at("settings.max_workers")),
+    maxTasksPerWake: wholeIn(s.max_tasks_per_wake, 3, 1, 20, at("settings.max_tasks_per_wake")),
+    checkAttempts: wholeIn(s.check_attempts, 3, 1, 20, at("settings.check_attempts")),
+    checkTimeoutSec: parseDuration(str(s.check_timeout, at("settings.check_timeout")) ?? "15m", at("settings.check_timeout")),
+    wakeTimeoutSec: parseDuration(str(s.wake_timeout, at("settings.wake_timeout")) ?? "30m", at("settings.wake_timeout")),
+    maxBackoffSec: parseDuration(str(s.max_backoff, at("settings.max_backoff")) ?? "24h", at("settings.max_backoff")),
   };
-  if (!Number.isInteger(settings.maxWorkers) || settings.maxWorkers < 1 || settings.maxWorkers > 8) {
-    throw new WingFileError(`${at("settings.max_workers")} must be a whole number from 1 to 8`);
-  }
 
   const perms = table(raw.permissions, at("permissions")) ?? {};
 
@@ -191,6 +200,12 @@ function str(v: unknown, field: string): string | undefined {
 function num(v: unknown, field: string): number | undefined {
   if (v === undefined) return undefined;
   if (typeof v !== "number") throw new WingFileError(`${field} must be a number`);
+  return v;
+}
+
+function wholeIn(v: unknown, fallback: number, min: number, max: number, field: string): number {
+  if (v === undefined) return fallback;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) throw new WingFileError(`${field} must be a whole number from ${min} to ${max}`);
   return v;
 }
 

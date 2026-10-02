@@ -389,3 +389,16 @@ test("with a CLAUDE.md the lead sees it, tasks must cite it, and a hire request 
   await bureau.updateWing("upkeep", { maxWorkers: 2 });
   await assert.rejects(bureau.hireFromOffice("upkeep", 1), /most workers/);
 });
+
+test("resuming a usage-limit hold sticks; the same failure does not close the office again", async () => {
+  const { pc, store, bureau } = await setup();
+  const failedAt = new Date(Date.now() - 60_000).toISOString();
+  (pc as unknown as { companyRuns: () => Promise<unknown[]> }).companyRuns = async () => [{ id: "R1", status: "failed", errorCode: "provider_quota", agentId: "A1", invocationSource: "assignment" }];
+  (pc as unknown as { run: () => Promise<unknown> }).run = async () => ({ id: "R1", status: "failed", errorCode: "provider_quota", error: "You've hit your session limit · resets 11:59pm", finishedAt: failedAt });
+  await bureau.tick();
+  assert.ok(store.wing("upkeep")!.heldUntil, "the limit closes the office");
+  bureau.resume("upkeep");
+  await bureau.idle();
+  await bureau.tick();
+  assert.equal(store.wing("upkeep")!.heldUntil, null, "and Resume now keeps it open");
+});
