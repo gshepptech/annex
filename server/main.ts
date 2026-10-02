@@ -14,6 +14,7 @@ import { writeAgentSettings } from "./provision.ts";
 import { Bureau } from "./bureau.ts";
 import { startHttp } from "./http.ts";
 import { Logger } from "./logger.ts";
+import { Director } from "./director.ts";
 
 const root = join(import.meta.dirname, "..");
 const stateDir = join(root, ".annex");
@@ -41,16 +42,20 @@ try {
 
 const store = new Store(join(stateDir, "annex.db"));
 const logger = new Logger(join(stateDir, "logs"));
+const pc = new Paperclip(process.env.PAPERCLIP_URL);
+const claudeCommand = findClaude();
+const settingsFile = writeAgentSettings(stateDir);
 const bureau = new Bureau({
   store,
-  pc: new Paperclip(process.env.PAPERCLIP_URL),
+  pc,
   wings,
   stateDir,
   wingsDir: join(root, "wings"),
   logger,
-  claudeCommand: findClaude(),
-  settingsFile: writeAgentSettings(stateDir),
+  claudeCommand,
+  settingsFile,
 });
+bureau.attachDirector(new Director({ store, pc, logger, offices: bureau, claudeCommand, settingsFile }));
 
 await startHttp({ bureau, store, logger, port, webDir: join(root, "web", "dist") });
 logger.info(null, `the office is at http://127.0.0.1:${port}; this log is ${logger.file}`);

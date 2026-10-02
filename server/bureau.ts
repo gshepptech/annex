@@ -20,13 +20,14 @@ import type { NewEvent } from "./events.ts";
 import { BOARD_USER_ID, type Paperclip, type Issue, type Frame } from "./engine/paperclip.ts";
 import { provision, type Provisioned } from "./provision.ts";
 import { runCommand, type RunResult } from "./run.ts";
-import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration } from "./git.ts";
+import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration, waiting } from "./git.ts";
 import { parseProposal, parseBrief, judge, type ProposedTask } from "./proposal.ts";
 import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
 import { toolUses, isUsageLimit, resetTime } from "./mapping.ts";
 import { Logger } from "./logger.ts";
 import { readHouseRules } from "./houserules.ts";
+import type { Director } from "./director.ts";
 
 const TICK_MS = 15_000;
 const PAUSED = "Paused by you";
@@ -76,6 +77,7 @@ export class Bureau implements BureauApi {
   private now: () => Date;
   readonly logger: Logger;
   private ticking = false;
+  private director: Director | null = null;
   private experimentsOn = false;
   private inflight = new Set<Promise<unknown>>();
 
@@ -107,7 +109,17 @@ export class Bureau implements BureauApi {
     void p.finally(() => this.inflight.delete(p));
   }
 
+  attachDirector(d: Director) {
+    this.director = d;
+  }
+
+  async directorSay(text: string) {
+    if (!this.director) throw new UserError("There is no director", 404);
+    await this.director.say(text);
+  }
+
   stopAll() {
+    this.director?.close();
     if (this.timer) clearInterval(this.timer);
     for (const rt of this.rts.values()) rt.stop?.();
   }
@@ -169,6 +181,10 @@ export class Bureau implements BureauApi {
     this.ticking = true;
     try {
       if ([...this.rts.values()].some((r) => !r.prov)) await this.connectAll();
+      if (this.director && this.experimentsOn) {
+        if (this.director.offline) await this.director.connect();
+        await this.director.sync().catch((e) => this.logger.warn("director", `chat sync failed: ${e.message}`));
+      }
       for (const rt of this.rts.values()) {
         if (!rt.prov) continue;
         try {
@@ -1042,6 +1058,8 @@ export class Bureau implements BureauApi {
       const brief = this.store.currentBrief(rt.wing.id);
       const draft = this.store.latestDraft(rt.wing.id);
       const filed = this.store.filedBy(rt.wing.id);
+      const repo = rt.wing.repo;
+      const lootCommits = repo ? await waiting(repo.path, repo.baseBranch, repo.integrationBranch) : [];
       wings.push({
         id: rt.wing.id,
         name: rt.wing.name,
@@ -1063,6 +1081,10 @@ export class Bureau implements BureauApi {
         paused: row.heldReason === PAUSED,
         nextWake: this.nextWake(rt),
         houseRules: rt.prov?.workspace ? readHouseRules(rt.prov.workspace.integrationDir)?.files ?? [] : [],
+        loot: {
+          commits: lootCommits,
+          command: repo && lootCommits.length ? `git -C ${repo.path.replace(homedir(), "~")} merge ${repo.integrationBranch}` : null,
+        },
         edit: {
           name: rt.wing.name,
           charter: rt.wing.charter,
@@ -1079,7 +1101,9 @@ export class Bureau implements BureauApi {
       });
     }
     const recent = this.store.recentEvents(400);
-    return { wings, lastEventId: recent[recent.length - 1]?.id ?? 0, recent };
+    const d = this.director;
+    const director = d ? { offline: d.offline, status: d.status, agentId: d.agentId, chat: d.chat() } : null;
+    return { wings, director, lastEventId: recent[recent.length - 1]?.id ?? 0, recent };
   }
 }
 

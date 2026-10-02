@@ -516,3 +516,7 @@ dialog p { margin: 0; color: var(--muted); }
 }
 
 .row select { width: auto; }
+
+.hud .director-btn { color: var(--annex); border-color: var(--annex); }
+.chat li.director-line { border-color: var(--annex); }
+.chat li.director-line b { color: var(--annex); }

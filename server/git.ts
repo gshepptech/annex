@@ -135,3 +135,14 @@ export async function removeTaskWorktree(ws: WingWorkspace, taskKey: string, del
     await git(ws.repo, "branch", "-D", taskBranch(ws, taskKey));
   }
 }
+
+// Commits on the integration branch that the base branch does not have yet: what is waiting for
+// the person to merge. Merge commits are Annex's, so their subjects name each verified task.
+export async function waiting(repo: string, base: string, integration: string): Promise<{ sha: string; date: string; subject: string }[]> {
+  try {
+    const out = await git(repo, "log", "--first-parent", "--format=%h%x09%cs%x09%s", `${base}..${integration}`);
+    return out ? out.split("\n").map((l) => { const [sha, date, ...rest] = l.split("\t"); return { sha: sha!, date: date!, subject: rest.join("\t") }; }) : [];
+  } catch {
+    return [];
+  }
+}

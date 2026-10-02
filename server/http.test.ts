@@ -11,7 +11,8 @@ function fakeBureau(store: Store): Bureau & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
-    async state() { return { wings: [], lastEventId: 0, recent: store.eventsSince(0) }; },
+    async state() { return { wings: [], director: null, lastEventId: 0, recent: store.eventsSince(0) }; },
+    async directorSay(t) { calls.push(`director ${t}`); },
     async chat(w, t) { calls.push(`chat ${w} ${t}`); },
     async handoff(w) { calls.push(`handoff ${w}`); },
     async approveBrief(w, b) { calls.push(`approve ${w} ${b}`); },

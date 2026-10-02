@@ -7,6 +7,7 @@
     "node": ">=24.11.0"
   },
   "scripts": {
+    "up": "node scripts/up.ts",
     "start": "node server/main.ts",
     "test": "node --test \"server/**/*.test.ts\" \"web/src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",

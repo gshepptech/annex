@@ -3,7 +3,7 @@
 
 import { drawPerson, lookFor } from "./office/sprites.ts";
 
-export function portrait(role: "lead" | "worker" | "reviewer", index: number, size: number, className: string): HTMLCanvasElement {
+export function portrait(role: "lead" | "worker" | "reviewer" | "director", index: number, size: number, className: string): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = 12;
   c.height = 12;

@@ -138,10 +138,20 @@ export interface WingView {
   // when an autonomous lead next wakes, or why it will not
   nextWake: { at: string | null; blockedBy: string | null };
   houseRules: string[];
+  // verified work on the integration branch that is not on the person's base branch yet
+  loot: { commits: { sha: string; date: string; subject: string }[]; command: string | null };
+}
+
+export interface DirectorView {
+  offline: string | null;
+  status: string;
+  agentId: string | null;
+  chat: ChatView[];
 }
 
 export interface StateView {
   wings: WingView[];
+  director: DirectorView | null;
   lastEventId: number;
   recent: BourneEvent[];
 }

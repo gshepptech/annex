@@ -91,7 +91,8 @@ export interface Look {
 const SKINS = ["#F2C6A0", "#C68A62", "#8D5A3B", "#F6D7BD", "#A86F4C"];
 const HAIRS = ["#2B2118", "#6B4A2E", "#C08A4F", "#16161D", "#9CA3AF"];
 
-export function lookFor(role: keyof typeof ROLE, index: number): Look {
+export function lookFor(role: keyof typeof ROLE | "director", index: number): Look {
+  if (role === "director") return { hair: "#E5E7EB", skin: SKINS[0]!, jacket: "#BE123C", shirt: "#FFD84A", trousers: "#1E2246", shoes: "#0B0D1A", visor: null };
   const skin = SKINS[index % SKINS.length]!;
   const hair = HAIRS[(index * 3 + 1) % HAIRS.length]!;
   if (role === "lead") return { hair, skin, jacket: "#F59E0B", shirt: "#FFF7E6", trousers: "#1E2246", shoes: "#0B0D1A", visor: null };

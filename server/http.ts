@@ -22,6 +22,7 @@ export interface Bureau {
   createWing(n: NewWing): Promise<{ id: string }>;
   decideAsk(wingId: string, askId: number, approve: boolean): Promise<void>;
   hireFromOffice(wingId: string, count: number): Promise<{ hired: number }>;
+  directorSay(text: string): Promise<void>;
   pause(wingId: string): void;
   resume(wingId: string): void;
 }
@@ -59,6 +60,12 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
 
       const agent = /^\/api\/agents\/([^/]+)\/transcript$/.exec(path);
       if (req.method === "GET" && agent) return json(res, 200, await bureau.transcript(decodeURIComponent(agent[1]!)));
+
+      if (req.method === "POST" && path === "/api/director") {
+        const body = await readJson(req);
+        await bureau.directorSay(str(body.text, "text"));
+        return json(res, 202, { ok: true });
+      }
 
       if (req.method === "POST" && path === "/api/wings") {
         const body = await readJson(req);

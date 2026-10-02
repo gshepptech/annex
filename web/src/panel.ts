@@ -8,7 +8,7 @@ import { post } from "./api.ts";
 import { h } from "./dom.ts";
 import { officeBadge } from "./sidebar.ts";
 
-type Tab = "log" | "talk" | "brief" | "settings";
+type Tab = "log" | "talk" | "brief" | "loot" | "settings";
 
 const MODELS = ["claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-4-5-20251001"];
 
@@ -172,7 +172,7 @@ export class Panel {
       );
     }
 
-    const tabs: [Tab, string, number][] = [["log", "LOG", 0], ["talk", "TALK", 0], ["brief", "BRIEF", w.draft ? 1 : 0], ["settings", "SETTINGS", 0]];
+    const tabs: [Tab, string, number][] = [["log", "LOG", 0], ["talk", "TALK", 0], ["brief", "BRIEF", w.draft ? 1 : 0], ["loot", `LOOT ${w.loot.commits.length}`, 0], ["settings", "SETTINGS", 0]];
     this.el.append(
       h(
         "nav",
@@ -188,6 +188,7 @@ export class Panel {
     if (this.tab === "log") this.drawLog(body, w, base, busy);
     if (this.tab === "talk") this.drawTalk(body, w, base, busy);
     if (this.tab === "brief") this.drawBrief(body, w, base, busy);
+    if (this.tab === "loot") this.drawLoot(body, w);
     if (this.tab === "settings") this.drawSettings(body, w, base, busy);
   }
 
@@ -256,6 +257,23 @@ export class Panel {
       body.append(h("p", { class: "empty" }, w.charter ? "This office runs on its charter:" : "No brief yet. Plan with the lead in Talk, then press Hand off and it writes one for you to approve."));
       if (w.charter) body.append(h("pre", { class: "brief" }, w.charter));
     }
+  }
+
+  // Verified work waiting on the integration branch. Annex never merges into the person's own
+  // branch; this is the list and the one command to do it.
+  private drawLoot(body: HTMLElement, w: WingView) {
+    if (!w.loot.commits.length) {
+      body.append(h("p", { class: "empty" }, w.repo ? `Nothing waiting. Verified work lands on ${w.integrationBranch}; it shows up here until you merge it.` : "This office has no repo yet."));
+      return;
+    }
+    const cmd = w.loot.command!;
+    const copy = h("button", { class: "btn", type: "button", onclick: async () => { await navigator.clipboard?.writeText(cmd).catch(() => {}); copy.textContent = "COPIED"; } }, "COPY");
+    body.append(
+      h("h3", {}, `${w.loot.commits.length} VERIFIED COMMIT${w.loot.commits.length === 1 ? "" : "S"} WAITING ON ${w.integrationBranch?.toUpperCase()}`),
+      h("ol", { class: "log loot" }, ...w.loot.commits.map((c) => h("li", {}, h("time", {}, c.date.slice(5)), h("b", { style: "color: var(--gold)" }, c.sha), h("span", {}, c.subject)))),
+      h("p", { class: "empty" }, "Review them, then merge into your branch yourself:"),
+      h("div", { class: "row" }, h("pre", { class: "brief", style: "flex: 1; margin: 0" }, cmd), copy),
+    );
   }
 
   private drawSettings(body: HTMLElement, w: WingView, base: string, busy: boolean) {

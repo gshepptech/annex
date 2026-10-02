@@ -12,6 +12,7 @@ import { Sidebar } from "./sidebar.ts";
 import { Terminal } from "./terminal.ts";
 import { newWingDialog } from "./newwing.ts";
 import { logDialog } from "./syslog.ts";
+import { DirectorDesk } from "./directorview.ts";
 import { h } from "./dom.ts";
 
 const app = document.getElementById("app")!;
@@ -24,6 +25,7 @@ const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 let state: StateView | null = null;
 let selectedWing: string | null = null;
 let selectedAgent: string | null = null;
+let showDirector = false;
 let recent: BourneEvent[] = [];
 // agents hired since the last snapshot: their room is rebuilt and they walk in from the door
 const arriving = new Set<string>();
@@ -43,6 +45,7 @@ const newOffice = newWingDialog((id) => {
   scheduleRefresh(0);
 });
 const syslog = logDialog();
+const director = new DirectorDesk(() => selectWing(selectedWing ?? state?.wings[0]?.id ?? ""), () => scheduleRefresh(0));
 
 // the HUD: the game's top bar
 const stats = h("div", { class: "stats" });
@@ -53,6 +56,7 @@ const hud = h(
   h("h1", { class: "logo" }, "ANNEX"),
   stats,
   openState,
+  h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, "DIRECTOR"),
   h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "SYSTEM LOG"),
 );
 
@@ -70,9 +74,18 @@ function reveal(fromTap: boolean) {
   if (fromTap && matchMedia("(max-width: 1300px)").matches) requestAnimationFrame(() => drawer.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth" }));
 }
 
+function openDirector() {
+  showDirector = true;
+  selectedAgent = null;
+  terminal.close();
+  draw();
+  reveal(true);
+}
+
 function selectWing(id: string, fromTap = false) {
   selectedWing = id;
   selectedAgent = null;
+  showDirector = false;
   terminal.close();
   draw();
   reveal(fromTap);
@@ -83,6 +96,7 @@ function selectAgent(id: string, fromTap = false) {
   if (!wing) return;
   selectedWing = wing.id;
   selectedAgent = id;
+  showDirector = false;
   terminal.open(id);
   draw();
   reveal(fromTap);
@@ -90,9 +104,12 @@ function selectAgent(id: string, fromTap = false) {
 
 function draw() {
   if (!state) return;
-  for (const [wid, r] of rooms) r.el.classList.toggle("selected", wid === selectedWing);
-  sidebar.render(state, selectedWing, selectedAgent);
-  if (selectedAgent) {
+  for (const [wid, r] of rooms) r.el.classList.toggle("selected", !showDirector && wid === selectedWing);
+  sidebar.render(state, showDirector ? null : selectedWing, selectedAgent);
+  if (showDirector) {
+    director.show(state.director);
+    if (drawer.firstChild !== director.el) drawer.replaceChildren(director.el);
+  } else if (selectedAgent) {
     if (drawer.firstChild !== terminal.el) drawer.replaceChildren(terminal.el);
   } else {
     const w = state.wings.find((x) => x.id === selectedWing);
@@ -159,6 +176,10 @@ function scheduleRefresh(ms = 400) {
 
 // Real events become game notifications; nothing is announced that did not happen.
 function announce(e: BourneEvent) {
+  if (e.wingId === "director") {
+    if (e.kind === "chat.message" && e.payload.who === "lead" && !showDirector) toast("✉ THE DIRECTOR REPLIED", "var(--annex)");
+    return;
+  }
   const wing = state?.wings.find((w) => w.id === e.wingId);
   const office = wing?.name.toUpperCase() ?? "";
   const title = String(e.payload.title ?? "").slice(0, 48);
