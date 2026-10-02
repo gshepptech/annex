@@ -14,6 +14,7 @@ import { newWingDialog } from "./newwing.ts";
 import { logDialog } from "./syslog.ts";
 import { DirectorDesk } from "./directorview.ts";
 import { h } from "./dom.ts";
+import { portrait } from "./portrait.ts";
 
 const app = document.getElementById("app")!;
 const rooms = new Map<string, Room>();
@@ -56,7 +57,7 @@ const hud = h(
   h("h1", { class: "logo" }, "ANNEX"),
   stats,
   openState,
-  h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, "DIRECTOR"),
+  h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, portrait("director", 0, 26, ""), "DIRECTOR"),
   h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "SYSTEM LOG"),
 );
 

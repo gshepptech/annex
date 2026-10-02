@@ -95,8 +95,8 @@ export class Room {
     const hhmm = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
     let text = "";
     let closed = false;
-    if (this.wing.paused) [text, closed] = ["PAUSED", true];
-    else if (this.wing.held) [text, closed] = [`CLOSED · ${this.wing.held.until ? hhmm(this.wing.held.until) : ""}`, true];
+    // closed and paused are already on the badge and the door; the right side stays quiet
+    if (this.wing.paused || this.wing.held) [text, closed] = ["", true];
     else if (this.wing.mode === "with_you") text = "WAITING FOR YOU";
     else if (n.blockedBy) text = n.blockedBy.toUpperCase();
     else if (n.at) {

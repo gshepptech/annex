@@ -160,7 +160,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .member .info b { font-weight: 600; font-size: 0.92rem; line-height: 1; }
 .member .info .cls { color: var(--c); font: 0.62rem var(--title); }
 .member .bar { height: 7px; background: var(--ink); border: 1px solid var(--rule); position: relative; overflow: hidden; }
-.member .bar i { position: absolute; inset: 0; background: var(--dim); width: 18%; }
+.member .bar i { position: absolute; inset: 0; width: 0; }
 .member.working .bar i {
   width: 100%;
   background: repeating-linear-gradient(90deg, var(--c) 0 6px, transparent 6px 9px);
@@ -201,6 +201,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 }
 
 .room { position: relative; padding: 0; }
+/* the office you are looking at is the main stage; the rest sit below it */
+.room.selected { grid-column: 1 / -1; order: -1; }
 .room.selected { border-color: var(--gold); box-shadow: 0 0 0 3px var(--ink), 6px 6px 0 3px var(--ink), 0 0 0 6px var(--gold); }
 
 .plaque {
@@ -521,3 +523,5 @@ dialog p { margin: 0; color: var(--muted); }
 .chat li.director-line { border-color: var(--annex); }
 .chat li.director-line b { color: var(--annex); }
 .screen .btn.older { display: block; margin: 0 auto 12px; }
+.hud .director-btn { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; }
+.hud .director-btn canvas { width: 26px; height: 26px; border: 2px solid var(--annex); background: var(--ink); image-rendering: pixelated; }

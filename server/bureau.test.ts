@@ -242,7 +242,7 @@ test("handing off needs a repo, and coming back flips the mode", async () => {
   await bureau.comeBack("upkeep");
   assert.equal(store.wing("upkeep")!.mode, "with_you");
   await assert.rejects(bureau.comeBack("upkeep"), /already with you/);
-  await assert.rejects(bureau.chat("nope", "hi"), /no wing called/);
+  await assert.rejects(bureau.chat("nope", "hi"), /no office called/);
 });
 
 
@@ -357,7 +357,7 @@ test("a new wing opens from the office, and pause and resume hold and free it", 
   await bureau.createWing({ id: "docs", name: "Docs", charter: "Keep the docs true." });
   const state = await bureau.state();
   assert.ok(state.wings.some((w) => w.id === "docs" && w.mode === "with_you"));
-  await assert.rejects(bureau.createWing({ id: "docs", name: "Docs" }), /already a wing/);
+  await assert.rejects(bureau.createWing({ id: "docs", name: "Docs" }), /already an office/);
   await assert.rejects(bureau.createWing({ id: "Bad Id", name: "x" }), /lowercase/);
   bureau.pause("upkeep");
   assert.equal((await bureau.state()).wings.find((w) => w.id === "upkeep")!.paused, true);

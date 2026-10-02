@@ -126,7 +126,7 @@ export class Panel {
     );
     const holdButton = w.held
       ? h("button", { class: "btn", type: "button", disabled: busy, onclick: () => this.act("Resuming", `${base}/resume`) }, w.paused ? "RESUME" : "RESUME NOW")
-      : h("button", { class: "btn ghost", type: "button", disabled: busy, onclick: () => this.act("Pausing", `${base}/pause`) }, "PAUSE");
+      : h("button", { class: "btn ghost", type: "button", disabled: busy, title: "Stops wakes and new tasks; work already running finishes", onclick: () => this.act("Pausing", `${base}/pause`) }, "PAUSE");
 
     this.el.append(
       h(
@@ -142,7 +142,9 @@ export class Panel {
     if (w.offline) this.el.append(h("p", { class: "notice bad" }, `Not connected to the engine: ${w.offline}`));
     if (w.held && !w.paused) {
       const until = w.held.until ? new Date(w.held.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
-      this.el.append(h("div", { class: "notice warn" }, h("b", {}, `CLOSED${until ? ` UNTIL ${until}` : ""}. `), `${w.held.reason}. Nobody works until then; it opens again by itself, or press Resume now.`));
+      this.el.append(h("div", { class: "notice warn" }, h("b", {}, `CLOSED${until ? ` UNTIL ${until}` : ""}. `), `${w.held.reason}. No new work starts and chat is off until then; a run Claude had queued retries at the reset. It opens again by itself, or press Resume now if the limit has reset.`));
+    } else if (w.paused) {
+      this.el.append(h("div", { class: "notice" }, h("b", {}, "PAUSED. "), "The lead won't wake and no new tasks start. Work already running finishes, and its checks and merges still happen."));
     } else if (w.mode === "autonomous" && w.nextWake.blockedBy) {
       this.el.append(h("div", { class: "notice" }, `The lead is not waking: ${w.nextWake.blockedBy}.`));
     }
@@ -234,7 +236,7 @@ export class Panel {
         "form",
         { onsubmit: (ev: Event) => { ev.preventDefault(); void this.act("Sending", `${base}/chat`, { text: text.value }, () => this.clear("message")); } },
         text,
-        h("button", { class: "btn", type: "submit", disabled: busy || !!w.offline }, "Send  ⌘↵"),
+        h("button", { class: "btn", type: "submit", disabled: busy || !!w.offline || (!!w.held && !w.paused), title: w.held && !w.paused ? "Closed for the usage limit" : "" }, w.held && !w.paused ? "CLOSED" : "SEND ⌘↵"),
       ),
     );
     requestAnimationFrame(() => (list.scrollTop = list.scrollHeight));

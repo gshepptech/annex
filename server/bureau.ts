@@ -113,6 +113,8 @@ export class Bureau implements BureauApi {
 
   async directorSay(text: string) {
     if (!this.director) throw new UserError("There is no director", 404);
+    const limited = this.store.wings().find((w) => w.heldUntil && w.heldReason !== PAUSED && w.heldReason?.includes("usage limit"));
+    if (limited) throw new UserError(`Annex is closed until ${new Date(limited.heldUntil!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })} for the Claude usage limit; the director would hit the same wall. Try again after.`, 409);
     await this.director.say(text);
   }
 
@@ -162,7 +164,7 @@ export class Bureau implements BureauApi {
 
   private rt(wingId: string): Runtime {
     const rt = this.rts.get(wingId);
-    if (!rt) throw new UserError(`There is no wing called "${wingId}"`, 404);
+    if (!rt) throw new UserError(`There is no office called "${wingId}"`, 404);
     return rt;
   }
 
@@ -804,6 +806,10 @@ export class Bureau implements BureauApi {
 
   async chat(wingId: string, text: string) {
     const rt = this.ready(wingId);
+    const held = this.store.wing(wingId)!;
+    if (held.heldUntil && held.heldReason !== PAUSED) {
+      throw new UserError(`${rt.wing.name} is closed until ${new Date(held.heldUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })} (${held.heldReason}). A message now would be spent against that limit; send it after, or press Resume now if the limit has really reset.`, 409);
+    }
     if (this.store.wing(wingId)!.mode !== "with_you") throw new UserError(`${rt.wing.name} is on its own. Come back in to talk with its lead.`, 409);
     await this.say(rt, text, true);
   }
@@ -811,7 +817,7 @@ export class Bureau implements BureauApi {
   async handoff(wingId: string) {
     const rt = this.ready(wingId);
     if (this.store.wing(wingId)!.mode !== "with_you") throw new UserError(`${rt.wing.name} is already on its own.`, 409);
-    if (!rt.wing.repo) throw new UserError(`${rt.wing.name} has no repo, so Annex has nothing to check its work against. Add a [repo] section to wings/${wingId}/wing.toml, then hand off.`, 409);
+    if (!rt.wing.repo) throw new UserError(`${rt.wing.name} has no repo, so Annex has nothing to check its work against. Set one in Settings, then hand off. Add a [repo] section to wings/${wingId}/wing.toml, then hand off.`, 409);
     await this.say(rt, `The person is ready to hand this wing off to you. Write the handoff brief now: one fenced block tagged \`${BRIEF_FENCE}\` with the headings ## Goal, ## Decided, ## Off limits, ## Call me back when. Write only what this conversation settled.`, false);
     this.emit({ wingId, kind: "agent.said", actor: "you", taskId: null, payload: { text: "Asked the lead to write the handoff brief" } });
   }
@@ -819,7 +825,7 @@ export class Bureau implements BureauApi {
   async approveBrief(wingId: string, briefId: number) {
     const rt = this.ready(wingId);
     const brief = this.store.brief(briefId);
-    if (!brief || brief.wingId !== wingId) throw new UserError("That brief does not belong to this wing", 404);
+    if (!brief || brief.wingId !== wingId) throw new UserError("That brief does not belong to this office", 404);
     if (brief.status !== "draft") throw new UserError(`Brief v${brief.version} is already ${brief.status}`, 409);
     if (!rt.wing.repo) throw new UserError(`Add a [repo] section to wings/${wingId}/wing.toml before handing ${rt.wing.name} off.`, 409);
     this.store.approveBrief(briefId);
@@ -915,13 +921,13 @@ export class Bureau implements BureauApi {
     }
     if (parsed.repo && !existsSync(join(parsed.repo.path, ".git"))) throw new UserError(`${parsed.repo.path} is not a git repository`, 400);
     if (this.store.wing(wingId)!.mode === "autonomous" && !parsed.charter && !this.store.currentBrief(wingId)) {
-      throw new UserError("A wing on its own needs a charter or an approved brief", 400);
+      throw new UserError("An office on its own needs a charter or an approved brief", 400);
     }
     this.written.set(wingId, text);
     writeFileSync(join(this.opts.wingsDir, wingId, "wing.toml"), text);
     await this.apply(rt, parsed);
     this.logger.info(wingId, `settings saved and applied`);
-    if (announce) this.emit({ wingId, kind: "agent.said", actor: "you", taskId: null, payload: { text: "Changed the wing's settings" } });
+    if (announce) this.emit({ wingId, kind: "agent.said", actor: "you", taskId: null, payload: { text: "Changed the office's settings" } });
   }
 
   // The last text Annex itself wrote to each wing file, so the watcher skips its own writes.
@@ -965,8 +971,8 @@ export class Bureau implements BureauApi {
 
   async createWing(n: NewWing) {
     const id = n.id.trim().toLowerCase();
-    if (!/^[a-z][a-z0-9-]{1,30}$/.test(id)) throw new UserError("A wing id is 2 to 31 lowercase letters, digits or dashes, starting with a letter", 400);
-    if (this.rts.has(id) || existsSync(join(this.opts.wingsDir, id))) throw new UserError(`There is already a wing called "${id}"`, 409);
+    if (!/^[a-z][a-z0-9-]{1,30}$/.test(id)) throw new UserError("An office id is 2 to 31 lowercase letters, digits or dashes, starting with a letter", 400);
+    if (this.rts.has(id) || existsSync(join(this.opts.wingsDir, id))) throw new UserError(`There is already an office called "${id}"`, 409);
     const repoPath = n.repoPath?.trim() ? expandHome(n.repoPath.trim()) : null;
     if (repoPath && !existsSync(join(repoPath, ".git"))) throw new UserError(`${repoPath} is not a git repository`, 400);
     const base: Wing = parseWing(id, `name = ${JSON.stringify(n.name.trim() || id)}`);
@@ -979,14 +985,14 @@ export class Bureau implements BureauApi {
     this.store.ensureWing(id, "with_you");
     this.rts.set(id, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve(), agentInfo: new Map() });
     await this.connectAll();
-    this.emit({ wingId: id, kind: "agent.said", actor: "you", taskId: null, payload: { text: `Opened the ${parsed.name} wing` } });
+    this.emit({ wingId: id, kind: "agent.said", actor: "you", taskId: null, payload: { text: `Opened the ${parsed.name} office` } });
     return { id };
   }
 
   async decideAsk(wingId: string, askId: number, approve: boolean) {
     const rt = this.ready(wingId);
     const ask = this.store.ask(askId);
-    if (!ask || ask.wingId !== wingId) throw new UserError("That request does not belong to this wing", 404);
+    if (!ask || ask.wingId !== wingId) throw new UserError("That request does not belong to this office", 404);
     if (ask.status !== "pending") throw new UserError(`That request was already ${ask.status}`, 409);
     this.store.decideAsk(askId, approve ? "approved" : "declined");
     const t = ask.task as unknown as ProposedTask;
