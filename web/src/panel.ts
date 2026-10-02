@@ -146,7 +146,9 @@ export class Panel {
     } else if (w.paused) {
       this.el.append(h("div", { class: "notice" }, h("b", {}, "PAUSED. "), "The lead won't wake and no new tasks start. Work already running finishes, and its checks and merges still happen."));
     } else if (w.mode === "autonomous" && w.nextWake.blockedBy) {
-      this.el.append(h("div", { class: "notice" }, `The lead is not waking: ${w.nextWake.blockedBy}.`));
+      const b = w.nextWake.blockedBy;
+      // "the lead is reading the signals now" is good news, not a reason it is stuck
+      this.el.append(h("div", { class: "notice" }, b.startsWith("the lead is") ? `${b[0]!.toUpperCase()}${b.slice(1)}.` : `The lead is not waking: ${b}.`));
     }
     if (this.busy) this.el.append(h("p", { class: "notice" }, `${this.busy}...`));
     if (this.error) this.el.append(h("p", { class: "notice bad", role: "alert" }, this.error));

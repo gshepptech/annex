@@ -1,6 +1,7 @@
 import "@fontsource/silkscreen/400.css";
-import "@fontsource-variable/pixelify-sans";
-import "@fontsource/vt323/400.css";
+import "@fontsource/atkinson-hyperlegible/400.css";
+import "@fontsource/atkinson-hyperlegible/700.css";
+import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
 import type { StateView } from "../../server/api-types.ts";
