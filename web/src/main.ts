@@ -36,7 +36,8 @@ const arriving = new Set<string>();
 
 const panel = new Panel(() => scheduleRefresh(0));
 const terminal = new Terminal(
-  () => selectWing(selectedWing ?? state?.wings[0]?.id ?? ""),
+  // back from one of your sessions goes to the first office; Your desk has no file of its own
+  () => selectWing(selectedWing && selectedWing !== DESK ? selectedWing : state?.wings[0]?.id ?? ""),
   (id) => state?.wings.find((w) => w.id === id)?.name ?? "Back",
 );
 const sidebar = new Sidebar({
@@ -96,9 +97,13 @@ function toast(text: string, colour: string) {
   while (toasts.childElementCount > 4) toasts.firstElementChild?.remove();
 }
 
-// on narrow screens the dialog sits below the offices, so bring it into view when chosen
+// The chosen office moves to the top of the floor; scroll up to it, or the change happens out of
+// sight. On narrow screens the dialog sits below the offices, so bring that into view instead.
 function reveal(fromTap: boolean) {
-  if (fromTap && matchMedia("(max-width: 1300px)").matches) requestAnimationFrame(() => drawer.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth" }));
+  if (!fromTap) return;
+  const behavior = reducedMotion.matches ? "auto" : "smooth";
+  if (matchMedia("(max-width: 1300px)").matches) requestAnimationFrame(() => drawer.scrollIntoView({ behavior }));
+  else requestAnimationFrame(() => world.scrollTo({ top: 0, behavior }));
 }
 
 function openDirector() {
@@ -119,6 +124,7 @@ function selectWing(id: string, fromTap = false) {
 }
 
 function selectSession(id: string, fromTap = false) {
+  selectedWing = DESK;
   selectedAgent = id;
   showDirector = false;
   terminal.openSession(id);
@@ -149,7 +155,8 @@ function applySessions(list: SessionView[]) {
     if (deskRoom && deskRoom.sameCrew(w)) {
       deskRoom.update(w);
     } else {
-      const room = new Room(w, 0, () => undefined, (id) => selectSession(id, true), new Set(), "desk");
+      // the desk's nameplate opens the most recent session
+      const room = new Room(w, 0, () => sessions[0] && selectSession(sessions[0].id, true), (id) => selectSession(id, true), new Set(), "desk");
       if (deskRoom) deskRoom.el.replaceWith(room.el);
       else world.prepend(room.el);
       deskRoom = room;
@@ -181,6 +188,7 @@ function selectAgent(id: string, fromTap = false) {
 function draw() {
   if (!state) return;
   for (const [wid, r] of rooms) r.el.classList.toggle("selected", !showDirector && wid === selectedWing);
+  deskRoom?.el.classList.toggle("selected", !showDirector && selectedWing === DESK);
   sidebar.render(state, showDirector ? null : selectedWing, selectedAgent, sessions);
   if (showDirector) {
     director.show(state.director);
@@ -209,7 +217,7 @@ function applyState(next: StateView) {
       rooms.set(w.id, room);
     }
   }
-  if (!selectedWing || !next.wings.some((w) => w.id === selectedWing)) selectedWing = next.wings[0]?.id ?? null;
+  if (!selectedWing || (selectedWing !== DESK && !next.wings.some((w) => w.id === selectedWing))) selectedWing = next.wings[0]?.id ?? null;
 
   const crew = next.wings.flatMap((w) => w.agents);
   const working = crew.filter((a) => a.status === "running").length;
