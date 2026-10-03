@@ -21,7 +21,7 @@ import { BOARD_USER_ID, type Paperclip, type Issue, type Frame } from "./engine/
 import { provision, type Provisioned } from "./provision.ts";
 import { runCommand, type RunResult } from "./run.ts";
 import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration, waiting } from "./git.ts";
-import { parseProposal, parseBrief, judge, similar, type ProposedTask } from "./proposal.ts";
+import { parseProposal, parseBrief, judge, similar, type ProposedTask, type GoalUpdate } from "./proposal.ts";
 import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
 import { toolUses, isUsageLimit, resetTime } from "./mapping.ts";
@@ -45,6 +45,8 @@ interface Runtime {
   lastTool: Map<string, number>;
   startedRuns: Set<string>;
   waking: boolean;
+  // set when work finishes or a goal arrives, so the lead is woken to hand out what comes next
+  wakeSoon: boolean;
   // Merges, setup and signal runs all use the one integration worktree, so they take turns.
   integration: Promise<unknown>;
   // Paperclip's status and model for each agent, refreshed on each poll and on status frames
@@ -87,7 +89,7 @@ export class Bureau implements BureauApi {
     this.logger = opts.logger ?? new Logger(null, { quiet: true });
     for (const wing of opts.wings) {
       this.store.ensureWing(wing.id, wing.initialMode);
-      this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve(), agentInfo: new Map() });
+      this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, integration: Promise.resolve(), agentInfo: new Map() });
     }
   }
 
@@ -160,6 +162,11 @@ export class Bureau implements BureauApi {
   }
 
   private emit(e: NewEvent) {
+    // a finished task frees a worker: the lead may have a goal's next step ready for it
+    if (e.kind === "task.done" || e.kind === "task.stopped") {
+      const rt = this.rts.get(e.wingId);
+      if (rt) rt.wakeSoon = true;
+    }
     return this.store.record(e);
   }
 
@@ -546,24 +553,41 @@ export class Bureau implements BureauApi {
     return runs.filter((r) => new Date(r.createdAt ?? r.startedAt ?? 0).getTime() >= since).length;
   }
 
+  // Whether a worker is free for a goal's next step.
+  private freeWorker(rt: Runtime): boolean {
+    return this.store.tasks(rt.wing.id, { state: "open" }).length < rt.prov!.workers.length;
+  }
+
+  // An office on its own wakes on its timer. Either kind wakes as soon as work finishes or a goal
+  // arrives while a goal is active and a worker is free, so the crew is never left waiting on a
+  // timer; an office with you does nothing else on its own.
   private async maybeWake(rt: Runtime) {
     const row = this.store.wing(rt.wing.id)!;
-    if (row.mode !== "autonomous" || row.heldUntil || rt.waking) return;
+    if (row.heldUntil || rt.waking) return;
     if (!rt.wing.repo || !rt.prov!.workspace) return;
     if (this.store.openWake(rt.wing.id)) return;
     const s = rt.wing.settings;
     if (inQuietHours(s.quietHours, this.now())) return;
-    const last = this.store.lastWake(rt.wing.id);
-    const interval = Math.min(s.wakeEverySec * 2 ** row.backoffLevel, rt.wing.settings.maxBackoffSec) * 1000;
-    const dropIns = this.store.pendingDropIns(rt.wing.id);
-    const due = !last || this.now().getTime() - new Date(last.startedAt).getTime() >= interval || dropIns.length > 0;
-    if (!due) return;
+    const goalNext = rt.wakeSoon && this.store.goals(rt.wing.id, "active").length > 0 && this.freeWorker(rt);
+    let due = goalNext;
+    if (row.mode === "autonomous") {
+      const last = this.store.lastWake(rt.wing.id);
+      const interval = Math.min(s.wakeEverySec * 2 ** row.backoffLevel, rt.wing.settings.maxBackoffSec) * 1000;
+      const dropIns = this.store.pendingDropIns(rt.wing.id);
+      due ||= !last || this.now().getTime() - new Date(last.startedAt).getTime() >= interval || dropIns.length > 0;
+    }
+    if (!due) {
+      // nothing to hand out to: forget the nudge rather than wake later for a stale reason
+      if (rt.wakeSoon && !this.store.goals(rt.wing.id, "active").length) rt.wakeSoon = false;
+      return;
+    }
     if (s.maxRunsPerHour !== null && (await this.runsInLastHour(rt)) >= s.maxRunsPerHour) return;
     await this.wake(rt);
   }
 
   async wake(rt: Runtime) {
     rt.waking = true;
+    rt.wakeSoon = false;
     const wingId = rt.wing.id;
     const ws = rt.prov!.workspace!;
     const wakeRow = this.store.startWake(wingId);
@@ -597,6 +621,8 @@ export class Bureau implements BureauApi {
         closed: this.store.tasks(wingId, { closedSince: week }).map(view),
         dropIns,
         asked: [...this.store.asks(wingId), ...this.store.decidedAsks(wingId, week)].map((a) => ({ title: String((a.task as { title?: unknown }).title ?? ""), status: a.status })),
+        goals: this.goalsForWake(wingId),
+        autonomous: this.store.wing(wingId)!.mode === "autonomous",
         houseRules: (houseRules as ReturnType<typeof readHouseRules>)?.text ?? null,
         crew: { workers: rt.prov!.workers.length, maxWorkers: rt.wing.settings.maxWorkers },
       });
@@ -677,8 +703,10 @@ export class Bureau implements BureauApi {
         houseRules: repoDir ? readHouseRules(repoDir)?.text ?? null : null,
         readRepoFile: repoDir ? (p) => readRepoFile(repoDir, p) : undefined,
         dropIns: this.store.wakeDropIns(wake.id),
+        goals: this.store.goals(wingId, "active").map((g) => g.id),
         maxTasks: rt.wing.settings.maxTasksPerWake,
       });
+      this.applyGoalUpdates(rt, parsed.goals);
       if (parsed.hire) await this.hire(rt, parsed.hire.count, parsed.hire.reason, lead.id);
 
       let created = 0;
@@ -694,7 +722,7 @@ export class Bureau implements BureauApi {
           this.emit({ wingId, kind: "approval.requested", actor: lead.id, taskId: null, payload: { title: `Approve "${v.task.title}"`, askId: ask.id, reason: ask.reason } });
           continue;
         }
-        await this.createTask(rt, { ...v.task, source: "lead" });
+        await this.createTask(rt, { ...v.task, source: "lead", goalId: v.task.goal });
         created++;
       }
       const raised = verdicts.filter((v) => v.ok && v.task.askFirst).length;
@@ -714,15 +742,16 @@ export class Bureau implements BureauApi {
     }
   }
 
-  private async createTask(rt: Runtime, t: { title: string; charterLine: string; evidence: string; doneCheck: string; size: string; details: string; houseRules?: string; source: "lead" | "you" }) {
+  private async createTask(rt: Runtime, t: { title: string; charterLine: string; evidence: string; doneCheck: string; size: string; details: string; houseRules?: string; source: "lead" | "you"; goalId?: number | null }) {
     const prov = rt.prov!;
     const open = this.store.tasks(rt.wing.id, { state: "open" });
     const load = (id: string) => open.filter((x) => rt.issues.get(x.id)?.assigneeAgentId === id).length;
     const worker = [...prov.workers].sort((a, b) => load(a.id) - load(b.id))[0]!;
+    const goal = t.goalId ? this.store.goal(t.goalId) : undefined;
     const setupNote = rt.wing.setup ? `\n\nStart by running \`${rt.wing.setup}\` in your worktree.` : "";
     const issue = await this.pc.createIssue(prov.companyId, {
       title: t.title,
-      description: taskDescription({ ...t, base: rt.wing.repo?.integrationBranch ?? "" }) + setupNote +
+      description: taskDescription({ ...t, charterLine: goal ? `the person's goal "${goal.text}"` : t.charterLine, base: rt.wing.repo?.integrationBranch ?? "" }) + setupNote +
         (t.houseRules ? `\n\n**House rules that apply (the repo's CLAUDE.md is in your worktree; follow all of it):** ${t.houseRules}` : ""),
       projectId: prov.projectId,
       assigneeAgentId: worker.id,
@@ -738,9 +767,102 @@ export class Bureau implements BureauApi {
       return issue;
     }
     this.logger.info(rt.wing.id, `opened ${issue.identifier} "${t.title}" for ${worker.name}`);
-    this.store.addTask({ id: issue.id, wingId: rt.wing.id, identifier: issue.identifier, title: t.title, doneCheck: t.doneCheck, charterLine: t.charterLine, evidence: t.evidence, source: t.source });
+    this.store.addTask({ id: issue.id, wingId: rt.wing.id, identifier: issue.identifier, title: t.title, doneCheck: t.doneCheck, charterLine: t.charterLine, evidence: t.evidence, source: t.source, goalId: t.goalId ?? null });
     this.emit({ wingId: rt.wing.id, kind: "task.created", actor: t.source === "you" ? "you" : prov.lead.id, taskId: issue.id, payload: { title: t.title, assigneeId: worker.id, charterLine: t.charterLine } });
     return issue;
+  }
+
+  // ----- goals -----------------------------------------------------------------------------
+
+  // Active goals first, then the last few finished, for the office's Goals tab.
+  private goalViews(wingId: string) {
+    const all = this.store.goals(wingId);
+    const tasks = this.store.tasks(wingId).filter((t) => t.goalId !== null);
+    const shown = [...all.filter((g) => g.status === "active"), ...all.filter((g) => g.status !== "active").slice(-5).reverse()];
+    return shown.map((g) => ({
+      id: g.id,
+      text: g.text,
+      doneWhen: g.doneWhen,
+      ongoing: g.ongoing,
+      plan: g.plan,
+      status: g.status,
+      note: g.note,
+      open: tasks.filter((t) => t.goalId === g.id && t.state === "open").length,
+      finished: tasks.filter((t) => t.goalId === g.id && t.state === "merged").length,
+    }));
+  }
+
+  // Each active goal as the lead sees it in a wake: its plan and which tasks served it.
+  private goalsForWake(wingId: string) {
+    const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
+    const tasks = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })];
+    return this.store.goals(wingId, "active").map((g) => {
+      const mine = tasks.filter((t) => t.goalId === g.id);
+      return {
+        id: g.id,
+        text: g.text,
+        doneWhen: g.doneWhen,
+        plan: g.plan,
+        open: mine.filter((t) => t.state === "open").map((t) => `${t.identifier} ${t.title}`),
+        finished: mine.filter((t) => t.state !== "open").map((t) => `${t.identifier} ${t.title} (${t.state})`),
+      };
+    });
+  }
+
+  // The lead's plans are kept as it sends them; a goal it calls done is closed with its note.
+  private applyGoalUpdates(rt: Runtime, updates: GoalUpdate[]) {
+    const wingId = rt.wing.id;
+    for (const u of updates) {
+      const g = this.store.goal(u.id);
+      if (!g || g.wingId !== wingId || g.status !== "active") continue;
+      if (u.plan && u.plan !== g.plan) this.store.setPlan(g.id, u.plan.slice(0, 4000));
+      if (u.done && !g.ongoing) {
+        this.store.closeGoal(g.id, "done", u.note || null);
+        this.logger.info(wingId, `goal ${g.id} done: ${g.text}${u.note ? `. Lead: ${u.note.slice(0, 200)}` : ""}`);
+        this.emit({ wingId, kind: "goal.done", actor: rt.prov?.lead.id ?? "annex", taskId: null, payload: { title: g.text, note: u.note } });
+      }
+    }
+  }
+
+  async addGoal(wingId: string, text: string, doneWhen: string | null, by: "you" | "lead" | "director" = "you") {
+    const rt = this.ready(wingId);
+    const clean = text.trim();
+    if (!clean) throw new UserError("A goal needs some words", 400);
+    if (!rt.wing.repo) throw new UserError(`${rt.wing.name} has no repo yet, so its crew has nowhere to work. Set one in Settings first.`, 409);
+    const g = this.store.addGoal(wingId, clean, doneWhen?.trim() || null);
+    this.logger.info(wingId, `new goal ${g.id} (${by}): ${clean}${g.doneWhen ? `; done when ${g.doneWhen}` : "; ongoing"}`);
+    this.emit({ wingId, kind: "goal.added", actor: by === "lead" ? rt.prov.lead.id : by, taskId: null, payload: { title: clean, goalId: g.id } });
+    rt.wakeSoon = true;
+    this.track(this.tick());
+    return g;
+  }
+
+  closeGoal(wingId: string, goalId: number, status: "done" | "dropped" | "active") {
+    const rt = this.ready(wingId);
+    const g = this.store.goal(goalId);
+    if (!g || g.wingId !== wingId) throw new UserError("That goal does not belong to this office", 404);
+    if (status === "active") {
+      this.store.reopenGoal(goalId);
+      rt.wakeSoon = true;
+    } else {
+      this.store.closeGoal(goalId, status, status === "done" ? "Marked done by the person" : "Dropped by the person");
+    }
+    this.logger.info(wingId, `goal ${goalId} ${status === "active" ? "reopened" : status} by the person`);
+    this.emit({ wingId, kind: status === "done" ? "goal.done" : "agent.said", actor: "you", taskId: null, payload: status === "done" ? { title: g.text } : { text: `${status === "active" ? "Reopened" : "Dropped"} the goal "${g.text}"` } });
+  }
+
+  // On: the lead runs the office by itself. Off: it waits for the person, and works only on the
+  // goals they set.
+  async setAutonomy(wingId: string, on: boolean) {
+    const rt = this.ready(wingId);
+    const mode = this.store.wing(wingId)!.mode;
+    if (on === (mode === "autonomous")) return;
+    if (!on) return this.comeBack(wingId);
+    if (!rt.wing.repo) throw new UserError(`${rt.wing.name} has no repo, so Annex has nothing to check its work against. Set one in Settings first.`, 409);
+    this.store.setMode(wingId, "autonomous");
+    this.logger.info(wingId, "autonomous: on");
+    this.emit({ wingId, kind: "wing.mode_changed", actor: "you", taskId: null, payload: { mode: "autonomous" } });
+    this.track(this.tick());
   }
 
   // ----- holds -----------------------------------------------------------------------------
@@ -800,21 +922,26 @@ export class Bureau implements BureauApi {
     if (!rt.prov.workspace) return "✖ This office has no repo, so Annex cannot start tasks yet. Set one in Settings.";
     const repoDir = rt.prov.workspace.integrationDir;
     const open = this.store.tasks(rt.wing.id, { state: "open" }).map((t) => t.title);
+    const lines: string[] = [];
+    for (const n of parsed.newGoals) {
+      const g = await this.addGoal(rt.wing.id, n.text, n.doneWhen, "lead");
+      lines.push(`✔ New goal ${g.id}: "${g.text}"${g.doneWhen ? ` (done when ${g.doneWhen})` : " (ongoing)"}. The lead will plan it and hand out the work.`);
+    }
     const verdicts = judge(parsed.tasks, {
       charter: rt.wing.charter,
       signals: [],
       existingTitles: open,
       houseRules: readHouseRules(repoDir)?.text ?? null,
       agreedWithPerson: true,
+      goals: this.store.goals(rt.wing.id, "active").map((g) => g.id),
       maxTasks: rt.wing.settings.maxTasksPerWake,
     });
-    const lines: string[] = [];
     for (const v of verdicts) {
       if (!v.ok) {
         lines.push(`✖ Not started "${v.task.title}": ${v.reason}`);
         continue;
       }
-      const issue = await this.createTask(rt, { ...v.task, source: "you" });
+      const issue = await this.createTask(rt, { ...v.task, source: "you", goalId: v.task.goal });
       lines.push(`✔ Started ${issue.identifier} "${v.task.title}"`);
     }
     return lines.join("\n");
@@ -884,7 +1011,10 @@ export class Bureau implements BureauApi {
   // When an autonomous lead next wakes, or what is stopping it, so "is it working?" has an answer.
   private nextWake(rt: Runtime): { at: string | null; blockedBy: string | null } {
     const row = this.store.wing(rt.wing.id)!;
-    if (row.mode !== "autonomous") return { at: null, blockedBy: "with you: the lead waits for your messages" };
+    if (row.mode !== "autonomous") {
+      const goals = this.store.goals(rt.wing.id, "active").length;
+      return { at: null, blockedBy: goals ? `working on ${goals} goal${goals === 1 ? "" : "s"}; the lead hands out more as work finishes` : "with you: the lead waits for your messages" };
+    }
     if (row.heldUntil) return { at: row.heldReason === PAUSED ? null : row.heldUntil, blockedBy: row.heldReason ?? "held" };
     if (!rt.wing.repo) return { at: null, blockedBy: "no repo set" };
     if (rt.offline) return { at: null, blockedBy: `not connected: ${rt.offline}` };
@@ -987,7 +1117,7 @@ export class Bureau implements BureauApi {
       return;
     }
     this.store.ensureWing(wingId, parsed.initialMode);
-    this.rts.set(wingId, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve(), agentInfo: new Map() });
+    this.rts.set(wingId, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, integration: Promise.resolve(), agentInfo: new Map() });
     await this.connectAll();
     this.logger.info(wingId, `new wing from its file`);
   }
@@ -1006,7 +1136,7 @@ export class Bureau implements BureauApi {
     this.written.set(id, text);
     writeFileSync(join(this.opts.wingsDir, id, "wing.toml"), text);
     this.store.ensureWing(id, "with_you");
-    this.rts.set(id, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, integration: Promise.resolve(), agentInfo: new Map() });
+    this.rts.set(id, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, integration: Promise.resolve(), agentInfo: new Map() });
     await this.connectAll();
     this.emit({ wingId: id, kind: "agent.said", actor: "you", taskId: null, payload: { text: `Opened the ${parsed.name} office` } });
     return { id };
@@ -1174,6 +1304,7 @@ export class Bureau implements BureauApi {
         // the wing file's own values, so saving the form never writes a backed-off interval
         settings: this.settingsOf(rt.wing),
         asks: this.store.asks(rt.wing.id).map((a) => ({ id: a.id, title: String(a.task.title ?? ""), reason: a.reason, details: String(a.task.details ?? ""), createdAt: a.createdAt })),
+        goals: this.goalViews(rt.wing.id),
         paused: row.heldReason === PAUSED,
         nextWake: this.nextWake(rt),
         houseRules: rt.prov?.workspace ? readHouseRules(rt.prov.workspace.integrationDir)?.files ?? [] : [],

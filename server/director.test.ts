@@ -29,20 +29,21 @@ test("the director's reply is stored with what Annex did about it", async () => 
   const offices: Offices = {
     async state() { return { wings: [], director: null, lastEventId: 0, recent: [] }; },
     async dropIn(w, t) { done.push(`drop ${w} ${t}`); },
+    async addGoal(w, t) { done.push(`goal ${w} ${t}`); },
     async createWing(n) { done.push(`new ${n.id}`); },
     async hireFromOffice(w) { throw new Error(`${w} already has its most workers`); },
     pause(w) { done.push(`pause ${w}`); },
     resume() {},
     async comeBack() {},
   };
-  const comments = [{ id: "c1", authorAgentId: "D", authorUserId: null, createdAt: "", body: 'On it.\n```annex-route\n[{"do":"drop_in","office":"upkeep","title":"Fix the README"},{"do":"hire","office":"upkeep"}]\n```' }];
+  const comments = [{ id: "c1", authorAgentId: "D", authorUserId: null, createdAt: "", body: 'On it.\n```annex-route\n[{"do":"drop_in","office":"upkeep","title":"Fix the README"},{"do":"add_goal","office":"upkeep","text":"QA test the app"},{"do":"hire","office":"upkeep"}]\n```' }];
   const pc = { comments: async () => comments } as unknown as Paperclip;
   const d = new Director({ store, pc, logger: new Logger(null, { quiet: true }), offices, claudeCommand: "claude", settingsFile: "/dev/null" });
   d.agentId = "D";
   await d.sync();
   await d.sync();
-  assert.deepEqual(done, ["drop upkeep Fix the README"]);
+  assert.deepEqual(done, ["drop upkeep Fix the README", "goal upkeep QA test the app"]);
   const chat = d.chat();
   assert.equal(chat.length, 1, "stored once however often it is read");
-  assert.match(chat[0]!.text, /On it\.\n✔ Dropped "Fix the README" into upkeep\n✖ Could not hire: upkeep already has its most workers/);
+  assert.match(chat[0]!.text, /On it\.\n✔ Dropped "Fix the README" into upkeep\n✔ Gave upkeep the goal "QA test the app"\n✖ Could not hire: upkeep already has its most workers/);
 });

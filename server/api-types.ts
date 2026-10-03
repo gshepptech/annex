@@ -18,6 +18,18 @@ export interface AgentView {
   filed: number;
 }
 
+export interface GoalView {
+  id: number;
+  text: string;
+  doneWhen: string | null;
+  ongoing: boolean;
+  plan: string;
+  status: "active" | "done" | "dropped";
+  note: string | null;
+  open: number;
+  finished: number;
+}
+
 export interface AskView {
   id: number;
   title: string;
@@ -144,6 +156,7 @@ export interface WingView {
   chat: ChatView[];
   settings: SettingsView;
   asks: AskView[];
+  goals: GoalView[];
   paused: boolean;
   edit: Required<Omit<WingEdit, "wakeEvery" | "maxRunsPerHour" | "quietHours" | "backOffWhenIdle" | "askBefore" | "maxWorkers" | "maxTasksPerWake" | "checkAttempts" | "checkTimeout" | "wakeTimeout" | "maxBackoff">>;
   // when an autonomous lead next wakes, or why it will not

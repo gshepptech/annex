@@ -17,6 +17,7 @@ export const ROUTE_FENCE = "annex-route";
 
 export type RouteAction =
   | { do: "drop_in"; office: string; title: string; detail?: string }
+  | { do: "add_goal"; office: string; text: string; done_when?: string }
   | { do: "new_office"; id: string; name: string; repo?: string; base_branch?: string; charter?: string }
   | { do: "hire"; office: string; count?: number }
   | { do: "pause"; office: string }
@@ -28,6 +29,7 @@ export type RouteAction =
 export interface Offices {
   state(): Promise<StateView>;
   dropIn(wingId: string, title: string, detail: string): Promise<unknown>;
+  addGoal(wingId: string, text: string, doneWhen: string | null, by: "director"): Promise<unknown>;
   createWing(n: { id: string; name: string; repoPath?: string; baseBranch?: string; charter?: string }): Promise<unknown>;
   hireFromOffice(wingId: string, count: number): Promise<unknown>;
   pause(wingId: string): void;
@@ -52,6 +54,7 @@ To act, end your reply with one fenced block tagged \`${ROUTE_FENCE}\` holding a
 
 \`\`\`${ROUTE_FENCE}
 [
+  { "do": "add_goal", "office": "upkeep", "text": "QA test the whole app", "done_when": "every user flow has a passing test" },
   { "do": "drop_in", "office": "upkeep", "title": "Short imperative title", "detail": "What the lead needs to know" },
   { "do": "new_office", "id": "docs", "name": "Docs", "repo": "~/Projects/x", "base_branch": "main", "charter": "What it keeps true" },
   { "do": "hire", "office": "upkeep", "count": 1 },
@@ -61,8 +64,11 @@ To act, end your reply with one fenced block tagged \`${ROUTE_FENCE}\` holding a
 ]
 \`\`\`
 
-- \`drop_in\` hands the office's lead a piece of work; the lead turns it into tasks under its own
-  rules. Prefer this to anything else.
+- \`add_goal\` gives an office something to achieve; its lead plans it and keeps handing out the
+  steps until \`done_when\` holds. Leave \`done_when\` out for an ongoing goal ("keep adding art").
+  Use it for anything bigger than a single task. Never list the steps yourself.
+- \`drop_in\` hands the office's lead one piece of work; the lead turns it into tasks under its
+  own rules.
 - Use the office ids from the summary.
 - Leave the block out when you are only answering or asking.
 - Handing an office off to run on its own is the person's decision in that office's file; tell
@@ -217,6 +223,9 @@ export class Director {
   private async carryOut(a: RouteAction): Promise<string> {
     try {
       switch (a.do) {
+        case "add_goal":
+          await this.offices.addGoal(a.office, a.text, a.done_when ?? null, "director");
+          return `✔ Gave ${a.office} the goal "${a.text}"`;
         case "drop_in":
           await this.offices.dropIn(a.office, a.title, a.detail ?? "");
           return `✔ Dropped "${a.title}" into ${a.office}`;

@@ -8,7 +8,7 @@ import { post } from "./api.ts";
 import { h } from "./dom.ts";
 import { officeBadge } from "./sidebar.ts";
 
-type Tab = "log" | "talk" | "brief" | "loot" | "settings";
+type Tab = "goals" | "log" | "talk" | "brief" | "loot" | "settings";
 
 const MODELS = ["claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-4-5-20251001"];
 
@@ -32,7 +32,7 @@ export class Panel {
     // tool calls belong in each agent's terminal; the office log is for decisions
     this.events = events.filter((e) => e.wingId === wing.id && e.kind !== "agent.tool");
     if (switched) {
-      this.tab = wing.mode === "with_you" ? "talk" : "log";
+      this.tab = wing.goals.some((g) => g.status === "active") ? "goals" : wing.mode === "with_you" ? "talk" : "log";
       this.error = "";
       this.saved = "";
     }
@@ -114,10 +114,22 @@ export class Panel {
     const base = `/api/wings/${encodeURIComponent(w.id)}`;
     const busy = !!this.busy;
 
-    const modeButton =
-      w.mode === "with_you"
-        ? h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Asking the lead to write the brief", `${base}/handoff`, {}, () => (this.tab = "brief")) }, "Hand off")
-        : h("button", { class: "btn primary", type: "button", disabled: busy || !!w.offline, onclick: () => this.act("Bringing the lead back", `${base}/come-back`, {}, () => (this.tab = "talk")) }, "Come back in");
+    // On: the lead runs the office and finds its own work. Off: it works on what you ask for.
+    const on = w.mode === "autonomous";
+    const modeButton = h(
+      "button",
+      {
+        class: `switch${on ? " on" : ""}`,
+        type: "button",
+        role: "switch",
+        "aria-checked": String(on),
+        disabled: busy || !!w.offline,
+        title: on ? "The lead runs this office and finds work for its goals by itself" : "The lead works on what you ask for, then waits",
+        onclick: () => this.act(on ? "Turning autonomy off" : "Turning autonomy on", `${base}/autonomy`, { on: !on }, () => (this.tab = on ? "talk" : "goals")),
+      },
+      h("span", { class: "track", "aria-hidden": "true" }, h("i", {})),
+      "Autonomous",
+    );
     const crew = w.agents.filter((a) => a.role === "worker").length;
     const hireButton = h(
       "button",
@@ -177,7 +189,8 @@ export class Panel {
       );
     }
 
-    const tabs: [Tab, string, number][] = [["log", "Log", 0], ["talk", "Talk", 0], ["brief", "Brief", w.draft ? 1 : 0], ["loot", `Ready to merge ${w.loot.commits.length}`, 0], ["settings", "Settings", 0]];
+    const active = w.goals.filter((g) => g.status === "active").length;
+    const tabs: [Tab, string, number][] = [["goals", active ? `Goals ${active}` : "Goals", 0], ["log", "Log", 0], ["talk", "Talk", 0], ["brief", "Brief", w.draft ? 1 : 0], ["loot", `Ready to merge ${w.loot.commits.length}`, 0], ["settings", "Settings", 0]];
     this.el.append(
       h(
         "nav",
@@ -190,11 +203,55 @@ export class Panel {
     const body = h("div", { class: "tab-body", role: "tabpanel" });
     this.el.append(body);
 
+    if (this.tab === "goals") this.drawGoals(body, w, base, busy);
     if (this.tab === "log") this.drawLog(body, w, base, busy);
     if (this.tab === "talk") this.drawTalk(body, w, base, busy);
     if (this.tab === "brief") this.drawBrief(body, w, base, busy);
     if (this.tab === "loot") this.drawLoot(body, w);
     if (this.tab === "settings") this.drawSettings(body, w, base, busy);
+  }
+
+  private drawGoals(body: HTMLElement, w: WingView, base: string, busy: boolean) {
+    const text = h("textarea", { "data-keep": "goal", rows: 2, required: true, placeholder: "QA test the whole app", "aria-label": "Goal" });
+    const doneWhen = h("input", { "data-keep": "doneWhen", placeholder: "Every user flow has a passing test", "aria-label": "Done when" });
+    const list = h("ol", { class: "goals" });
+    for (const g of w.goals) {
+      const counts = [g.open ? `${g.open} running` : "", g.finished ? `${g.finished} merged` : ""].filter(Boolean).join(" · ");
+      list.append(
+        h(
+          "li",
+          { class: `goal ${g.status}` },
+          h("div", { class: "goal-head" }, h("span", { class: "num" }, String(g.id)), h("h3", {}, g.text), g.status !== "active" ? h("span", { class: "badge" }, g.status === "done" ? "Done" : "Dropped") : null),
+          h("p", { class: "goal-meta" }, g.ongoing ? "Ongoing: the lead keeps finding the next step" : `Done when ${g.doneWhen}`, counts ? ` · ${counts}` : ""),
+          g.plan ? h("pre", { class: "plan" }, g.plan) : g.status === "active" ? h("p", { class: "empty" }, "No plan yet. The lead writes one on its next wake.") : null,
+          g.note ? h("p", { class: "goal-meta" }, g.note) : null,
+          h(
+            "div",
+            { class: "row" },
+            g.status === "active" && !g.ongoing ? h("button", { class: "btn", type: "button", disabled: busy, onclick: () => this.act("Marking it done", `${base}/goals/${g.id}/done`) }, "Mark done") : null,
+            g.status === "active" ? h("button", { class: "btn ghost", type: "button", disabled: busy, onclick: () => this.act("Dropping it", `${base}/goals/${g.id}/drop`) }, "Drop") : null,
+            g.status !== "active" ? h("button", { class: "btn ghost", type: "button", disabled: busy, onclick: () => this.act("Reopening it", `${base}/goals/${g.id}/reopen`) }, "Reopen") : null,
+          ),
+        ),
+      );
+    }
+    if (!w.goals.length) list.append(h("li", { class: "empty" }, "No goals yet. Give this office something to achieve and its lead breaks it into tasks for the crew."));
+    body.append(
+      list,
+      h(
+        "form",
+        {
+          onsubmit: (ev: Event) => {
+            ev.preventDefault();
+            void this.act("Setting the goal", `${base}/goals`, { text: text.value, doneWhen: doneWhen.value }, () => this.clear("goal", "doneWhen"));
+          },
+        },
+        h("h3", {}, "New goal"),
+        text,
+        h("div", { class: "field" }, h("label", {}, "Done when", doneWhen), h("span", { class: "hint" }, "Leave empty for an ongoing goal the lead never stops on.")),
+        h("button", { class: "btn primary", type: "submit", disabled: busy || !!w.offline || !w.repo, title: w.repo ? "" : "Set a repo in Settings first" }, "Set goal"),
+      ),
+    );
   }
 
   private drawLog(body: HTMLElement, w: WingView, base: string, busy: boolean) {

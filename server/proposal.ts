@@ -17,6 +17,30 @@ export interface ProposedTask {
   houseRules: string;
   // the title of the person's drop-in this task comes from, when it does
   fromDropIn: string;
+  // the goal this task advances, when it does
+  goal: number | null;
+}
+
+// The lead's update to a goal's plan, sent with each proposal.
+export interface GoalUpdate {
+  id: number;
+  plan: string;
+  done: boolean;
+  note: string;
+}
+
+// A goal the lead and the person agreed in chat.
+export interface NewGoal {
+  text: string;
+  doneWhen: string | null;
+}
+
+export interface Proposal {
+  note: string;
+  tasks: ProposedTask[];
+  hire: { count: number; reason: string } | null;
+  goals: GoalUpdate[];
+  newGoals: NewGoal[];
 }
 
 export interface Verdict {
@@ -33,7 +57,7 @@ export function findFence(body: string, tag: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
-export function parseProposal(body: string): { note: string; tasks: ProposedTask[]; hire: { count: number; reason: string } | null } | { error: string } {
+export function parseProposal(body: string): Proposal | { error: string } {
   const raw = findFence(body, PROPOSAL_FENCE);
   if (raw === null) return { error: `no \`${PROPOSAL_FENCE}\` block in the lead's comment` };
   let data: unknown;
@@ -61,11 +85,23 @@ export function parseProposal(body: string): { note: string; tasks: ProposedTask
       askReason: s("ask_reason"),
       houseRules: s("house_rules"),
       fromDropIn: s("from_drop_in"),
+      goal: Number.isInteger(o.goal) ? (o.goal as number) : /^\d+$/.test(s("goal")) ? Number(s("goal")) : null,
     };
   });
+  const list = (k: string) => (Array.isArray((data as Record<string, unknown>)[k]) ? ((data as Record<string, unknown>)[k] as unknown[]) : []);
+  const obj = (v: unknown) => (typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {});
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const goals = list("goals")
+    .map(obj)
+    .filter((g) => Number.isInteger(Number(g.id)))
+    .map((g): GoalUpdate => ({ id: Number(g.id), plan: str(g.plan), done: g.done === true, note: str(g.note) }));
+  const newGoals = list("new_goals")
+    .map(obj)
+    .filter((g) => str(g.text))
+    .map((g): NewGoal => ({ text: str(g.text), doneWhen: str(g.done_when) || null }));
   const h = (typeof (d as { hire?: unknown }).hire === "object" && (d as { hire?: unknown }).hire) || null;
   const hire = h ? { count: Math.max(0, Math.floor(Number((h as { count?: unknown }).count) || 0)), reason: String((h as { reason?: unknown }).reason ?? "") } : null;
-  return { note: typeof d.note === "string" ? d.note.trim() : "", tasks, hire: hire && hire.count > 0 ? hire : null };
+  return { note: typeof d.note === "string" ? d.note.trim() : "", tasks, hire: hire && hire.count > 0 ? hire : null, goals, newGoals };
 }
 
 export function parseBrief(body: string): string | null {
@@ -89,6 +125,8 @@ export interface Context {
   dropIns?: string[];
   // set when the person agreed the work in chat: no signal evidence or charter line needed
   agreedWithPerson?: boolean;
+  // ids of the office's active goals; a task that names one needs no charter line or evidence
+  goals?: number[];
   maxTasks?: number;
 }
 
@@ -117,6 +155,12 @@ function rejectReason(t: ProposedTask, ctx: Context, taken: string[], index: num
   const dropIn = t.fromDropIn ? ctx.dropIns?.find((d) => similar(d, t.fromDropIn) || norm(d) === norm(t.fromDropIn)) : undefined;
   if (t.fromDropIn && !dropIn) return `"${t.fromDropIn}" is not something the person dropped in`;
   if (dropIn || ctx.agreedWithPerson) return null;
+  // A step of a goal the person set is justified by the goal; it must still be new work.
+  if (t.goal !== null) {
+    if (!ctx.goals?.includes(t.goal)) return `goal ${t.goal} is not one of this office's active goals`;
+    const dup = taken.find((x) => similar(x, t.title));
+    return dup ? `duplicates "${dup}"` : null;
+  }
   if (!t.charterLine) return "no charter line";
   if (!lineInText(t.charterLine, ctx.charter)) return `"${t.charterLine}" is not a line of the charter or brief`;
   if (!t.evidence) return "no evidence";

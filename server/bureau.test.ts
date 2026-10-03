@@ -352,6 +352,47 @@ test("a request already put to the person is not asked again, and repeats are an
   assert.equal([...pc.issues.values()].filter((i) => i.title.includes("@types/node")).length, 1, "one task, not two");
 });
 
+test("a goal's steps need no evidence, its plan is kept, and the lead can call it done", async () => {
+  const { pc, store, bureau } = await setup();
+  const lead = store.agents("upkeep").find((a) => a.role === "lead")!;
+  const goal = await bureau.addGoal("upkeep", "QA test the app", "every flow has a test");
+  await bureau.idle();
+  const wakeIssue = [...pc.issues.values()].find((i) => i.title.startsWith("Wake:"))!;
+  pc.agentComment(wakeIssue.id, lead.id, "```annex-proposal\n" + JSON.stringify({
+    note: "",
+    tasks: [
+      { title: "Write tests for the login flow", goal: goal.id, done_check: "test -f done.txt", size: "S" },
+      { title: "Write tests for a goal that is not there", goal: 999, done_check: "test -f done.txt", size: "S" },
+    ],
+    goals: [{ id: goal.id, plan: "- [ ] login flow\n- [ ] checkout flow" }],
+  }) + "\n```");
+  wakeIssue.status = "done";
+  await bureau.tick();
+  const made = [...pc.issues.values()].filter((i) => i.title.startsWith("Write tests"));
+  assert.deepEqual(made.map((i) => i.title), ["Write tests for the login flow"]);
+  assert.equal(store.task(made[0]!.id)!.goalId, goal.id);
+  assert.match(made[0]!.description!, /QA test the app/);
+  assert.equal(store.goal(goal.id)!.plan, "- [ ] login flow\n- [ ] checkout flow");
+  assert.equal((await bureau.state()).wings[0]!.goals[0]!.open, 1);
+});
+
+test("an office with you wakes for its goals when work finishes, and not otherwise", async () => {
+  const { pc, store, bureau } = await setup();
+  store.setMode("upkeep", "with_you");
+  store.finishWake(store.openWake("upkeep")!.id, "test");
+  const wakes = () => [...pc.issues.values()].filter((i) => i.title.startsWith("Wake:")).length;
+  const before = wakes();
+  await bureau.tick();
+  assert.equal(wakes(), before, "no goal, no wake");
+  await bureau.addGoal("upkeep", "Keep the docs current", null);
+  await bureau.idle();
+  await bureau.tick();
+  assert.equal(wakes(), before + 1, "a new goal wakes the lead to plan it");
+  const wake = [...pc.issues.values()].filter((i) => i.title.startsWith("Wake:")).at(-1)!;
+  assert.match(wake.description!, /Goal \d+: Keep the docs current/);
+  assert.match(wake.description!, /Work only on the goals above/);
+});
+
 test("settings edited in the office are written to the file and used at once", async () => {
   const { dir, store, bureau } = await setup();
   const { mkdirSync, readFileSync } = await import("node:fs");

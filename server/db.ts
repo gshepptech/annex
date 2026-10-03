@@ -138,7 +138,37 @@ const MIGRATIONS: string[] = [
     decided_at text
   );
   `,
+  `
+  -- what the person wants an office to achieve; the lead keeps a plan for each and tasks name it
+  create table goal (
+    id integer primary key,
+    wing_id text not null references wing(id),
+    text text not null,
+    done_when text,
+    ongoing integer not null default 0,
+    plan text not null default '',
+    status text not null default 'active' check (status in ('active', 'done', 'dropped')),
+    note text,
+    created_at text not null,
+    closed_at text
+  );
+  alter table task add column goal_id integer references goal(id);
+  `,
 ];
+
+export interface GoalRow {
+  id: number;
+  wingId: string;
+  text: string;
+  // null for an ongoing goal, which is never done
+  doneWhen: string | null;
+  ongoing: boolean;
+  plan: string;
+  status: "active" | "done" | "dropped";
+  note: string | null;
+  createdAt: string;
+  closedAt: string | null;
+}
 
 export interface AskRow {
   id: number;
@@ -161,6 +191,7 @@ export interface TaskRow {
   state: "open" | "merged" | "stopped";
   createdAt: string;
   closedAt: string | null;
+  goalId: number | null;
 }
 
 export interface DropInRow {
@@ -431,11 +462,44 @@ export class Store {
 
   // Tasks Annex created
 
-  addTask(t: Omit<TaskRow, "state" | "createdAt" | "closedAt">): TaskRow {
+  addTask(t: Omit<TaskRow, "state" | "createdAt" | "closedAt" | "goalId"> & { goalId?: number | null }): TaskRow {
     this.db
-      .prepare("insert into task (id, wing_id, identifier, title, done_check, charter_line, evidence, source, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(t.id, t.wingId, t.identifier, t.title, t.doneCheck, t.charterLine, t.evidence, t.source, now());
+      .prepare("insert into task (id, wing_id, identifier, title, done_check, charter_line, evidence, source, created_at, goal_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(t.id, t.wingId, t.identifier, t.title, t.doneCheck, t.charterLine, t.evidence, t.source, now(), t.goalId ?? null);
     return this.task(t.id)!;
+  }
+
+  // Goals
+
+  addGoal(wingId: string, text: string, doneWhen: string | null): GoalRow {
+    const r = this.db
+      .prepare("insert into goal (wing_id, text, done_when, ongoing, created_at) values (?, ?, ?, ?, ?) returning *")
+      .get(wingId, text, doneWhen, doneWhen ? 0 : 1, now()) as Record<string, unknown>;
+    return toGoal(r);
+  }
+
+  goals(wingId: string, status?: GoalRow["status"]): GoalRow[] {
+    const rows = status
+      ? this.db.prepare("select * from goal where wing_id = ? and status = ? order by id").all(wingId, status)
+      : this.db.prepare("select * from goal where wing_id = ? order by id").all(wingId);
+    return (rows as Record<string, unknown>[]).map(toGoal);
+  }
+
+  goal(id: number): GoalRow | undefined {
+    const r = this.db.prepare("select * from goal where id = ?").get(id) as Record<string, unknown> | undefined;
+    return r && toGoal(r);
+  }
+
+  setPlan(id: number, plan: string) {
+    this.db.prepare("update goal set plan = ? where id = ?").run(plan, id);
+  }
+
+  closeGoal(id: number, status: "done" | "dropped", note: string | null) {
+    this.db.prepare("update goal set status = ?, note = ?, closed_at = ? where id = ?").run(status, note, now(), id);
+  }
+
+  reopenGoal(id: number) {
+    this.db.prepare("update goal set status = 'active', note = null, closed_at = null where id = ?").run(id);
   }
 
   task(id: string): TaskRow | undefined {
@@ -644,6 +708,22 @@ function toTask(r: Record<string, unknown>): TaskRow {
     evidence: (r.evidence as string | null) ?? null,
     source: r.source as TaskRow["source"],
     state: r.state as TaskRow["state"],
+    createdAt: r.created_at as string,
+    closedAt: (r.closed_at as string | null) ?? null,
+    goalId: (r.goal_id as number | null) ?? null,
+  };
+}
+
+function toGoal(r: Record<string, unknown>): GoalRow {
+  return {
+    id: r.id as number,
+    wingId: r.wing_id as string,
+    text: r.text as string,
+    doneWhen: (r.done_when as string | null) ?? null,
+    ongoing: r.ongoing === 1,
+    plan: r.plan as string,
+    status: r.status as GoalRow["status"],
+    note: (r.note as string | null) ?? null,
     createdAt: r.created_at as string,
     closedAt: (r.closed_at as string | null) ?? null,
   };

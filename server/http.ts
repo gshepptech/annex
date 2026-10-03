@@ -25,6 +25,9 @@ export interface Bureau {
   directorSay(text: string): Promise<void>;
   pause(wingId: string): void;
   resume(wingId: string): void;
+  addGoal(wingId: string, text: string, doneWhen: string | null): Promise<unknown>;
+  closeGoal(wingId: string, goalId: number, status: "done" | "dropped" | "active"): void;
+  setAutonomy(wingId: string, on: boolean): Promise<void>;
 }
 
 export class UserError extends Error {
@@ -97,6 +100,26 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       if (req.method === "POST" && hire) {
         const body = await readJson(req);
         return json(res, 200, await bureau.hireFromOffice(decodeURIComponent(hire[1]!), Number(body.count ?? 1)));
+      }
+
+      const goals = /^\/api\/wings\/([^/]+)\/goals$/.exec(path);
+      if (req.method === "POST" && goals) {
+        const body = await readJson(req);
+        const g = await bureau.addGoal(decodeURIComponent(goals[1]!), str(body.text, "text"), typeof body.doneWhen === "string" ? body.doneWhen : null);
+        return json(res, 201, g);
+      }
+
+      const goal = /^\/api\/wings\/([^/]+)\/goals\/(\d+)\/(done|drop|reopen)$/.exec(path);
+      if (req.method === "POST" && goal) {
+        bureau.closeGoal(decodeURIComponent(goal[1]!), Number(goal[2]), goal[3] === "done" ? "done" : goal[3] === "drop" ? "dropped" : "active");
+        return json(res, 200, { ok: true });
+      }
+
+      const autonomy = /^\/api\/wings\/([^/]+)\/autonomy$/.exec(path);
+      if (req.method === "POST" && autonomy) {
+        const body = await readJson(req);
+        await bureau.setAutonomy(decodeURIComponent(autonomy[1]!), body.on === true);
+        return json(res, 200, { ok: true });
       }
 
       const hold = /^\/api\/wings\/([^/]+)\/(pause|resume)$/.exec(path);

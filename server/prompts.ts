@@ -79,7 +79,8 @@ ${w.charter ? `## Charter\n\n${w.charter}\n` : "## Charter\n\nNone yet. The pers
 ### 1. A wake issue from Annex ("Wake: ...")
 
 Annex has already run the wing's signals and pasted their output into the issue, along with the
-open tasks, recently closed tasks, and anything the person dropped in. The repo itself is open to
+person's goals and your plan for each, the open tasks, recently closed tasks, and anything the
+person dropped in. The repo itself is open to
 your Read, Glob and Grep tools at the path given at the end of the issue. Decide what the charter
 needs next. Then post exactly one comment containing one fenced block tagged \`${PROPOSAL_FENCE}\`:
 
@@ -96,13 +97,38 @@ needs next. Then post exactly one comment containing one fenced block tagged \`$
       "details": "What the worker needs to know: files, approach, what not to touch",
       "house_rules": "Quote the CLAUDE.md rules this touches, and say how it keeps each one",
       "from_drop_in": "Only for work the person dropped in: its title",
+      "goal": "Only for a step of one of the person's goals: the goal's number",
       "ask_first": false,
       "ask_reason": "Only when ask_first is true: what the person is being asked to approve"
     }
   ],
-  "hire": { "count": 0, "reason": "Only when more workers would finish the queued work sooner" }
+  "hire": { "count": 0, "reason": "Only when more workers would finish the queued work sooner" },
+  "goals": [
+    { "id": 1, "plan": "Your plan for goal 1, rewritten in full", "done": false, "note": "" }
+  ]
 }
 \`\`\`
+
+## Goals: what the person wants, and your plan for it
+
+The person gives this office goals: "QA test the app", "build the checkout flow", "keep adding
+new prints to the store". A goal is not a task. It is yours to break down, so the person never has
+to list the steps. For each active goal in the wake issue:
+
+1. Keep a plan: a short checklist of the steps that get the goal done (at most 25 lines). Mark
+   steps done as their tasks merge, add steps as you learn more, and drop ones that turn out
+   wrong. Send the whole plan back in \`goals\` on every wake; it is your memory, because each
+   wake is a fresh session that sees only what Annex pastes in.
+2. Hand out the next steps as tasks, as many as there are free workers (up to the per-wake
+   limit). Set \`goal\` to the goal's number. A goal's task needs no \`charter_line\` or
+   \`evidence\`; the goal is its reason. It still needs a \`done_check\` that proves that step,
+   and \`house_rules\` when the repo has them.
+3. When the goal's "done when" is met, set \`done\` to true with a \`note\` saying how you know.
+   An ongoing goal is never done: keep finding its next useful step on every wake.
+4. Use \`ask_first\` for steps that spend money, publish, or touch anything outside the repo.
+
+Goals come before signal work. Only when every goal has its next steps running, and workers are
+still free, look at the signals and the charter for anything else worth doing.
 
 The repo's house rules come first. The wake issue carries its CLAUDE.md (and AGENTS.md). You are
 their enforcer: read them in full on every wake, never propose work that would break one, and
@@ -110,9 +136,9 @@ write into each task the rules it touches so the worker and reviewer are held to
 rule and the charter disagree, the rule wins and you say so in \`note\`.
 
 Rules Annex enforces, so a task that breaks one is thrown away:
-- At most 3 tasks.
-- \`charter_line\` must be a line from the charter${w.charter ? "" : " or the approved brief"}.
-- \`evidence\` must point at real signal output in the issue. No evidence, no task.
+- At most ${w.settings.maxTasksPerWake} tasks.
+- \`charter_line\` must be a line from the charter${w.charter ? "" : " or the approved brief"}, unless the task names a goal.
+- \`evidence\` must point at real signal output in the issue, unless the task names a goal. No evidence, no task.
 - \`done_check\` must be a command Annex can run in the repo. Prefer the wing's default
   (${w.doneCheck ? `\`${w.doneCheck}\`` : "none set"}) and add to it rather than replace it.
 - The done check must be able to pass once the task is done. Picture the signal output after
@@ -147,6 +173,16 @@ When you and the person have agreed on concrete work, put it in your reply as on
 you what it started. Their agreement is the reason, so \`charter_line\` and \`evidence\` may be
 empty, but each task still needs a \`done_check\` and, when the repo has house rules,
 \`house_rules\` quoting the rules it touches. Only include work the person actually agreed to.
+
+When the person asks for something bigger than a few tasks ("QA this app", "build me X"), do not
+make them list the steps. Agree on what done looks like, then add it as a goal in that same block:
+
+\`\`\`json
+"new_goals": [{ "text": "QA test the whole app", "done_when": "every user flow has a passing test" }]
+\`\`\`
+
+Leave \`done_when\` empty for an ongoing goal ("keep adding art"). Annex then wakes you to plan
+it and keeps waking you as its tasks finish, until it is done.
 
 When Annex asks you to write the handoff brief, reply with one fenced block tagged
 \`${BRIEF_FENCE}\` with these four headings, in this order:
@@ -222,6 +258,9 @@ export function wakeIssue(opts: {
   dropIns: { title: string; detail: string }[];
   // requests you raised for the person: still waiting, or answered this week
   asked?: { title: string; status: string }[];
+  goals?: { id: number; text: string; doneWhen: string | null; plan: string; open: string[]; finished: string[] }[];
+  // whether the lead may look past the goals for its own work
+  autonomous?: boolean;
   houseRules?: string | null;
   crew?: { workers: number; maxWorkers: number };
 }): { title: string; description: string } {
@@ -239,6 +278,27 @@ export function wakeIssue(opts: {
     );
   }
   if (opts.brief) lines.push("", "## Approved brief", "", opts.brief);
+  if (opts.goals?.length) {
+    lines.push("", "## The person's goals", "", "Work these first. Update each plan and hand out its next steps.");
+    for (const g of opts.goals) {
+      lines.push(
+        "",
+        `### Goal ${g.id}: ${g.text}`,
+        "",
+        g.doneWhen ? `Done when: ${g.doneWhen}` : "Ongoing: never done; keep finding its next useful step.",
+        "",
+        "Your plan so far:",
+        "",
+        g.plan || "(none yet; write one)",
+        "",
+        `Open tasks for it: ${g.open.length ? g.open.join("; ") : "none"}`,
+        `Finished for it: ${g.finished.length ? g.finished.join("; ") : "none yet"}`,
+      );
+    }
+  }
+  if (opts.autonomous === false) {
+    lines.push("", "## Scope of this wake", "", "This office is not running on its own. Work only on the goals above; propose nothing else.");
+  }
   if (opts.crew) lines.push("", "## Crew", "", `${opts.crew.workers} worker(s) now; you may grow the crew to ${opts.crew.maxWorkers}.`);
   lines.push("", "## Signals");
   for (const s of opts.signals) {
@@ -261,8 +321,8 @@ export function taskDescription(t: { charterLine: string; evidence: string; done
   return [
     t.details,
     "",
-    `**Serves:** ${t.charterLine}`,
-    `**Evidence:** ${t.evidence}`,
+    `**Serves:** ${t.charterLine || "work the person asked for"}`,
+    ...(t.evidence ? [`**Evidence:** ${t.evidence}`] : []),
     `**Done check:** \`${t.doneCheck}\``,
     `**Size:** ${t.size}`,
     `**Base branch:** \`${t.base}\``,

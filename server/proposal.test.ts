@@ -24,6 +24,7 @@ const task = (over: Partial<ProposedTask> = {}): ProposedTask => ({
   askReason: "",
   houseRules: "",
   fromDropIn: "",
+  goal: null,
   ...over,
 });
 

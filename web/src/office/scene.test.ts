@@ -21,6 +21,7 @@ const wing = (over: Partial<WingView> = {}): WingView => ({
     { id: "R", role: "reviewer", name: "Rev", desk: -1, status: "idle", model: "", filed: 0 },
   ],
   tasks: [],
+  goals: [],
   filedCount: 0,
   brief: null,
   draft: null,

@@ -23,6 +23,8 @@ export const EVENT_KINDS = [
   "wing.resumed",
   "chat.message",
   "agent.hired",
+  "goal.added",
+  "goal.done",
 ] as const;
 
 export type EventKind = (typeof EVENT_KINDS)[number];

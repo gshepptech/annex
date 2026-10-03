@@ -59,5 +59,9 @@ export function describe(e: BourneEvent, nameOf: (agentId: string) => string, ti
       return line(String(p.text ?? ""));
     case "agent.hired":
       return line(`hired ${p.name ?? "a worker"}${p.reason ? `: ${p.reason}` : ""}`, "good");
+    case "goal.added":
+      return line(`set a goal: ${p.title ?? ""}`);
+    case "goal.done":
+      return line(`reached the goal "${p.title ?? ""}"${p.note ? `: ${p.note}` : ""}`, "good");
   }
 }

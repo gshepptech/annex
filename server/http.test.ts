@@ -25,6 +25,9 @@ function fakeBureau(store: Store): Bureau & { calls: string[] } {
     async decideAsk(w, id, ok) { calls.push(`ask ${w} ${id} ${ok}`); },
     pause(w) { calls.push(`pause ${w}`); },
     resume(w) { calls.push(`resume ${w}`); },
+    async addGoal(w, t, d) { calls.push(`goal ${w} ${t} ${d}`); return { id: 1 }; },
+    closeGoal(w, id, s) { calls.push(`goal ${w} ${id} ${s}`); },
+    async setAutonomy(w, on) { calls.push(`autonomy ${w} ${on}`); },
   };
 }
 
