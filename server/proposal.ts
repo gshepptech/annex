@@ -185,9 +185,11 @@ export function evidenceInSignals(evidence: string, signals: { name: string; out
 // Titles are duplicates when most of their meaningful words are shared, and they do not name
 // different versions ("Bump x to 22.20.5" and "Bump x to 26.6.4" are different work).
 export function similar(a: string, b: string): boolean {
-  const versions = (s: string) => [...s.matchAll(/\d+\.\d+(?:\.\d+)?/g)].map((m) => m[0]).sort().join(",");
-  const va = versions(a);
-  const vb = versions(b);
+  // the version a task moves to decides: "to 26.6.4" and "from 22.20.5 to 26.6.4" are one task,
+  // "to 22.20.5" is another
+  const target = (s: string) => /\bto\s+v?(\d+\.\d+(?:\.\d+)?)/i.exec(s)?.[1] ?? [...s.matchAll(/\d+\.\d+(?:\.\d+)?/g)].pop()?.[0] ?? "";
+  const va = target(a);
+  const vb = target(b);
   if (va && vb && va !== vb) return false;
   const words = (s: string) => new Set(norm(s).split(/[^a-z0-9.@/-]+/).filter((w) => w.length > 2 && !STOP.has(w)));
   const x = words(a);

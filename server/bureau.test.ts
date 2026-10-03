@@ -335,6 +335,23 @@ test("an ask_first task waits for the person; approving it creates the task, dec
   assert.equal((await bureau.state()).wings[0]!.asks.length, 0);
 });
 
+test("a request already put to the person is not asked again, and repeats are answered together", async () => {
+  const { pc, store, bureau } = await setup();
+  const lead = store.agents("upkeep").find((a) => a.role === "lead")!;
+  const t = (title: string) => ({ title, charter_line: "done.txt exists on the integration branch.", evidence: "missing: done.txt (needed by charter)", done_check: "test -f done.txt", size: "S", ask_first: true, ask_reason: "major" });
+  const wakeIssue = [...pc.issues.values()].find((i) => i.title.startsWith("Wake:"))!;
+  pc.agentComment(wakeIssue.id, lead.id, "```annex-proposal\n" + JSON.stringify({ note: "", tasks: [t("Bump @types/node from 22.20.5 to 26.6.4 (major)")] }) + "\n```");
+  wakeIssue.status = "done";
+  await bureau.tick();
+  // an older request that slipped through before this rule, worded differently
+  store.addAsk("upkeep", t("Bump @types/node to 26.6.4 (major)") as unknown as Record<string, unknown>, "major");
+  const asks = store.asks("upkeep");
+  assert.equal(asks.length, 2);
+  await bureau.decideAsk("upkeep", asks[0]!.id, true);
+  assert.equal(store.asks("upkeep").length, 0, "the repeat was answered with the first");
+  assert.equal([...pc.issues.values()].filter((i) => i.title.includes("@types/node")).length, 1, "one task, not two");
+});
+
 test("settings edited in the office are written to the file and used at once", async () => {
   const { dir, store, bureau } = await setup();
   const { mkdirSync, readFileSync } = await import("node:fs");

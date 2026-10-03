@@ -21,7 +21,7 @@ import { BOARD_USER_ID, type Paperclip, type Issue, type Frame } from "./engine/
 import { provision, type Provisioned } from "./provision.ts";
 import { runCommand, type RunResult } from "./run.ts";
 import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration, waiting } from "./git.ts";
-import { parseProposal, parseBrief, judge, type ProposedTask } from "./proposal.ts";
+import { parseProposal, parseBrief, judge, similar, type ProposedTask } from "./proposal.ts";
 import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
 import { toolUses, isUsageLimit, resetTime } from "./mapping.ts";
@@ -663,7 +663,9 @@ export class Bureau implements BureauApi {
         return true;
       }
       const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
-      const existingTitles = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })].map((t) => t.title);
+      // work already open or done this week, and anything already put to you, waiting or answered
+      const asked = [...this.store.asks(wingId), ...this.store.decidedAsks(wingId, week)].map((a) => String((a.task as { title?: unknown }).title ?? ""));
+      const existingTitles = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })].map((t) => t.title).concat(asked);
       const charter = [rt.wing.charter, this.store.currentBrief(wingId)?.text ?? ""].join("\n");
       const signals = this.store.wakeSignals(wake.id) ?? [];
       const repoDir = rt.prov!.workspace?.integrationDir ?? null;
@@ -694,8 +696,8 @@ export class Bureau implements BureauApi {
         await this.createTask(rt, { ...v.task, source: "lead" });
         created++;
       }
-      const asked = verdicts.filter((v) => v.ok && v.task.askFirst).length;
-      if (created === 0 && asked === 0) {
+      const raised = verdicts.filter((v) => v.ok && v.task.askFirst).length;
+      if (created === 0 && raised === 0) {
         this.emit({ wingId, kind: "lead.idle", actor: lead.id, taskId: null, payload: { reason: parsed.note || "nothing worth doing" } });
       } else if (parsed.note) {
         this.emit({ wingId, kind: "agent.said", actor: lead.id, taskId: null, payload: { text: parsed.note } });
@@ -729,6 +731,11 @@ export class Bureau implements BureauApi {
       ],
     });
     rt.issues.set(issue.id, issue);
+    // Paperclip can hand back an issue Annex already tracks; it is the same task, not a new one
+    if (this.store.task(issue.id)) {
+      this.logger.warn(rt.wing.id, `Paperclip returned ${issue.identifier}, which Annex already tracks; not adding it twice`);
+      return issue;
+    }
     this.logger.info(rt.wing.id, `opened ${issue.identifier} "${t.title}" for ${worker.name}`);
     this.store.addTask({ id: issue.id, wingId: rt.wing.id, identifier: issue.identifier, title: t.title, doneCheck: t.doneCheck, charterLine: t.charterLine, evidence: t.evidence, source: t.source });
     this.emit({ wingId: rt.wing.id, kind: "task.created", actor: t.source === "you" ? "you" : prov.lead.id, taskId: issue.id, payload: { title: t.title, assigneeId: worker.id, charterLine: t.charterLine } });
@@ -1012,7 +1019,20 @@ export class Bureau implements BureauApi {
     this.store.decideAsk(askId, approve ? "approved" : "declined");
     const t = ask.task as unknown as ProposedTask;
     this.emit({ wingId, kind: "approval.decided", actor: "you", taskId: null, payload: { decision: approve ? "approved" : "declined", title: `"${t.title}"` } });
-    if (approve) await this.createTask(rt, { ...t, source: "lead" });
+    // the same request asked again is answered by this one
+    for (const other of this.store.asks(wingId)) {
+      if (!similar(String((other.task as { title?: unknown }).title ?? ""), t.title)) continue;
+      this.store.decideAsk(other.id, approve ? "approved" : "declined");
+      this.logger.info(wingId, `request ${other.id} repeats request ${askId}; answered the same way`);
+    }
+    if (!approve) return;
+    const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
+    const same = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })].find((x) => x.state !== "stopped" && similar(x.title, t.title));
+    if (same) {
+      this.logger.info(wingId, `approved "${t.title}", but ${same.identifier} already covers it; not opening another`);
+      return;
+    }
+    await this.createTask(rt, { ...t, source: "lead" });
   }
 
   // Adds workers, up to the wing's max_workers. The lead asks for this in a proposal; the person can

@@ -555,6 +555,11 @@ export class Store {
     return r && toAsk(r);
   }
 
+  // requests decided since a time, so the lead does not ask again about one you just answered
+  decidedAsks(wingId: string, since: string): AskRow[] {
+    return (this.db.prepare("select * from ask where wing_id = ? and status != 'pending' and decided_at >= ? order by id").all(wingId, since) as Record<string, unknown>[]).map(toAsk);
+  }
+
   decideAsk(id: number, status: "approved" | "declined") {
     this.db.prepare("update ask set status = ?, decided_at = ? where id = ?").run(status, now(), id);
   }

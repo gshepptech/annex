@@ -124,4 +124,6 @@ test("evidence can quote a real file in the repo", () => {
 test("different versions are different work", () => {
   assert.equal(similar("Bump @types/node to 22.20.5", "Bump @types/node 22.20.5 → 26.6.4 (major)"), false);
   assert.equal(similar("Bump @types/node to 26.6.4", "Upgrade @types/node to 26.6.4"), true);
+  assert.equal(similar("Bump @types/node from 22.20.5 to 26.6.4 (major)", "Bump @types/node to 26.6.4 (major)"), true);
+  assert.equal(similar("Bump @types/node from 22.20.5 to 26.6.4", "Bump @types/node to 22.20.5"), false);
 });
