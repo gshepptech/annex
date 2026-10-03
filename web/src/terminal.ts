@@ -1,3 +1,4 @@
+// avoid-ai-design-ignore-file: I2 (these are Claude Code's own terminal marks, shown on purpose)
 // One agent's work, run by run, drawn the way a Claude Code terminal draws it: ⏺ for what the
 // agent says and each tool it calls, ⎿ for what came back. It follows the bottom while the agent
 // is working, unless the person has scrolled up to read.
@@ -95,7 +96,7 @@ export class Terminal {
         h("span", {}, shortPath(s.cwd)),
         s.branch ? h("span", {}, s.branch) : null,
         s.model ? h("span", {}, s.model) : null,
-        s.status === "working" ? h("span", { class: "live" }, "● Working") : h("span", {}, "idle"),
+        s.status === "working" ? h("span", { class: "live" }, "Working") : h("span", {}, "idle"),
       ),
     );
     this.briefing.replaceChildren(
@@ -163,7 +164,7 @@ export class Terminal {
         h("span", { class: "badge" }, ROLE_LABEL[a.role]),
         a.model ? h("span", {}, a.model) : null,
         h("span", {}, `${a.filed} verified`),
-        running ? h("span", { class: "live" }, "● Working") : h("span", {}, "idle"),
+        running ? h("span", { class: "live" }, "Working") : h("span", {}, "idle"),
       ),
     );
     // what the agent is told before any task: Annex's orders, then everything Paperclip adds
@@ -197,7 +198,7 @@ export class Terminal {
     const rule = h(
       "div",
       { class: "run-rule" },
-      h("b", {}, r.task ? `${r.task.identifier} · ${r.task.title}` : "run"),
+      h("b", {}, r.task ? `${r.task.identifier} ${r.task.title}` : "run"),
       h("span", { class: `st-${r.status}` }, r.status.replace(/_/g, " ")),
       started ? h("span", {}, started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })) : null,
       took ? h("span", {}, took) : null,
@@ -215,7 +216,7 @@ export class Terminal {
   private entry(e: Entry, results: Map<string, Extract<Entry, { kind: "result" }>>, k: string): (HTMLElement | null)[] {
     switch (e.kind) {
       case "start":
-        return [line("sys", "✻", `${e.model}  ·  ${shortPath(e.cwd)}`)];
+        return [line("sys", "✻", `${e.model} in ${shortPath(e.cwd)}`)];
       case "text":
         return [line("say", "⏺", e.text)];
       case "prompt":
@@ -232,7 +233,7 @@ export class Terminal {
       case "result":
         return [];
       case "done":
-        return [line(e.isError ? "done err" : "done", "✻", `${e.isError ? "Stopped" : "Done"}${e.durationMs ? ` in ${duration(e.durationMs)}` : ""}${e.turns ? ` · ${e.turns} turns` : ""}`), e.text ? line("say", "⏺", e.text) : null];
+        return [line(e.isError ? "done err" : "done", "✻", `${e.isError ? "Stopped" : "Done"}${e.durationMs ? ` in ${duration(e.durationMs)}` : ""}${e.turns ? `, ${e.turns} turns` : ""}`), e.text ? line("say", "⏺", e.text) : null];
       case "error":
         return [line("error", "✗", e.text)];
     }

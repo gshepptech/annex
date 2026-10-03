@@ -413,3 +413,22 @@ What the person asked for after using it, and what was built:
   orders. Verified live: with `--setting-sources project,local`, a plugin enabled this way loads
   its commands, agents, MCP server and hooks. Plugins that are not installed are logged and skipped.
 
+## Fifth round, 3 October 2026
+
+- **Goals.** An office holds goals ("QA test the app", "keep adding prints"); the lead keeps a plan
+  per goal, hands out its steps as tasks that name the goal (no signal evidence needed; done check
+  and house rules still are), and calls a goal done. Offices wake as soon as work finishes while a
+  goal is active. Autonomous is an on/off switch: off, the lead works only on goals you set; on,
+  it also finds its own work. First live run: given "QA test reckon", Upkeep's lead audited the
+  coverage, wrote a seven-step plan, handed out two tasks, hired a third worker, and asked the
+  person one question it could not settle (a DOM test library the repo's CLAUDE.md does not allow).
+- **Your desk.** Your own Claude Code sessions, read from ~/.claude/projects, shown beside the
+  offices with their live transcripts and the command to continue each. Watch only.
+- **The look, third try.** The tabletop look was audited with the avoid-ai-design skill (purple in
+  the logo, near-black with a green signal, cards inside cards, pills everywhere, a trendy display
+  face, middle-dot chrome). Rebuilt around the subject: offices are drawn as floor plans (solid
+  walls, door swings, outlined furniture, people seen from above in their role colour), a
+  cyanotype by night and ink on white by day. Everything around the plans is flat panes and
+  rules, status as words with a colour mark, one face (Atkinson Hyperlegible), mono only for
+  code. The scanner reports no findings; Claude Code's terminal marks are kept on purpose.
+

@@ -44,7 +44,7 @@ export class Sidebar {
                 h(
                   "button",
                   { class: `member who-you${s.status === "working" ? " working" : ""}${s.id === selectedAgent ? " selected" : ""}`, type: "button", onclick: () => this.handlers.session(s.id), "aria-label": `Open your ${s.title} session` },
-                  portrait("worker", i + 2, 34, "portrait"),
+                  portrait("you", i + 2, 28, "portrait"),
                   h(
                     "span",
                     { class: "info" },
@@ -67,7 +67,7 @@ export class Sidebar {
           { class: `office-head${w.id === selectedWing && !selectedAgent ? " selected" : ""}`, type: "button", onclick: () => this.handlers.wing(w.id) },
           h("span", { class: "title" }, w.name),
           w.asks.length ? h("span", { class: "badge ask-count", title: "The lead is asking for your approval" }, `${w.asks.length} ask${w.asks.length === 1 ? "" : "s"}`) : officeBadge(w),
-          h("span", { class: "count", title: `${w.tasks.length} open, ${w.filedCount} filed` }, `${w.tasks.length}/${w.filedCount}`),
+          h("span", { class: "count" }, `${w.tasks.length} open`),
         );
         const order = { lead: 0, worker: 1, reviewer: 2 } as const;
         const members = [...w.agents].sort((x, y) => order[x.role] - order[y.role] || x.desk - y.desk);
@@ -87,14 +87,14 @@ export class Sidebar {
                 h(
                   "button",
                   { class: `member role-${a.role}${working ? " working" : ""}${a.id === selectedAgent ? " selected" : ""}`, type: "button", onclick: () => this.handlers.agent(a.id), "aria-label": `Open ${a.name}'s terminal` },
-                  portrait(a.role, faceIndex(a), 34, "portrait"),
+                  portrait(a.role, faceIndex(a), 28, "portrait"),
                   h(
                     "span",
                     { class: "info" },
                     h("b", {}, a.name),
                     h("span", { class: "cls" }, CLASS[a.role]),
                     h("span", { class: "bar", "aria-hidden": "true" }, h("i", {})),
-                    h("span", { class: "line" }, h("span", { class: "st" }, state), h("span", { title: "Tasks this agent got filed as verified" }, `${a.filed} verified`)),
+                    h("span", { class: "line" }, h("span", { class: "st" }, state), a.filed ? h("span", { title: "Tasks this agent got merged after the checks" }, `${a.filed} verified`) : null),
                   ),
                 ),
               );

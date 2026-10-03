@@ -216,13 +216,13 @@ export class Panel {
     const doneWhen = h("input", { "data-keep": "doneWhen", placeholder: "Every user flow has a passing test", "aria-label": "Done when" });
     const list = h("ol", { class: "goals" });
     for (const g of w.goals) {
-      const counts = [g.open ? `${g.open} running` : "", g.finished ? `${g.finished} merged` : ""].filter(Boolean).join(" · ");
+      const counts = [g.open ? `${g.open} running` : "", g.finished ? `${g.finished} merged` : ""].filter(Boolean).join(", ");
       list.append(
         h(
           "li",
           { class: `goal ${g.status}` },
           h("div", { class: "goal-head" }, h("span", { class: "num" }, String(g.id)), h("h3", {}, g.text), g.status !== "active" ? h("span", { class: "badge" }, g.status === "done" ? "Done" : "Dropped") : null),
-          h("p", { class: "goal-meta" }, g.ongoing ? "Ongoing: the lead keeps finding the next step" : `Done when ${g.doneWhen}`, counts ? ` · ${counts}` : ""),
+          h("p", { class: "goal-meta" }, g.ongoing ? "Ongoing: the lead keeps finding the next step" : `Done when ${g.doneWhen}`, counts ? `. ${counts[0]!.toUpperCase()}${counts.slice(1)}.` : ""),
           g.plan ? h("pre", { class: "plan" }, g.plan) : g.status === "active" ? h("p", { class: "empty" }, "No plan yet. The lead writes one on its next wake.") : null,
           g.note ? h("p", { class: "goal-meta" }, g.note) : null,
           h(
@@ -280,11 +280,11 @@ export class Panel {
 
   private drawTalk(body: HTMLElement, w: WingView, base: string, busy: boolean) {
     if (w.mode === "autonomous") {
-      body.append(h("p", { class: "empty" }, `${w.name} is on its own. Press Come back in to talk with its lead, or drop in a task from the Log.`));
+      body.append(h("p", { class: "empty" }, `${w.name} runs on its own. Turn Autonomous off to talk with its lead, or set a goal in Goals.`));
       return;
     }
     const list = h("ol", { class: "chat" }, ...w.chat.map((m) => h("li", { class: m.who }, h("b", {}, m.who === "you" ? "You" : "Lead"), h("p", {}, m.text))));
-    if (w.chat.length === 0) list.append(h("li", { class: "empty" }, "Tell the lead what this office should work on. When you're done planning, press Hand off."));
+    if (w.chat.length === 0) list.append(h("li", { class: "empty" }, "Tell the lead what you want. Small things become tasks straight away; anything bigger becomes a goal it plans and works through. Turn on Autonomous when it should also find work by itself."));
     const text = h("textarea", { "data-keep": "message", rows: 3, required: true, placeholder: "Message the lead", "aria-label": "Message the lead" });
     text.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) (ev.target as HTMLTextAreaElement).form?.requestSubmit();
@@ -309,14 +309,14 @@ export class Panel {
         h(
           "div",
           { class: "row" },
-          h("button", { class: "btn primary", type: "button", disabled: busy, onclick: () => this.act("Handing off", `${base}/briefs/${w.draft!.id}/approve`) }, "Approve and hand off"),
+          h("button", { class: "btn primary", type: "button", disabled: busy, onclick: () => this.act("Approving the brief", `${base}/briefs/${w.draft!.id}/approve`) }, "Approve and turn on Autonomous"),
           h("button", { class: "btn", type: "button", onclick: () => { this.tab = "talk"; this.render(); } }, "Keep talking"),
         ),
       );
     }
     if (w.brief) body.append(h("h3", {}, `Brief in force, version ${w.brief.version}`), h("pre", { class: "brief" }, w.brief.text));
     if (!w.draft && !w.brief) {
-      body.append(h("p", { class: "empty" }, w.charter ? "This office runs on its charter:" : "No brief yet. Plan with the lead in Talk, then press Hand off and it writes one for you to approve."));
+      body.append(h("p", { class: "empty" }, w.charter ? "This office runs on its charter:" : "No brief. The charter and the Goals tab tell the lead what to work on."));
       if (w.charter) body.append(h("pre", { class: "brief" }, w.charter));
     }
   }

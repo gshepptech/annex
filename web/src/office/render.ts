@@ -7,10 +7,10 @@ import { isMoving } from "./scene.ts";
 import { deskOf } from "./grid.ts";
 import {
   TILE, PAL, ROLE, GOOD, BAD, WARN,
-  drawPerson, drawFolder, drawDesk, drawCabinet, drawTable, drawPlant, drawWindow, lookFor, roundRect,
+  drawPerson, drawFolder, drawDesk, drawCabinet, drawTable, drawPlant, drawWindow, drawDoor, lookFor,
 } from "./sprites.ts";
 
-const PERSON_SCALE = 1.45;
+const PERSON_SCALE = 1.7;
 const LIGHT_COLOUR = { amber: WARN, green: GOOD, red: BAD } as const;
 
 export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now: number) {
@@ -19,26 +19,20 @@ export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now:
   const W = layout.w * TILE;
   const H = layout.h * TILE;
 
-  // walls all round, then the floor inset into them
-  ctx.fillStyle = PAL.WALL;
+  // paper, then the plan grid, then the walls drawn solid around the floor
+  ctx.fillStyle = PAL.GROUND;
   ctx.fillRect(0, 0, W, H);
-  roundRect(ctx, TILE - 3, TILE - 3, W - TILE * 2 + 6, H - TILE * 2 + 6, 5, PAL.WALL_TOP);
-  roundRect(ctx, TILE, TILE, W - TILE * 2, H - TILE * 2, 3, PAL.FLOOR);
-  ctx.fillStyle = PAL.FLOOR_LINE;
-  for (let x = 2; x < layout.w - 1; x++) ctx.fillRect(x * TILE, TILE, 0.6, H - TILE * 2);
-  for (let y = 2; y < layout.h - 1; y++) ctx.fillRect(TILE, y * TILE, W - TILE * 2, 0.6);
-  // the wall casts a soft shadow onto the top of the floor
-  const shade = ctx.createLinearGradient(0, TILE, 0, TILE + 7);
-  shade.addColorStop(0, `rgba(${PAL.WALL_SHADE},0.16)`);
-  shade.addColorStop(1, `rgba(${PAL.WALL_SHADE},0)`);
-  ctx.fillStyle = shade;
-  ctx.fillRect(TILE, TILE, W - TILE * 2, 7);
+  ctx.fillStyle = PAL.GRID;
+  for (let x = 1; x < layout.w; x++) ctx.fillRect(x * TILE, TILE, 0.5, H - TILE * 2);
+  for (let y = 1; y < layout.h; y++) ctx.fillRect(TILE, y * TILE, W - TILE * 2, 0.5);
+  const WALL = 5;
+  ctx.fillStyle = PAL.WALL;
+  ctx.fillRect(TILE - WALL, TILE - WALL, W - TILE * 2 + WALL * 2, WALL);
+  ctx.fillRect(TILE - WALL, H - TILE, W - TILE * 2 + WALL * 2, WALL);
+  ctx.fillRect(TILE - WALL, TILE, WALL, H - TILE * 2);
+  ctx.fillRect(W - TILE, TILE, WALL, H - TILE * 2);
   for (const wx of [4, 13]) drawWindow(ctx, wx * TILE, 0);
-
-  // the doorway, red while the office is closed
-  const d = layout.door.at;
-  roundRect(ctx, d.x * TILE + 1, d.y * TILE - 3, TILE - 2, TILE + 3, 1.5, scene.held ? BAD : PAL.FLOOR);
-  if (!scene.held) roundRect(ctx, d.x * TILE + 2.5, d.y * TILE - 1, TILE - 5, 4, 1, PAL.DOORMAT);
+  drawDoor(ctx, layout.door.at.x * TILE, layout.door.at.y * TILE, scene.held);
 
   drawTable(ctx, layout.table.at.x * TILE, layout.table.at.y * TILE);
   drawPlant(ctx, 1 * TILE, (layout.h - 2) * TILE);
@@ -117,20 +111,13 @@ function drawActor(ctx: CanvasRenderingContext2D, scene: RoomScene, a: Actor, no
   const seated = !moving && seatedAt(scene, a);
   const pose = moving ? (Math.floor(now / 180) % 2 === 0 ? "step" : "stand") : seated ? "sit" : "stand";
   const px = a.pos.x * TILE;
-  const py = a.pos.y * TILE - (pose === "sit" ? 5 : 6);
+  const py = a.pos.y * TILE - (pose === "sit" ? 2 : 6);
   // people are drawn larger than a tile, grown from where they stand, so they read at a glance
   ctx.save();
   ctx.translate(px + 8, py + 16);
   ctx.scale(PERSON_SCALE, PERSON_SCALE);
   ctx.translate(-8, -16);
-  const look = lookFor(a.role, a.index);
-  drawPerson(ctx, 0, 0, look, pose, a.facing);
-  // hands on the keyboard, tapping, while they work
-  if (a.working && pose === "sit") {
-    const tap = Math.floor(now / 220) % 2;
-    roundRect(ctx, 3.6, 10.6 - tap * 0.6, 2.2, 1.6, 0.8, look.skin);
-    roundRect(ctx, 10.2, 10.6 - (1 - tap) * 0.6, 2.2, 1.6, 0.8, look.skin);
-  }
+  drawPerson(ctx, 0, 0, lookFor(scene.wingId === "your-desk" ? "you" : a.role, a.index), pose, a.facing);
   ctx.restore();
   const carrying = [...scene.folders.values()].some((f) => f.place.kind === "carried" && f.place.by === a.id);
   if (carrying) drawFolder(ctx, px + (a.facing === 1 ? 11 : -5), py + 6);

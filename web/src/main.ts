@@ -1,4 +1,3 @@
-import "@fontsource-variable/bricolage-grotesque";
 import "@fontsource/atkinson-hyperlegible/400.css";
 import "@fontsource/atkinson-hyperlegible/700.css";
 import "@fontsource-variable/jetbrains-mono";
@@ -15,7 +14,6 @@ import { newWingDialog } from "./newwing.ts";
 import { logDialog } from "./syslog.ts";
 import { DirectorDesk } from "./directorview.ts";
 import { h } from "./dom.ts";
-import { portrait } from "./portrait.ts";
 import { setRoomTheme } from "./office/sprites.ts";
 
 const app = document.getElementById("app")!;
@@ -84,7 +82,7 @@ const hud = h(
   h("h1", { class: "logo" }, "Annex"),
   stats,
   openState,
-  h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, portrait("director", 0, 26, ""), "Director"),
+  h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, "Director"),
   h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "System log"),
   themeBtn,
 );
@@ -217,13 +215,12 @@ function applyState(next: StateView) {
   const working = crew.filter((a) => a.status === "running").length;
   const filed = next.wings.reduce((n, w) => n + w.filedCount, 0);
   const quests = next.wings.reduce((n, w) => n + w.asks.length, 0);
+  // one sentence, so the counts read as a status line rather than a row of tiles
   stats.replaceChildren(
-    h("span", {}, "Offices", h("b", {}, String(next.wings.length))),
-    h("span", {}, "Crew", h("b", {}, String(crew.length))),
-    h("span", {}, "Working", h("b", {}, String(working))),
-    h("span", {}, "Verified", h("b", {}, String(filed))),
+    h("b", {}, String(working)), ` of ${crew.length} at work in ${next.wings.length} offices, `,
+    h("b", {}, String(filed)), " verified",
   );
-  if (quests) stats.append(h("span", { class: "asks" }, "Asks", h("b", {}, String(quests))));
+  if (quests) stats.append(", ", h("span", { class: "asks" }, h("b", {}, String(quests)), ` waiting on you`));
   const held = next.wings.find((w) => w.held && !w.paused);
   if (held?.held) {
     const until = held.held.until ? new Date(held.held.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
@@ -261,11 +258,11 @@ function announce(e: BourneEvent) {
   const wing = state?.wings.find((w) => w.id === e.wingId);
   const office = wing?.name ?? "";
   const title = String(e.payload.title ?? "").slice(0, 48);
-  if (e.kind === "task.done") toast(`Verified · ${office} · ${title}`, "var(--ok)");
-  if (e.kind === "task.stopped") toast(`Stopped · ${office} · ${title}`, "var(--bad)");
+  if (e.kind === "task.done") toast(`${office}: verified ${title}`, "var(--ok)");
+  if (e.kind === "task.stopped") toast(`${office}: stopped ${title}`, "var(--bad)");
   if (e.kind === "agent.hired") toast(`${String(e.payload.name ?? "")} joined ${office}`, "var(--worker)");
-  if (e.kind === "approval.requested") toast(`${office} asks · ${String(e.payload.title ?? "").slice(0, 48)}`, "var(--ask)");
-  if (e.kind === "wing.held") toast(`${office} closed${e.payload.reason ? ` · ${String(e.payload.reason)}` : ""}`, "var(--warn)");
+  if (e.kind === "approval.requested") toast(`${office} is asking: ${String(e.payload.title ?? "").slice(0, 48)}`, "var(--ask)");
+  if (e.kind === "wing.held") toast(`${office} closed${e.payload.reason ? ` (${String(e.payload.reason)})` : ""}`, "var(--warn)");
   if (e.kind === "wing.resumed") toast(`${office} is open again`, "var(--ok)");
 }
 

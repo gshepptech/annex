@@ -58,7 +58,7 @@ export class DirectorDesk {
         h("button", { class: "back", type: "button", onclick: () => this.onBack() }, "← Offices"),
         portrait("director", 0, 52, "big"),
         h("h2", {}, "Director"),
-        h("div", { class: "meta" }, h("span", {}, "sees every office, one line each · routes work to their leads"), thinking ? h("span", { class: "live" }, "● Thinking") : null),
+        h("div", { class: "meta" }, h("span", {}, "Sees a line for every office and passes work to their leads"), thinking ? h("span", { class: "live" }, "Thinking") : null),
       ),
     );
     if (v?.offline) this.el.append(h("p", { class: "notice bad" }, `The director is not connected: ${v.offline}`));

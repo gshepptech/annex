@@ -79,7 +79,7 @@ export class Room {
       else onSelect(wing.id);
     });
     for (const a of this.scene.actors.values()) {
-      const name = h("span", { class: `tag role-${a.role}` }, a.name);
+      const name = h("span", { class: `tag ${this.desk ? "who-you" : `role-${a.role}`}` }, a.name);
       const bubble = h("span", { class: `bubble role-${a.role}`, hidden: true });
       this.names.set(a.id, name);
       this.bubbles.set(a.id, bubble);
