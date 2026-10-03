@@ -1,7 +1,7 @@
 // The party: every office and everyone in it. Choosing an office opens its file; choosing a member
 // opens their terminal.
 
-import type { StateView, WingView } from "../../server/api-types.ts";
+import type { StateView, WingView, SessionView } from "../../server/api-types.ts";
 import { h } from "./dom.ts";
 import { portrait, faceIndex } from "./portrait.ts";
 
@@ -17,9 +17,9 @@ export function officeBadge(w: WingView): HTMLElement {
 export class Sidebar {
   readonly el = h("aside", { class: "roster box", "aria-label": "Offices and crew" });
   private list = h("nav", { class: "office-list" });
-  private handlers: { wing: (id: string) => void; agent: (id: string) => void; newWing: () => void };
+  private handlers: { wing: (id: string) => void; agent: (id: string) => void; newWing: () => void; session: (id: string) => void };
 
-  constructor(handlers: { wing: (id: string) => void; agent: (id: string) => void; newWing: () => void }) {
+  constructor(handlers: { wing: (id: string) => void; agent: (id: string) => void; newWing: () => void; session: (id: string) => void }) {
     this.handlers = handlers;
     this.el.append(
       h("h2", { class: "panel-title" }, "Offices"),
@@ -28,8 +28,39 @@ export class Sidebar {
     );
   }
 
-  render(state: StateView, selectedWing: string | null, selectedAgent: string | null) {
+  render(state: StateView, selectedWing: string | null, selectedAgent: string | null, sessions: SessionView[] = []) {
+    const desk = sessions.length
+      ? h(
+          "div",
+          { class: "office" },
+          h("div", { class: "office-head desk-head" }, h("span", { class: "title" }, "Your desk"), h("span", { class: "count" }, String(sessions.length))),
+          h(
+            "ul",
+            { class: "members" },
+            ...sessions.map((s, i) =>
+              h(
+                "li",
+                {},
+                h(
+                  "button",
+                  { class: `member who-you${s.status === "working" ? " working" : ""}${s.id === selectedAgent ? " selected" : ""}`, type: "button", onclick: () => this.handlers.session(s.id), "aria-label": `Open your ${s.title} session` },
+                  portrait("worker", i + 2, 34, "portrait"),
+                  h(
+                    "span",
+                    { class: "info" },
+                    h("b", {}, s.title),
+                    h("span", { class: "cls" }, s.branch ?? "no branch"),
+                    h("span", { class: "bar", "aria-hidden": "true" }, h("i", {})),
+                    h("span", { class: "line" }, h("span", { class: "st" }, s.status === "working" ? "working" : "waiting"), h("span", {}, ago(s.updatedAt))),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        )
+      : null;
     this.list.replaceChildren(
+      ...(desk ? [desk] : []),
       ...state.wings.map((w) => {
         const head = h(
           "button",
@@ -73,4 +104,9 @@ export class Sidebar {
       }),
     );
   }
+}
+
+function ago(iso: string): string {
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  return m < 1 ? "just now" : m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
 }

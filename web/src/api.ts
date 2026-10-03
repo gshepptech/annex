@@ -1,8 +1,14 @@
-import type { StateView } from "../../server/api-types.ts";
+import type { StateView, SessionView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
 
 export async function getState(): Promise<StateView> {
   const r = await fetch("/api/state");
+  if (!r.ok) throw new Error(`Annex's server answered ${r.status}`);
+  return r.json();
+}
+
+export async function getSessions(): Promise<SessionView[]> {
+  const r = await fetch("/api/sessions");
   if (!r.ok) throw new Error(`Annex's server answered ${r.status}`);
   return r.json();
 }

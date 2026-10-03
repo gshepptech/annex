@@ -27,8 +27,12 @@ export class Room {
   private next: HTMLElement;
   private scale = 1;
 
-  constructor(wing: WingView, lastEventId: number, onSelect: (id: string) => void, onAgent: (agentId: string) => void, arrivals: Set<string> = new Set()) {
+  // "desk" is your own sessions: no lead, no tasks, a figure at work while its session is
+  private desk: boolean;
+
+  constructor(wing: WingView, lastEventId: number, onSelect: (id: string) => void, onAgent: (agentId: string) => void, arrivals: Set<string> = new Set(), kind: "office" | "desk" = "office") {
     this.wing = wing;
+    this.desk = kind === "desk";
     this.scene = sceneFromSnapshot(wing, lastEventId, arrivals);
     const { w, h: rows } = this.scene.layout;
     this.canvas = h("canvas", { width: w * TILE, height: rows * TILE, "aria-hidden": "true" });
@@ -93,7 +97,8 @@ export class Room {
   update(wing: WingView) {
     this.wing = wing;
     this.sign.textContent = wing.name;
-    this.pill.replaceChildren(officeBadge(wing));
+    this.pill.replaceChildren(this.desk ? h("span", { class: "badge with" }, "Yours") : officeBadge(wing));
+    if (this.desk) for (const a of wing.agents) { const actor = this.scene.actors.get(a.id); if (actor) actor.working = a.status === "running"; }
     this.el.classList.toggle("offline", wing.offline !== null);
     this.el.dataset.mode = wing.mode;
   }
@@ -105,7 +110,10 @@ export class Room {
     let text = "";
     let closed = false;
     // closed and paused are already on the badge and the door; the right side stays quiet
-    if (this.wing.paused || this.wing.held) [text, closed] = ["", true];
+    if (this.desk) {
+      const n = this.wing.agents.filter((a) => a.status === "running").length;
+      text = n ? `${n} working` : "All waiting for you";
+    } else if (this.wing.paused || this.wing.held) [text, closed] = ["", true];
     else if (this.wing.mode === "with_you") text = "Waiting for you";
     else if (n.blockedBy) text = n.blockedBy[0]!.toUpperCase() + n.blockedBy.slice(1);
     else if (n.at) {

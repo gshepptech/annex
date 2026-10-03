@@ -90,10 +90,30 @@ export interface NewWing {
 export type Entry =
   | { kind: "start"; at: string; model: string; cwd: string }
   | { kind: "text"; at: string; text: string }
+  // what you typed, in your own sessions
+  | { kind: "prompt"; at: string; text: string }
   | { kind: "tool"; at: string; id: string; name: string; summary: string; detail: string }
   | { kind: "result"; at: string; toolId: string; text: string; isError: boolean; lines: number }
   | { kind: "done"; at: string; text: string; isError: boolean; durationMs: number | null; turns: number | null }
   | { kind: "error"; at: string; text: string };
+
+// One of your own Claude Code sessions (Your desk).
+export interface SessionView {
+  id: string;
+  title: string;
+  cwd: string;
+  branch: string | null;
+  model: string | null;
+  // working: the log changed in the last moments; idle: it is waiting for you or finished
+  status: "working" | "idle";
+  updatedAt: string;
+  lastPrompt: string | null;
+}
+
+export interface SessionTranscript {
+  session: SessionView;
+  entries: Entry[];
+}
 
 export interface RunView {
   id: string;

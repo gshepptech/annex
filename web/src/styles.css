@@ -672,3 +672,11 @@ dialog p { margin: 0; color: var(--muted); }
 .goal-head h3 { margin: 0; flex: 1; font: 700 1.02rem/1.3 var(--display); }
 .goal-meta { margin: 4px 0 8px; color: var(--muted); font-size: 0.86rem; }
 .plan { margin: 0 0 10px; padding: 10px 12px; white-space: pre-wrap; font: 0.8rem/1.5 var(--term); background: var(--surface-2); border-radius: 8px; }
+
+/* ---------- your desk ---------- */
+
+.ln.you { margin: 14px 0 6px; padding: 6px 10px; background: var(--term-2); border-radius: 6px; }
+.ln.you .mk { color: var(--term-arg); }
+.resume { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: var(--surface-2); border-radius: 10px; font-size: 0.86rem; }
+.resume code { flex: 1; min-width: 0; overflow-wrap: anywhere; font: 0.78rem/1.4 var(--term); color: var(--muted); }
+.desk-head { cursor: default; }

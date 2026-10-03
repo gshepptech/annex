@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseProposal, parseBrief, judge, lineInText, evidenceInSignals, similar, type ProposedTask } from "./proposal.ts";
+import { parseProposal, parseBrief, judge, lineInText, evidenceInSignals, similar, type ProposedTask, type Proposal } from "./proposal.ts";
 
 const charter = `Keep reckon healthy.
 1. \`npm test\` and \`npm run typecheck\` pass on the integration branch.
@@ -127,4 +127,12 @@ test("different versions are different work", () => {
   assert.equal(similar("Bump @types/node to 26.6.4", "Upgrade @types/node to 26.6.4"), true);
   assert.equal(similar("Bump @types/node from 22.20.5 to 26.6.4 (major)", "Bump @types/node to 26.6.4 (major)"), true);
   assert.equal(similar("Bump @types/node from 22.20.5 to 26.6.4", "Bump @types/node to 22.20.5"), false);
+});
+
+test("a plan written with real line breaks inside a string is still read", () => {
+  const body = "```annex-proposal\n{\"note\": \"n\", \"tasks\": [], \"goals\": [{\"id\": 1, \"plan\": \"- [ ] one\n- [x] two\"}]}\n```";
+  const p = parseProposal(body);
+  assert.ok(!("error" in p));
+  assert.equal((p as Proposal).goals[0]!.plan, "- [ ] one\n- [x] two");
+  assert.ok("error" in parseProposal("```annex-proposal\n{\"tasks\": [\n```"), "real damage still fails");
 });

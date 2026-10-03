@@ -57,7 +57,7 @@ function stampAt(stamps: { at: number; ts: string }[], offset: number): string {
   return ts;
 }
 
-function toEntries(msg: Record<string, unknown>, at: string): Entry[] {
+export function toEntries(msg: Record<string, unknown>, at: string): Entry[] {
   const type = msg.type;
   if (type === "system" && msg.subtype === "init") {
     return [{ kind: "start", at, model: String(msg.model ?? ""), cwd: String(msg.cwd ?? "") }];

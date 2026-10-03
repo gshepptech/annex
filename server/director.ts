@@ -8,7 +8,7 @@ import type { Store } from "./db.ts";
 import type { Paperclip, Frame } from "./engine/paperclip.ts";
 import type { Logger } from "./logger.ts";
 import type { StateView, ChatView } from "./api-types.ts";
-import { findFence } from "./proposal.ts";
+import { findFence, parseLenient } from "./proposal.ts";
 import { REPORT_SCRIPT } from "./prompts.ts";
 import { UserError } from "./http.ts";
 
@@ -101,7 +101,7 @@ export function parseRoute(body: string): { actions: RouteAction[]; error: strin
   const raw = findFence(body, ROUTE_FENCE);
   if (raw === null) return { actions: [], error: null };
   try {
-    const v = JSON.parse(raw);
+    const v = parseLenient(raw);
     const list = Array.isArray(v) ? v : [v];
     return { actions: list.filter((a) => a && typeof a === "object" && typeof a.do === "string"), error: null };
   } catch (err) {

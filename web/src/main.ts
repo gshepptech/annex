@@ -4,9 +4,9 @@ import "@fontsource/atkinson-hyperlegible/700.css";
 import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
-import type { StateView } from "../../server/api-types.ts";
+import type { StateView, WingView, SessionView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
-import { getState, stream } from "./api.ts";
+import { getState, getSessions, stream } from "./api.ts";
 import { Room } from "./room.ts";
 import { Panel } from "./panel.ts";
 import { Sidebar } from "./sidebar.ts";
@@ -29,6 +29,9 @@ let state: StateView | null = null;
 let selectedWing: string | null = null;
 let selectedAgent: string | null = null;
 let showDirector = false;
+let sessions: SessionView[] = [];
+let deskRoom: Room | null = null;
+const DESK = "your-desk";
 let recent: BourneEvent[] = [];
 // agents hired since the last snapshot: their room is rebuilt and they walk in from the door
 const arriving = new Set<string>();
@@ -42,6 +45,7 @@ const sidebar = new Sidebar({
   wing: (id) => selectWing(id, true),
   agent: (id) => selectAgent(id, true),
   newWing: () => newOffice.showModal(),
+  session: (id) => selectSession(id, true),
 });
 const newOffice = newWingDialog((id) => {
   selectedWing = id;
@@ -116,7 +120,56 @@ function selectWing(id: string, fromTap = false) {
   reveal(fromTap);
 }
 
+function selectSession(id: string, fromTap = false) {
+  selectedAgent = id;
+  showDirector = false;
+  terminal.openSession(id);
+  draw();
+  reveal(fromTap);
+}
+
+// Your sessions drawn as a room: one figure per session, at work while its session is.
+function deskWing(list: SessionView[]): WingView {
+  return {
+    id: DESK, name: "Your desk", mode: "with_you", charter: "", repo: null, integrationBranch: null, held: null, offline: null,
+    agents: list.map((s, i) => ({ id: s.id, role: "worker" as const, name: s.title, desk: i + 1, status: s.status === "working" ? "running" : "idle", model: s.model ?? "", filed: 0 })),
+    tasks: [], goals: [], filedCount: 0, brief: null, draft: null, chat: [], asks: [], paused: false, houseRules: [],
+    settings: { wakeEvery: "", maxRunsPerHour: null, quietHours: null, backOffWhenIdle: false, askBefore: [], maxWorkers: 8, maxTasksPerWake: 0, checkAttempts: 0, checkTimeout: "", wakeTimeout: "", maxBackoff: "" },
+    edit: { name: "", charter: "", doneCheck: null, setup: null, repoPath: null, baseBranch: "", workers: 0, leadModel: "", workerModel: "", reviewerModel: "", allow: [], plugins: [] },
+    nextWake: { at: null, blockedBy: null },
+    loot: { commits: [], command: null },
+  };
+}
+
+function applySessions(list: SessionView[]) {
+  sessions = list;
+  if (!list.length) {
+    deskRoom?.el.remove();
+    deskRoom = null;
+  } else {
+    const w = deskWing(list);
+    if (deskRoom && deskRoom.sameCrew(w)) {
+      deskRoom.update(w);
+    } else {
+      const room = new Room(w, 0, () => undefined, (id) => selectSession(id, true), new Set(), "desk");
+      if (deskRoom) deskRoom.el.replaceWith(room.el);
+      else world.prepend(room.el);
+      deskRoom = room;
+    }
+  }
+  draw();
+}
+
+async function pollSessions() {
+  try {
+    applySessions(await getSessions());
+  } catch {
+    // the offices still work without it; try again next time
+  }
+}
+
 function selectAgent(id: string, fromTap = false) {
+  if (sessions.some((s) => s.id === id)) return selectSession(id, fromTap);
   const wing = state?.wings.find((w) => w.agents.some((a) => a.id === id));
   if (!wing) return;
   selectedWing = wing.id;
@@ -130,11 +183,11 @@ function selectAgent(id: string, fromTap = false) {
 function draw() {
   if (!state) return;
   for (const [wid, r] of rooms) r.el.classList.toggle("selected", !showDirector && wid === selectedWing);
-  sidebar.render(state, showDirector ? null : selectedWing, selectedAgent);
+  sidebar.render(state, showDirector ? null : selectedWing, selectedAgent, sessions);
   if (showDirector) {
     director.show(state.director);
     if (drawer.firstChild !== director.el) drawer.replaceChildren(director.el);
-  } else if (selectedAgent) {
+  } else if (selectedAgent && (terminal.agentId || terminal.sessionId)) {
     if (drawer.firstChild !== terminal.el) drawer.replaceChildren(terminal.el);
   } else {
     const w = state.wings.find((x) => x.id === selectedWing);
@@ -252,11 +305,14 @@ async function boot() {
   }
   // working or idle comes from Paperclip, so it is re-read now and then
   setInterval(() => scheduleRefresh(0), 10_000);
+  void pollSessions();
+  setInterval(() => void pollSessions(), 5_000);
   let last = performance.now();
   const frame = (now: number) => {
     const dt = Math.min(100, now - last);
     last = now;
     for (const r of rooms.values()) r.frame(dt, now, reducedMotion.matches);
+    deskRoom?.frame(dt, now, reducedMotion.matches);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

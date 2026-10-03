@@ -57,12 +57,42 @@ export function findFence(body: string, tag: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
+// JSON as a model writes it: a multi-line plan often arrives with real line breaks inside a
+// string, which strict JSON refuses. Those are escaped before a second try; anything else that is
+// broken still fails.
+export function parseLenient(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch (first) {
+    let out = "";
+    let inString = false;
+    for (let i = 0; i < raw.length; i++) {
+      const c = raw[i]!;
+      if (inString && c === "\\") {
+        out += c + (raw[i + 1] ?? "");
+        i++;
+        continue;
+      }
+      if (c === '"') inString = !inString;
+      if (inString && c === "\n") out += "\\n";
+      else if (inString && c === "\r") out += "\\r";
+      else if (inString && c === "\t") out += "\\t";
+      else out += c;
+    }
+    try {
+      return JSON.parse(out);
+    } catch {
+      throw first;
+    }
+  }
+}
+
 export function parseProposal(body: string): Proposal | { error: string } {
   const raw = findFence(body, PROPOSAL_FENCE);
   if (raw === null) return { error: `no \`${PROPOSAL_FENCE}\` block in the lead's comment` };
   let data: unknown;
   try {
-    data = JSON.parse(raw);
+    data = parseLenient(raw);
   } catch (err) {
     return { error: `the \`${PROPOSAL_FENCE}\` block is not valid JSON: ${(err as Error).message}` };
   }

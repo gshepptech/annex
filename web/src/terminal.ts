@@ -2,7 +2,7 @@
 // agent says and each tool it calls, ⎿ for what came back. It follows the bottom while the agent
 // is working, unless the person has scrolled up to read.
 
-import type { TranscriptView, RunView, Entry } from "../../server/api-types.ts";
+import type { TranscriptView, RunView, Entry, SessionTranscript } from "../../server/api-types.ts";
 import { h } from "./dom.ts";
 import { portrait, faceIndex } from "./portrait.ts";
 
@@ -12,6 +12,8 @@ const PREVIEW_LINES = 6;
 export class Terminal {
   readonly el = h("section", { class: "terminal", "aria-label": "Agent terminal" });
   agentId: string | null = null;
+  // set instead of agentId when showing one of your own sessions
+  sessionId: string | null = null;
   private screen = h("div", { class: "screen", tabindex: "0", "aria-live": "polite" });
   private head = h("header", { class: "term-head" });
   private briefing = h("div", { class: "briefing" });
@@ -34,6 +36,7 @@ export class Terminal {
   }
 
   open(agentId: string) {
+    this.sessionId = null;
     if (this.agentId !== agentId) {
       this.agentId = agentId;
       this.stick = true;
@@ -46,8 +49,75 @@ export class Terminal {
     void this.load();
   }
 
+  openSession(id: string) {
+    this.agentId = null;
+    if (this.sessionId !== id) {
+      this.sessionId = id;
+      this.stick = true;
+      this.lastRender = "";
+      this.head.replaceChildren();
+      this.briefing.replaceChildren();
+      this.screen.replaceChildren(h("p", { class: "term-empty" }, "Loading…"));
+    }
+    void this.loadSession();
+  }
+
+  private async loadSession() {
+    const id = this.sessionId;
+    if (!id) return;
+    if (this.timer) clearTimeout(this.timer);
+    let t: SessionTranscript;
+    try {
+      const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/transcript`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `answered ${r.status}`);
+      t = await r.json();
+    } catch (err) {
+      if (this.sessionId === id) this.screen.replaceChildren(h("p", { class: "term-empty" }, `Could not read the session: ${(err as Error).message}`));
+      return;
+    }
+    if (this.sessionId !== id) return;
+    this.renderSession(t);
+    this.timer = setTimeout(() => void this.loadSession(), t.session.status === "working" ? 3000 : 10000);
+  }
+
+  private renderSession(t: SessionTranscript) {
+    const s = t.session;
+    this.el.className = "terminal role-you";
+    const cmd = `cd ${JSON.stringify(s.cwd)} && claude --resume ${s.id}`;
+    const copy = h("button", { class: "btn", type: "button", onclick: async () => { await navigator.clipboard?.writeText(cmd).catch(() => {}); copy.textContent = "Copied"; } }, "Copy");
+    this.head.replaceChildren(
+      h("button", { class: "back", type: "button", onclick: () => this.onBack() }, "← Offices"),
+      h("h2", {}, s.title),
+      h(
+        "div",
+        { class: "meta" },
+        h("span", { class: "badge" }, "Your session"),
+        h("span", {}, shortPath(s.cwd)),
+        s.branch ? h("span", {}, s.branch) : null,
+        s.model ? h("span", {}, s.model) : null,
+        s.status === "working" ? h("span", { class: "live" }, "● Working") : h("span", {}, "idle"),
+      ),
+    );
+    this.briefing.replaceChildren(
+      h("div", { class: "resume" }, h("span", {}, "Continue it in your terminal"), h("code", {}, cmd), copy),
+    );
+    const key = `${t.entries.length}:${t.entries.at(-1)?.at ?? ""}`;
+    if (key === this.lastRender) return;
+    this.lastRender = key;
+    const open = new Set([...this.screen.querySelectorAll("details[open]")].map((d) => (d as HTMLElement).dataset.k));
+    const results = new Map<string, Extract<Entry, { kind: "result" }>>();
+    for (const e of t.entries) if (e.kind === "result") results.set(e.toolId, e);
+    const body: (HTMLElement | null)[] = [];
+    for (const [i, e] of t.entries.entries()) body.push(...this.entry(e, results, `s:${i}`));
+    if (!t.entries.length) body.push(line("sys", "✻", "Nothing in this session yet."));
+    this.screen.replaceChildren(h("p", { class: "run-reason" }, "the latest part of this session"), ...body.filter((b): b is HTMLElement => b !== null));
+    for (const d of this.screen.querySelectorAll("details")) if (open.has((d as HTMLElement).dataset.k)) (d as HTMLDetailsElement).open = true;
+    if (this.stick) this.screen.scrollTop = this.screen.scrollHeight;
+  }
+
   close() {
     this.agentId = null;
+    this.sessionId = null;
     if (this.timer) clearTimeout(this.timer);
   }
 
@@ -148,6 +218,8 @@ export class Terminal {
         return [line("sys", "✻", `${e.model}  ·  ${shortPath(e.cwd)}`)];
       case "text":
         return [line("say", "⏺", e.text)];
+      case "prompt":
+        return [line("you", "❯", e.text)];
       case "tool": {
         const res = results.get(e.id);
         const state = !res ? "" : res.isError ? "err" : "ok";

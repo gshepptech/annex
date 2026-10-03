@@ -9,6 +9,7 @@ import { extname, join, normalize } from "node:path";
 import type { Store } from "./db.ts";
 import type { Logger } from "./logger.ts";
 import type { StateView, WingEdit, NewWing, TranscriptView } from "./api-types.ts";
+import { listSessions, sessionTranscript } from "./sessions.ts";
 
 export interface Bureau {
   state(): Promise<StateView>;
@@ -100,6 +101,14 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       if (req.method === "POST" && hire) {
         const body = await readJson(req);
         return json(res, 200, await bureau.hireFromOffice(decodeURIComponent(hire[1]!), Number(body.count ?? 1)));
+      }
+
+      if (req.method === "GET" && path === "/api/sessions") return json(res, 200, listSessions());
+      const session = /^\/api\/sessions\/([0-9a-f-]{36})\/transcript$/.exec(path);
+      if (req.method === "GET" && session) {
+        const t = sessionTranscript(session[1]!);
+        if (!t) throw new UserError("No session with that id", 404);
+        return json(res, 200, t);
       }
 
       const goals = /^\/api\/wings\/([^/]+)\/goals$/.exec(path);
