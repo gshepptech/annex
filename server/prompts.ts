@@ -220,6 +220,8 @@ export function wakeIssue(opts: {
   open: { identifier: string; title: string; status: string }[];
   closed: { identifier: string; title: string; status: string; why?: string }[];
   dropIns: { title: string; detail: string }[];
+  // requests you raised for the person: still waiting, or answered this week
+  asked?: { title: string; status: string }[];
   houseRules?: string | null;
   crew?: { workers: number; maxWorkers: number };
 }): { title: string; description: string } {
@@ -244,6 +246,9 @@ export function wakeIssue(opts: {
   }
   lines.push("", "## Open tasks", "", ...(opts.open.length ? opts.open.map((t) => `- ${t.identifier} [${t.status}] ${t.title}`) : ["None."]));
   lines.push("", "## Closed in the last 7 days", "", ...(opts.closed.length ? opts.closed.map((t) => `- ${t.identifier} [${t.status}] ${t.title}${t.why ? `\n  Why it stopped, from Annex's last check:\n  \`\`\`\n${t.why}\n  \`\`\`` : ""}`) : ["None."]));
+  if (opts.asked?.length) {
+    lines.push("", "## Already put to the person", "", "You asked for a yes on these. Do not propose them again, however you word it: a waiting one is the person's to answer, and an answered one is settled.", "", ...opts.asked.map((a) => `- [${a.status === "pending" ? "waiting for an answer" : a.status}] ${a.title}`));
+  }
   if (opts.dropIns.length) {
     lines.push("", "## Dropped in by the person", "", "Triage these first. They skip the duplicate rule.");
     for (const d of opts.dropIns) lines.push("", `- **${d.title}**${d.detail ? `: ${d.detail}` : ""}`);

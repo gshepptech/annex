@@ -596,6 +596,7 @@ export class Bureau implements BureauApi {
         open: this.store.tasks(wingId, { state: "open" }).map(view),
         closed: this.store.tasks(wingId, { closedSince: week }).map(view),
         dropIns,
+        asked: [...this.store.asks(wingId), ...this.store.decidedAsks(wingId, week)].map((a) => ({ title: String((a.task as { title?: unknown }).title ?? ""), status: a.status })),
         houseRules: (houseRules as ReturnType<typeof readHouseRules>)?.text ?? null,
         crew: { workers: rt.prov!.workers.length, maxWorkers: rt.wing.settings.maxWorkers },
       });
