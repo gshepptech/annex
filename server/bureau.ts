@@ -20,7 +20,7 @@ import type { NewEvent } from "./events.ts";
 import { BOARD_USER_ID, type Paperclip, type Issue, type Frame } from "./engine/paperclip.ts";
 import { provision, type Provisioned } from "./provision.ts";
 import { runCommand, type RunResult } from "./run.ts";
-import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration, waiting, initRepo, changedFiles, filePatch, revParse, previewWorktree } from "./git.ts";
+import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration, waiting, initRepo, changedFiles, filePatch, revParse, previewWorktree, mergeForPerson } from "./git.ts";
 import { parseProposal, parseBrief, judge, similar, type ProposedTask, type GoalUpdate } from "./proposal.ts";
 import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
@@ -828,6 +828,23 @@ export class Bureau implements BureauApi {
       return { file: opts.file, patch: await filePatch(repo.path, from, sha, opts.file) };
     }
     return { from, to, head: sha, files };
+  }
+
+  // The person merges an office's verified work into their own branch (design D7 kept the merge
+  // in their hands as a command to copy; this is the same merge, theirs, from a button). Only the
+  // commit they confirmed is merged: newer work on the branch means they have not reviewed it.
+  async mergeIntoBase(wingId: string, sha: string): Promise<{ commit: string; where: string }> {
+    const rt = this.ready(wingId);
+    const repo = rt.wing.repo;
+    if (!repo) throw new UserError(`${rt.wing.name} has no repo`, 409);
+    if (!/^[0-9a-f]{40}$/.test(sha)) throw new UserError("Name the exact commit you reviewed", 400);
+    const now = await revParse(repo.path, `refs/heads/${repo.integrationBranch}`);
+    if (now !== sha) throw new UserError(`New work landed on ${repo.integrationBranch} since you looked. Review the changes again, then merge.`, 409);
+    const r = await mergeForPerson(repo.path, repo.baseBranch, sha, `Merge ${repo.integrationBranch} (verified by Annex)`);
+    if (!r.ok) throw new UserError(r.conflicts?.length ? `${r.reason}: ${r.conflicts.join(", ")}. Resolve it in your checkout (git merge ${repo.integrationBranch}), or leave it for now.` : r.reason, 409);
+    this.logger.info(wingId, `you merged ${repo.integrationBranch} at ${sha.slice(0, 8)} into ${repo.baseBranch} (${r.where})`);
+    this.emit({ wingId, kind: "agent.said", actor: "you", taskId: null, payload: { text: `Merged ${repo.integrationBranch} into ${repo.baseBranch}` } });
+    return { commit: r.commit, where: r.where };
   }
 
   // Where an office's app runs: a throwaway checkout of its newest verified work, plus the

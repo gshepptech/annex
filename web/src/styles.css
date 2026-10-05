@@ -644,3 +644,7 @@ dialog p { margin: 0; color: var(--muted); }
 .plan-use.high, .plan-use.high b { color: var(--warn); }
 .panel-head .spend { margin: 4px 0 0; font-size: 0.82rem; color: var(--muted); }
 @media (max-width: 1300px) { .plan-use { display: none; } }
+.confirm { padding: 12px 14px; border: 1px solid var(--text); border-radius: var(--r); display: grid; gap: 8px; }
+.confirm p { margin: 0; }
+.confirm code { font: 0.82rem var(--term); }
+.confirm .hint { font-size: 0.82rem; color: var(--muted); }

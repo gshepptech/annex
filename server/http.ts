@@ -37,6 +37,7 @@ export interface Bureau {
   setAutonomy(wingId: string, on: boolean): Promise<void>;
   changes(wingId: string, opts?: { taskId?: string; file?: string }): Promise<unknown>;
   previewFolder?(wingId: string): Promise<{ folder: string; setup: string | null }>;
+  mergeIntoBase?(wingId: string, sha: string): Promise<{ commit: string; where: string }>;
   lastTickAt?: Date | null;
 }
 
@@ -194,6 +195,21 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       if (req.method === "GET" && changes) {
         const file = url.searchParams.get("file");
         return json(res, 200, await bureau.changes(decodeURIComponent(changes[1]!), { taskId: changes[2] ? decodeURIComponent(changes[2]) : undefined, file: file ?? undefined }));
+      }
+
+      const merge = /^\/api\/wings\/([^/]+)\/merge$/.exec(path);
+      if (req.method === "POST" && merge && bureau.mergeIntoBase) {
+        const body = await readJson(req);
+        const wingId = decodeURIComponent(merge[1]!);
+        const repo = (await bureau.state()).wings.find((w) => w.id === wingId)?.repo;
+        // the checkout must not be in use by something running in it right now
+        if (repo && opts.live?.list().some((l) => l.status !== "closed" && (l.cwd === repo || l.cwd.startsWith(`${repo}/`)))) {
+          throw new UserError("A live session is open in that repo. Close it first, so the merge does not change files under it.", 409);
+        }
+        if (repo && opts.runner?.list().some((r) => r.status === "running" && (r.folder === repo || r.folder.startsWith(`${repo}/`)))) {
+          throw new UserError("Something is running in that repo. Stop it first.", 409);
+        }
+        return json(res, 200, await bureau.mergeIntoBase(wingId, str(body.sha, "sha")));
       }
 
       const goals = /^\/api\/wings\/([^/]+)\/goals$/.exec(path);

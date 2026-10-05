@@ -217,3 +217,68 @@ export async function previewWorktree(ws: WingWorkspace): Promise<string> {
   return dir;
 }
 
+export type PersonMerge =
+  | { ok: true; commit: string; where: string }
+  | { ok: false; reason: string; conflicts?: string[] };
+
+// The person's merge of verified work into their own branch, after they confirmed the exact
+// commit. Never starts a merge that would conflict (merge-tree checks first, touching nothing),
+// never touches a checkout that is dirty or mid-operation. When the target branch is checked out
+// somewhere, the merge happens there, as `git merge` would; when it is not, the merge commit is
+// built without a working tree and the branch moves only if nobody moved it meanwhile.
+export async function mergeForPerson(repo: string, target: string, sha: string, message: string): Promise<PersonMerge> {
+  const base = await revParse(repo, `refs/heads/${target}`);
+  if (!base) return { ok: false, reason: `There is no branch "${target}"` };
+  let conflicts: string[] = [];
+  let tree = "";
+  try {
+    tree = (await git(repo, "merge-tree", "--write-tree", "--name-only", "--no-messages", base, sha)).split("\n")[0]!;
+  } catch (err) {
+    const out = String((err as { stdout?: string }).stdout ?? "");
+    conflicts = out.split("\n").slice(1).filter(Boolean);
+    return { ok: false, reason: `Merging would conflict in ${conflicts.length} file${conflicts.length === 1 ? "" : "s"}`, conflicts };
+  }
+  const worktree = await checkedOutAt(repo, target);
+  if (worktree) {
+    const busy = await midOperation(worktree);
+    if (busy) return { ok: false, reason: `${worktree} is in the middle of a ${busy}; finish or abort it first` };
+    if ((await git(worktree, "status", "--porcelain", "--untracked-files=no")).trim()) {
+      return { ok: false, reason: `${worktree} has uncommitted changes to tracked files; commit or stash them first` };
+    }
+    await git(worktree, "merge", "--no-edit", "-m", message, sha);
+    return { ok: true, commit: (await git(worktree, "rev-parse", "HEAD")).trim(), where: worktree };
+  }
+  const ff = await isAncestor(repo, base, sha);
+  const commit = ff ? sha : (await git(repo, "commit-tree", tree, "-p", base, "-p", sha, "-m", message)).trim();
+  // compare-and-swap: refuses if the branch moved since it was read
+  await git(repo, "update-ref", "-m", message, `refs/heads/${target}`, commit, base);
+  return { ok: true, commit, where: `the ${target} branch (not checked out anywhere)` };
+}
+
+async function isAncestor(repo: string, a: string, b: string): Promise<boolean> {
+  try {
+    await git(repo, "merge-base", "--is-ancestor", a, b);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// The worktree that has `branch` checked out, if any.
+async function checkedOutAt(repo: string, branch: string): Promise<string | null> {
+  const out = await git(repo, "worktree", "list", "--porcelain");
+  let path: string | null = null;
+  for (const line of out.split("\n")) {
+    if (line.startsWith("worktree ")) path = line.slice(9);
+    if (line === `branch refs/heads/${branch}`) return path;
+  }
+  return null;
+}
+
+async function midOperation(worktree: string): Promise<string | null> {
+  const gitDir = (await git(worktree, "rev-parse", "--absolute-git-dir")).trim();
+  const marks: [string, string][] = [["MERGE_HEAD", "merge"], ["rebase-merge", "rebase"], ["rebase-apply", "rebase"], ["CHERRY_PICK_HEAD", "cherry-pick"], ["REVERT_HEAD", "revert"], ["BISECT_LOG", "bisect"]];
+  for (const [f, what] of marks) if (existsSync(join(gitDir, f))) return what;
+  return null;
+}
+

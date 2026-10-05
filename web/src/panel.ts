@@ -25,6 +25,9 @@ export class Panel {
   private runPanel = new RunPanel();
   // the Ready to merge tab's changes, kept across redraws: which office, the files, the open one
   private changes: { wing: string; view: ChangesView | null; error: string; file: string | null; patch: string } = { wing: "", view: null, error: "", file: null, patch: "" };
+  // the merge being confirmed, and how the last one went
+  private confirmMerge = false;
+  private mergeNote = "";
 
   constructor(refresh: () => void) {
     this.refresh = refresh;
@@ -350,6 +353,7 @@ export class Panel {
       h("ol", { class: "log loot" }, ...w.loot.commits.map((c) => h("li", {}, h("time", {}, c.date.slice(5)), h("b", { style: "font-family: var(--term)" }, c.sha), h("span", {}, c.subject)))),
     );
     this.drawChanges(body, w);
+    this.drawMerge(body, w);
     body.append(
       h("p", { class: "empty" }, "Or merge it yourself in a terminal:"),
       h("div", { class: "row" }, h("pre", { class: "brief", style: "flex: 1; margin: 0" }, cmd), copy),
@@ -390,6 +394,47 @@ export class Panel {
         ),
       ),
     );
+  }
+
+  // Merging is yours: Annex shows exactly what will be merged and where, and merges only the
+  // commit you are looking at.
+  private drawMerge(body: HTMLElement, w: WingView) {
+    const v = this.changes.view;
+    if (this.mergeNote) body.append(h("p", { class: "notice", role: "status" }, this.mergeNote));
+    if (!v) return;
+    const n = w.loot.commits.length;
+    const repo = (w.repo ?? "").replace(/^\/Users\/[^/]+/, "~");
+    if (!this.confirmMerge) {
+      body.append(h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => { this.confirmMerge = true; this.mergeNote = ""; this.render(); } }, `Merge into ${w.edit.baseBranch}`)));
+      return;
+    }
+    body.append(
+      h(
+        "div",
+        { class: "confirm", role: "alertdialog", "aria-label": "Confirm the merge" },
+        h("p", {}, `Merge ${n} verified commit${n === 1 ? "" : "s"} from `, h("code", {}, v.to), ` (at `, h("code", {}, v.head.slice(0, 8)), `) into `, h("code", {}, w.edit.baseBranch), ` in ${repo}?`),
+        h("p", { class: "hint" }, "Annex checks for conflicts first and changes nothing if there are any. If the branch is checked out, the checkout must have no uncommitted changes."),
+        h(
+          "div",
+          { class: "row" },
+          h("button", { class: "btn primary", type: "button", onclick: () => void this.merge(w.id, v.head) }, "Merge"),
+          h("button", { class: "btn ghost", type: "button", onclick: () => { this.confirmMerge = false; this.render(); } }, "Cancel"),
+        ),
+      ),
+    );
+  }
+
+  private async merge(wingId: string, sha: string) {
+    this.confirmMerge = false;
+    try {
+      const r = (await post(`/api/wings/${encodeURIComponent(wingId)}/merge`, { sha })) as { commit: string; where: string };
+      this.mergeNote = `Merged. ${r.where} is now at ${r.commit.slice(0, 8)}.`;
+      this.changes.wing = "";
+    } catch (err) {
+      this.mergeNote = (err as Error).message;
+    }
+    this.render();
+    this.refresh();
   }
 
   private async loadChanges(wingId: string, key: string) {

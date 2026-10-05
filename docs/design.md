@@ -432,3 +432,14 @@ What the person asked for after using it, and what was built:
   rules, status as words with a colour mark, one face (Atkinson Hyperlegible), mono only for
   code. The scanner reports no findings; Claude Code's terminal marks are kept on purpose.
 
+## Sixth round, 5 October 2026: using Annex instead of the terminal
+
+Planned, reviewed and built from docs/terminal-free.md. One decision reverses an earlier one:
+
+- **D7, revised: the person can merge from a button.** Design D7 kept merging into the person's
+  branch in their hands by giving them a command to copy. The Merge button keeps it in their
+  hands: it shows the branch, the target, the repo and the exact commit, merges only that commit,
+  checks for conflicts with `git merge-tree` before touching anything, and refuses a dirty
+  checkout, one mid-operation, or one a live session or a run is using. Agents still never merge
+  into the person's branches, push, or touch their checkout.
+
