@@ -224,3 +224,27 @@ Verdict: revise. Fixed:
   writes after Close, the mode switch, tokens, the stream), and the runner now proves the whole
   process group is gone after Stop.
 
+## Fresh-eyes assessment, 5 October (assessor in a real browser), and what changed
+
+Verdict per "Done when": met for 0, 1, 3, 6 and 8 (reboot not testable); partly for 2 (merge
+proven by tests, not clicked on a real repo), 4, 5 and 7. Fixed after it:
+
+- A denied permission card now tells Claude plainly that it was a no (Claude had reported a write
+  that never happened); verified live.
+- "Open live" is decided by the server, so a session Annex just closed reopens at once; a
+  resumed session keeps its permission mode.
+- Projects: a Commit button over the exact changes shown, confirmations for clone, create and
+  switch, errors shown where you acted, Publish says when no pull request will be opened, and
+  deleted folders leave the list.
+- The plan-approval card shows the plan; usage from a window that has ended is not shown as
+  current; office tabs wrap; a plain message for a dead engine; the service's PATH keeps only
+  folders that survive a reboot.
+
+Still open, by choice or for later:
+
+- **Agents that may run node, npm or npx can reach the API key** (stated in `key.ts`); closing it
+  needs an OS sandbox for agents' shells.
+- Getting the key into a new browser needs `npm run open` once (a terminal, once).
+- No model picker (the model is set by editing settings JSON); the MCP section shows the CLI's
+  own output; the office plugin field takes exact ids; usage is hidden on narrow screens.
+
