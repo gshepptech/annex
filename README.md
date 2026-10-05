@@ -20,12 +20,40 @@ npm run up
 ```
 
 `npm run up` starts the pinned Paperclip engine if it is not running (installing it the first
-time), waits for it, builds the page if needed, and runs Annex. Open http://127.0.0.1:4300.
-While working on the page, `npm run web:dev` serves it at :4301 with live reload.
+time), waits for it, builds the page if it is missing or out of date, and runs Annex.
 
-To stop, press Ctrl-C where `npm run up` is running. It stops what it started; a Paperclip that
-was already running is left alone. If Annex was started in the background:
-`pkill -f annex/server/main.ts`.
+**Open it with `npm run open`** the first time in a browser. Annex answers only a browser that
+has its key (kept in `~/.config/annex/key`); the link gives the page the key once and the
+browser keeps it. Without it the page says so.
+
+**Keep it running:** `npm run service:install` makes Annex a login service (macOS LaunchAgent):
+it starts at login and comes back by itself if it exits. `npm run service:status` and
+`npm run service:remove`. Its log is `.annex/logs/service.log`; the database is copied once a day
+to `.annex/backups` (seven kept). The top bar says when something is wrong (`/api/health`).
+
+To stop a hand-started Annex, press Ctrl-C where `npm run up` runs. With the service installed,
+use `npm run service:remove`. While working on the page, `npm run web:dev` serves it at :4301.
+
+## Working without the terminal
+
+- **New session** (top bar): Claude Code in any folder, on your own settings, the way `claude`
+  starts in a terminal. The answer streams in; a tool that needs your yes shows as a card (Allow,
+  Allow for the session, Deny with a reason); Stop ends a turn; the mode switches between asking,
+  accepting edits and planning; `/` completes slash commands, plugin commands included. Any of
+  your sessions under Your desk can be opened live once it has been quiet for a few minutes.
+- **Run the app**: in a live session ("Run the app") or an office's Run tab: package.json scripts
+  as buttons or any command, the output as it comes, the address it serves on, Stop.
+- **Ready to merge**: every file an office changed, each file's diff, and **Merge**, which merges
+  the exact commit you looked at, checks for conflicts first, and never touches a dirty checkout.
+- **Projects** (top bar): clone a repository, switch or create branches, **Publish** (push and
+  open a pull request; the commands are shown first, never a force-push), edit CLAUDE.md, the
+  project's and your own Claude settings and `.mcp.json` (validated, backed up, refused if the
+  file changed meanwhile), add or remove MCP servers, and turn plugins on for yourself.
+- **Usage and alerts**: the top bar shows your plan's five-hour and weekly use as Claude last
+  reported it; each office shows its runs and minutes in the last five hours; **Turn on alerts**
+  for desktop notifications when something needs you while the tab is in the background.
+
+The design, the senior reviews and what each changed are in `docs/terminal-free.md`.
 
 ## Playing it
 
