@@ -68,7 +68,7 @@ const liveToken = randomUUID();
 const live = new LiveSessions({ claude: claudeCommand, bourneUrl: `http://127.0.0.1:${port}`, token: liveToken, dir: join(stateDir, "live"), onUsage: recordUsage });
 const key = loadOrCreateKey();
 const runner = new Runner(stateDir);
-await startHttp({ runner, key, live, liveToken,  bureau, store, logger, port, webDir: join(root, "web", "dist"), claudeCommand, engineUrl: process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100", startedAt });
+await startHttp({ backupsDir: join(stateDir, "backups", "config"), runner, key, live, liveToken,  bureau, store, logger, port, webDir: join(root, "web", "dist"), claudeCommand, engineUrl: process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100", startedAt });
 
 // a copy of the database a day, seven kept
 const backup = () => {

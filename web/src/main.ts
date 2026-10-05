@@ -15,6 +15,7 @@ import { logDialog } from "./syslog.ts";
 import { DirectorDesk } from "./directorview.ts";
 import { LiveView } from "./live.ts";
 import { newSessionDialog } from "./newsession.ts";
+import { ProjectsDialog } from "./projects.ts";
 import { h } from "./dom.ts";
 import { setRoomTheme } from "./office/sprites.ts";
 
@@ -85,6 +86,15 @@ terminal.onOpenLive = async (sessionId) => {
     toast((err as Error).message, "var(--bad)");
   }
 };
+const projects = new ProjectsDialog(async (folder) => {
+  try {
+    const v = (await post("/api/live", { cwd: folder })) as { id: string; cwd: string };
+    selectLive(v.id, v.cwd);
+    void pollSessions();
+  } catch (err) {
+    toast((err as Error).message, "var(--bad)");
+  }
+});
 const newSession = newSessionDialog((id, cwd) => {
   selectLive(id, cwd);
   void pollSessions();
@@ -139,12 +149,13 @@ const hud = h(
   plan,
   alertBtn,
   h("button", { class: "hud-btn new-session", type: "button", onclick: () => void newSession.open() }, "New session"),
+  h("button", { class: "hud-btn", type: "button", onclick: () => void projects.open() }, "Projects"),
   h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, "Director"),
   h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "System log"),
   themeBtn,
 );
 
-app.append(h("div", { class: "shell" }, hud, sidebar.el, world, drawer), toasts, newOffice, syslog.el, newSession.el);
+app.append(h("div", { class: "shell" }, hud, sidebar.el, world, drawer), toasts, newOffice, syslog.el, newSession.el, projects.el);
 
 function toast(text: string, colour: string) {
   const t = h("div", { class: "toast", style: `--c: ${colour}` }, text);

@@ -2,7 +2,6 @@
 // things a person can do to a wing. Bound to loopback; there is no login because nothing here is
 // reachable from another machine.
 
-import { readdirSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -13,6 +12,7 @@ import type { StateView, WingEdit, NewWing, TranscriptView } from "./api-types.t
 import { listSessions, sessionTranscript, replyToSession, SessionBusy } from "./sessions.ts";
 import { health } from "./upkeep.ts";
 import { Runner, RunError } from "./runner.ts";
+import * as P from "./projects.ts";
 import { sameKey } from "./key.ts";
 import { LiveSessions, LiveError, MODES, defaultMode, type Mode } from "./live.ts";
 import { IDLE_MS, isReplying } from "./sessions.ts";
@@ -83,7 +83,7 @@ export function refuseForeign(req: IncomingMessage): string | null {
   return null;
 }
 
-export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; liveToken?: string; key?: string; runner?: Runner }): Promise<Server> {
+export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; liveToken?: string; key?: string; runner?: Runner; backupsDir?: string }): Promise<Server> {
   const { bureau, store, webDir, logger } = opts;
 
   const server = createServer(async (req, res) => {
@@ -171,7 +171,14 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
         }
       }
       if (req.method === "GET" && path === "/api/sessions") return json(res, 200, listSessions());
-      if (req.method === "GET" && path === "/api/projects") return json(res, 200, projectFolders());
+      if (path.startsWith("/api/projects") || path.startsWith("/api/config") || path.startsWith("/api/mcp") || path.startsWith("/api/plugins")) {
+        try {
+          if (await projectRoutes(req, res, url, opts, bureau)) return;
+        } catch (err) {
+          if (err instanceof P.ProjectError) throw new UserError(err.message, 409);
+          throw err;
+        }
+      }
       const session = /^\/api\/sessions\/([0-9a-f-]{36})\/transcript$/.exec(path);
       if (req.method === "GET" && session) {
         const t = sessionTranscript(session[1]!);
@@ -362,21 +369,65 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
   return true;
 }
 
-// Folders worth offering when you start a session or open an office: every git repo directly
-// under ~/Projects, then the folders your recent sessions ran in.
-function projectFolders(): string[] {
-  const home = process.env.HOME ?? "";
-  const root = join(home, "Projects");
-  const found = new Set<string>();
-  try {
-    for (const d of readdirSync(root, { withFileTypes: true })) {
-      if (d.isDirectory() && existsSync(join(root, d.name, ".git"))) found.add(join(root, d.name));
-    }
-  } catch {
-    // no ~/Projects
+// Folders Annex knows as yours: every git repo directly under ~/Projects, your offices' repos,
+// and the folders your recent sessions ran in. Project actions only ever take one of these.
+async function projectFolders(bureau: Bureau): Promise<string[]> {
+  const repos = (await bureau.state()).wings.map((w) => w.repo).filter((r): r is string => !!r);
+  const sessions = listSessions({ limit: 30, withinMs: 30 * 86_400_000 }).map((s) => s.cwd);
+  return P.knownProjects([...repos, ...sessions]);
+}
+
+type Opts = Parameters<typeof startHttp>[0];
+
+async function projectRoutes(req: IncomingMessage, res: ServerResponse, url: URL, opts: Opts, bureau: Bureau): Promise<boolean> {
+  const path = url.pathname;
+  const known = await projectFolders(bureau);
+  const backups = opts.backupsDir ?? join(process.env.HOME ?? "", ".config", "annex", "backups");
+  const claude = opts.claudeCommand ?? "claude";
+  const root = (v: unknown) => {
+    const r = typeof v === "string" ? expandHome(v.trim()) : "";
+    if (!known.includes(r)) throw new P.ProjectError("That folder is not one of your projects");
+    return r;
+  };
+  // a checkout something is running in, or a live session is open in, is not switched under it
+  const inUse = (r: string) =>
+    opts.live?.list().some((l) => l.status !== "closed" && (l.cwd === r || l.cwd.startsWith(`${r}/`))) ||
+    opts.runner?.list().some((x) => x.status === "running" && (x.folder === r || x.folder.startsWith(`${r}/`)));
+  const q = (k: string) => url.searchParams.get(k);
+  if (req.method === "GET" && path === "/api/projects") return (json(res, 200, known), true);
+  if (req.method === "GET" && path === "/api/plugins") {
+    const wings = (await bureau.state()).wings;
+    return (json(res, 200, P.pluginRows().map((p) => ({ ...p, offices: wings.filter((w) => w.edit.plugins.includes(p.id)).map((w) => w.id) }))), true);
   }
-  for (const s of listSessions({ limit: 30, withinMs: 30 * 86_400_000 })) found.add(s.cwd);
-  return [...found].sort();
+  if (req.method === "GET" && path === "/api/projects/branches") return (json(res, 200, await P.branches(root(q("root")))), true);
+  if (req.method === "GET" && path === "/api/projects/publish") return (json(res, 200, await P.publishPlan(root(q("root")))), true);
+  if (req.method === "GET" && path === "/api/config") return (json(res, 200, P.readConfig(str(q("kind"), "kind"), q("root") ? root(q("root")) : null, known)), true);
+  if (req.method === "GET" && path === "/api/mcp") return (json(res, 200, { text: await P.mcpList(claude, root(q("root"))) }), true);
+  if (req.method === "PUT" && path === "/api/config") {
+    const b = await readJson(req);
+    return (json(res, 200, P.writeConfig({ kind: str(b.kind, "kind"), root: b.root ? root(b.root) : null, text: typeof b.text === "string" ? b.text : "", hash: str(b.hash, "hash"), known, backups })), true);
+  }
+  if (req.method !== "POST") return false;
+  const b = await readJson(req);
+  switch (path) {
+    case "/api/projects/clone":
+      return (json(res, 201, { folder: await P.clone(str(b.url, "url"), typeof b.name === "string" ? b.name : null) }), true);
+    case "/api/projects/switch": {
+      const r = root(b.root);
+      if (inUse(r)) throw new UserError("A live session or a run is using that folder. Close or stop it first.", 409);
+      return (json(res, 200, { branch: await P.switchBranch(r, str(b.branch, "branch"), b.create === true) }), true);
+    }
+    case "/api/projects/publish":
+      return (json(res, 200, await P.publish(root(b.root), str(b.branch, "branch"))), true);
+    case "/api/mcp":
+      return (json(res, 200, { text: await P.mcpAdd(claude, root(b.root), { name: str(b.name, "name"), scope: str(b.scope, "scope"), command: str(b.command, "command"), args: Array.isArray(b.args) ? b.args.map(String) : [] }) }), true);
+    case "/api/mcp/remove":
+      return (json(res, 200, { text: await P.mcpRemove(claude, root(b.root), str(b.name, "name"), str(b.scope, "scope")) }), true);
+    case "/api/plugins/you":
+      P.setPluginForYou(str(b.id, "id"), b.on === true, backups);
+      return (json(res, 200, { ok: true }), true);
+  }
+  return false;
 }
 
 // Running the app. A folder is one of yours (any folder you name, as in a terminal); an office runs
