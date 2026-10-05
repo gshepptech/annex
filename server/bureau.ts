@@ -28,6 +28,7 @@ import { toolUses, isUsageLimit, resetTime } from "./mapping.ts";
 import { Logger } from "./logger.ts";
 import { readHouseRules } from "./houserules.ts";
 import type { Director } from "./director.ts";
+import { usage, usageFromRunLog } from "./usage.ts";
 
 const TICK_MS = 15_000;
 const PAUSED = "Paused by you";
@@ -47,6 +48,7 @@ interface Runtime {
   waking: boolean;
   // set when work finishes or a goal arrives, so the lead is woken to hand out what comes next
   wakeSoon: boolean;
+  spend: { runs: number; minutes: number };
   // Merges, setup and signal runs all use the one integration worktree, so they take turns.
   integration: Promise<unknown>;
   // Paperclip's status and model for each agent, refreshed on each poll and on status frames
@@ -75,6 +77,8 @@ export class Bureau implements BureauApi {
   private now: () => Date;
   readonly logger: Logger;
   private ticking = false;
+  private usageReadAt = 0;
+  private usageRunSeen = "";
   // when the last tick finished, for the health report
   lastTickAt: Date | null = null;
   private director: Director | null = null;
@@ -91,7 +95,7 @@ export class Bureau implements BureauApi {
     this.logger = opts.logger ?? new Logger(null, { quiet: true });
     for (const wing of opts.wings) {
       this.store.ensureWing(wing.id, wing.initialMode);
-      this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, integration: Promise.resolve(), agentInfo: new Map() });
+      this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, spend: { runs: 0, minutes: 0 }, integration: Promise.resolve(), agentInfo: new Map() });
     }
   }
 
@@ -207,9 +211,32 @@ export class Bureau implements BureauApi {
           this.logger.warn(rt.wing.id, `tick failed: ${(err as Error).message}`);
         }
       }
+      await this.readSpend().catch((e) => this.logger.warn(null, `could not read plan usage: ${(e as Error).message}`));
     } finally {
       this.ticking = false;
       this.lastTickAt = this.now();
+    }
+  }
+
+  // Once a minute: each office's runs and minutes in the last five hours, and the plan's usage
+  // from the newest finished agent run (Claude reports it in every run's log).
+  private async readSpend() {
+    const now = this.now().getTime();
+    if (now - this.usageReadAt < 60_000) return;
+    this.usageReadAt = now;
+    const since = now - 5 * 3600_000;
+    let newest: { id: string; finishedAt: string } | null = null;
+    for (const rt of this.rts.values()) {
+      if (!rt.prov) continue;
+      const runs = await this.pc.companyRuns(rt.prov.companyId);
+      const recent = runs.filter((r) => r.startedAt && new Date(r.startedAt).getTime() >= since);
+      const ms = recent.reduce((t, r) => t + ((r.finishedAt ? new Date(r.finishedAt).getTime() : now) - new Date(r.startedAt!).getTime()), 0);
+      rt.spend = { runs: recent.length, minutes: Math.round(ms / 60_000) };
+      for (const r of runs) if (r.finishedAt && (!newest || r.finishedAt > newest.finishedAt)) newest = { id: r.id, finishedAt: r.finishedAt };
+    }
+    if (newest && newest.id !== this.usageRunSeen) {
+      this.usageRunSeen = newest.id;
+      usageFromRunLog(await this.pc.runLog(newest.id), new Date(newest.finishedAt));
     }
   }
 
@@ -1158,7 +1185,7 @@ export class Bureau implements BureauApi {
       return;
     }
     this.store.ensureWing(wingId, parsed.initialMode);
-    this.rts.set(wingId, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, integration: Promise.resolve(), agentInfo: new Map() });
+    this.rts.set(wingId, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, spend: { runs: 0, minutes: 0 }, integration: Promise.resolve(), agentInfo: new Map() });
     await this.connectAll();
     this.logger.info(wingId, `new wing from its file`);
   }
@@ -1187,7 +1214,7 @@ export class Bureau implements BureauApi {
     this.written.set(id, text);
     writeFileSync(join(this.opts.wingsDir, id, "wing.toml"), text);
     this.store.ensureWing(id, "with_you");
-    this.rts.set(id, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, integration: Promise.resolve(), agentInfo: new Map() });
+    this.rts.set(id, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, spend: { runs: 0, minutes: 0 }, integration: Promise.resolve(), agentInfo: new Map() });
     await this.connectAll();
     this.emit({ wingId: id, kind: "agent.said", actor: "you", taskId: null, payload: { text: `Opened the ${parsed.name} office` } });
     return { id };
@@ -1356,6 +1383,7 @@ export class Bureau implements BureauApi {
         settings: this.settingsOf(rt.wing),
         asks: this.store.asks(rt.wing.id).map((a) => ({ id: a.id, title: String(a.task.title ?? ""), reason: a.reason, details: String(a.task.details ?? ""), createdAt: a.createdAt })),
         goals: this.goalViews(rt.wing.id),
+        spend: rt.spend,
         paused: row.heldReason === PAUSED,
         nextWake: this.nextWake(rt),
         houseRules: rt.prov?.workspace ? readHouseRules(rt.prov.workspace.integrationDir)?.files ?? [] : [],
@@ -1382,7 +1410,7 @@ export class Bureau implements BureauApi {
     const recent = this.store.recentEvents(400);
     const d = this.director;
     const director = d ? { offline: d.offline, status: d.status, agentId: d.agentId, chat: d.chat() } : null;
-    return { wings, director, lastEventId: recent[recent.length - 1]?.id ?? 0, recent };
+    return { wings, director, lastEventId: recent[recent.length - 1]?.id ?? 0, recent, usage: usage() };
   }
 }
 

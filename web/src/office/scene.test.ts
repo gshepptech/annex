@@ -22,6 +22,7 @@ const wing = (over: Partial<WingView> = {}): WingView => ({
   ],
   tasks: [],
   goals: [],
+  spend: { runs: 0, minutes: 0 },
   filedCount: 0,
   brief: null,
   draft: null,

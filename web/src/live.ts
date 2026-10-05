@@ -39,10 +39,12 @@ export class LiveView {
   private frame = 0;
   private onBack: () => void;
   private onChange: () => void;
+  private onPrompt: (tool: string) => void;
 
-  constructor(onBack: () => void, onChange: () => void) {
+  constructor(onBack: () => void, onChange: () => void, onPrompt: (tool: string) => void = () => {}) {
     this.onBack = onBack;
     this.onChange = onChange;
+    this.onPrompt = onPrompt;
     this.el.append(this.head, this.screen, this.cards, this.runBox, this.foot);
     this.runBox.append(this.run.el);
     this.runBox.addEventListener("toggle", () => (this.runBox.open && this.cwd ? this.run.show({ folder: this.cwd }) : this.run.hide()));
@@ -97,7 +99,9 @@ export class LiveView {
     this.status = u.status;
     this.mode = u.mode;
     this.model = u.model;
+    const asked = u.prompts.filter((p) => !this.prompts.some((q) => q.id === p.id));
     this.prompts = u.prompts;
+    for (const p of asked) this.onPrompt(p.tool);
     this.error = u.error;
     this.sessionId = u.sessionId;
     if (u.slashCommands) this.commands = u.slashCommands;

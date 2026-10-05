@@ -74,6 +74,7 @@ const syslog = logDialog();
 const liveView = new LiveView(
   () => selectWing(selectedWing && selectedWing !== DESK ? selectedWing : state?.wings[0]?.id ?? ""),
   () => void pollSessions(),
+  (tool) => alertMe("Claude is waiting for your yes", `It wants to use ${tool}`),
 );
 terminal.onOpenLive = async (sessionId) => {
   try {
@@ -113,6 +114,21 @@ labelTheme();
 
 // the HUD: the game's top bar
 const stats = h("div", { class: "stats" });
+// your plan's usage, as Claude last reported it
+const plan = h("div", { class: "plan-use", title: "" });
+
+// Desktop alerts for things that need you, while this tab is in the background. Off until you
+// allow them in the browser.
+const canAlert = typeof Notification !== "undefined";
+const alertBtn = h("button", { class: "hud-btn", type: "button", hidden: !canAlert || Notification.permission !== "default", onclick: async () => { await Notification.requestPermission(); alertBtn.hidden = Notification.permission !== "default"; } }, "Turn on alerts");
+function alertMe(title: string, body = "") {
+  if (!canAlert || Notification.permission !== "granted" || !document.hidden) return;
+  const n = new Notification(title, { body, tag: title });
+  n.onclick = () => {
+    window.focus();
+    n.close();
+  };
+}
 const openState = h("span", { class: "state", role: "status" }, "Connecting…");
 const hud = h(
   "header",
@@ -120,6 +136,8 @@ const hud = h(
   h("h1", { class: "logo" }, "Annex"),
   stats,
   openState,
+  plan,
+  alertBtn,
   h("button", { class: "hud-btn new-session", type: "button", onclick: () => void newSession.open() }, "New session"),
   h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, "Director"),
   h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "System log"),
@@ -195,7 +213,7 @@ function deskWing(list: SessionView[]): WingView {
   return {
     id: DESK, name: "Your desk", mode: "with_you", charter: "", repo: null, integrationBranch: null, held: null, offline: null,
     agents: list.map((s, i) => ({ id: s.id, role: "worker" as const, name: s.title, desk: i + 1, status: s.status === "working" ? "running" : "idle", model: s.model ?? "", filed: 0 })),
-    tasks: [], goals: [], filedCount: 0, brief: null, draft: null, chat: [], asks: [], paused: false, houseRules: [],
+    tasks: [], goals: [], spend: { runs: 0, minutes: 0 }, filedCount: 0, brief: null, draft: null, chat: [], asks: [], paused: false, houseRules: [],
     settings: { wakeEvery: "", maxRunsPerHour: null, quietHours: null, backOffWhenIdle: false, askBefore: [], maxWorkers: 8, maxTasksPerWake: 0, checkAttempts: 0, checkTimeout: "", wakeTimeout: "", maxBackoff: "" },
     edit: { name: "", charter: "", doneCheck: null, setup: null, repoPath: null, baseBranch: "", workers: 0, leadModel: "", workerModel: "", reviewerModel: "", allow: [], plugins: [] },
     nextWake: { at: null, blockedBy: null },
@@ -306,6 +324,19 @@ function applyState(next: StateView) {
     h("b", {}, String(filed)), " verified",
   );
   if (quests) stats.append(", ", h("span", { class: "asks" }, h("b", {}, String(quests)), ` waiting on you`));
+  const u = next.usage;
+  if (u?.fiveHour) {
+    const at = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+    const pct = (n: number) => `${Math.round(n * 100)}%`;
+    plan.replaceChildren(
+      "Plan ",
+      h("b", {}, pct(u.fiveHour.used)),
+      ` of 5 hours (resets ${at(u.fiveHour.resetsAt)})`,
+      u.sevenDay ? `, ${pct(u.sevenDay.used)} of the week` : "",
+    );
+    plan.title = `As Claude reported it at ${at(u.seenAt)}`;
+    plan.classList.toggle("high", u.fiveHour.used >= 0.8 || (u.sevenDay?.used ?? 0) >= 0.8);
+  }
   const held = next.wings.find((w) => w.held && !w.paused);
   if (unhealthy) {
     openState.textContent = unhealthy.length > 70 ? `${unhealthy.slice(0, 67)}…` : unhealthy;
@@ -341,7 +372,10 @@ function scheduleRefresh(ms = 400) {
 // Real events become game notifications; nothing is announced that did not happen.
 function announce(e: BourneEvent) {
   if (e.wingId === "director") {
-    if (e.kind === "chat.message" && e.payload.who === "lead" && !showDirector) toast("The director replied", "var(--annex)");
+    if (e.kind === "chat.message" && e.payload.who === "lead" && !showDirector) {
+      toast("The director replied", "var(--annex)");
+      alertMe("The director replied");
+    }
     return;
   }
   const wing = state?.wings.find((w) => w.id === e.wingId);
@@ -350,6 +384,10 @@ function announce(e: BourneEvent) {
   if (e.kind === "task.done") toast(`${office}: verified ${title}`, "var(--ok)");
   if (e.kind === "task.stopped") toast(`${office}: stopped ${title}`, "var(--bad)");
   if (e.kind === "agent.hired") toast(`${String(e.payload.name ?? "")} joined ${office}`, "var(--worker)");
+  if (e.kind === "approval.requested") alertMe(`${office} is asking`, String(e.payload.title ?? ""));
+  if (e.kind === "task.stopped") alertMe(`${office} stopped a task`, title);
+  if (e.kind === "goal.done") alertMe(`${office} reached a goal`, String(e.payload.title ?? ""));
+  if (e.kind === "wing.held") alertMe(`${office} closed`, String(e.payload.reason ?? ""));
   if (e.kind === "approval.requested") toast(`${office} is asking: ${String(e.payload.title ?? "").slice(0, 48)}`, "var(--ask)");
   if (e.kind === "wing.held") toast(`${office} closed${e.payload.reason ? ` (${String(e.payload.reason)})` : ""}`, "var(--warn)");
   if (e.kind === "wing.resumed") toast(`${office} is open again`, "var(--ok)");

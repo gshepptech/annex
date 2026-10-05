@@ -27,7 +27,7 @@ test("the director's reply is stored with what Annex did about it", async () => 
   store.setChatIssue("director", "CHAT");
   const done: string[] = [];
   const offices: Offices = {
-    async state() { return { wings: [], director: null, lastEventId: 0, recent: [] }; },
+    async state() { return { wings: [], director: null, lastEventId: 0, recent: [], usage: null }; },
     async dropIn(w, t) { done.push(`drop ${w} ${t}`); },
     async addGoal(w, t) { done.push(`goal ${w} ${t}`); },
     async createWing(n) { done.push(`new ${n.id}`); },

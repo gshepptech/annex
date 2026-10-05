@@ -73,6 +73,7 @@ export interface Run {
   errorCode: string | null;
   createdAt?: string;
   startedAt?: string | null;
+  finishedAt?: string | null;
 }
 
 export interface Frame {

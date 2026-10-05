@@ -152,6 +152,7 @@ export class Panel {
         h("h2", {}, w.name),
         h("p", { class: "where" }, w.repo ? `${w.repo.replace(/^\/Users\/[^/]+/, "~")} → ${w.integrationBranch}` : "No repo yet. Set one in Settings to hand this office off."),
         w.houseRules.length ? h("p", { class: "where" }, `House rules: ${w.houseRules.join(", ")} (enforced on every task)`) : null,
+        w.spend.runs ? h("p", { class: "spend" }, `Last 5 hours: ${w.spend.runs} agent run${w.spend.runs === 1 ? "" : "s"}, ${w.spend.minutes} min`) : null,
         h("div", { class: "actions" }, modeButton, hireButton, holdButton),
       ),
     );

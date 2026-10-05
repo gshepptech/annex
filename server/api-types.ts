@@ -192,6 +192,8 @@ export interface WingView {
   settings: SettingsView;
   asks: AskView[];
   goals: GoalView[];
+  // what this office spent of your plan lately: agent runs and their minutes in the last 5 hours
+  spend: { runs: number; minutes: number };
   paused: boolean;
   edit: Required<Omit<WingEdit, "wakeEvery" | "maxRunsPerHour" | "quietHours" | "backOffWhenIdle" | "askBefore" | "maxWorkers" | "maxTasksPerWake" | "checkAttempts" | "checkTimeout" | "wakeTimeout" | "maxBackoff">>;
   // when an autonomous lead next wakes, or why it will not
@@ -213,6 +215,8 @@ export interface StateView {
   director: DirectorView | null;
   lastEventId: number;
   recent: BourneEvent[];
+  // your plan's usage as Claude Code last reported it, and when
+  usage: { fiveHour: { used: number; resetsAt: string } | null; sevenDay: { used: number; resetsAt: string } | null; status: string | null; seenAt: string } | null;
 }
 
 // Live sessions (server/live.ts): your own Claude Code sessions driven from the browser.

@@ -18,7 +18,10 @@ function windowOf(w: Window | undefined): { used: number; resetsAt: string } | n
   return { used: w.utilization, resetsAt: new Date(w.resetsAt * 1000).toISOString() };
 }
 
+// Keeps the newest figure: one seen earlier than the one held (an older agent run read late) is
+// ignored.
 export function recordUsage(info: unknown, now = new Date()) {
+  if (latest && now.toISOString() < latest.seenAt) return;
   if (!info || typeof info !== "object") return;
   const i = info as { status?: unknown; unifiedWindows?: { five_hour?: Window; seven_day?: Window } };
   const fiveHour = windowOf(i.unifiedWindows?.five_hour);
@@ -31,15 +34,26 @@ export function usage(): UsageView | null {
   return latest;
 }
 
-// Agent runs log Claude's stream-json; their rate_limit_events count too.
-export function usageFromLog(text: string) {
-  for (const line of text.split("\n")) {
+// Agent runs: Paperclip keeps each run's log as NDJSON of {stream, chunk}, where stdout chunks
+// carry Claude's stream-json; its rate_limit_events are the plan's usage at that moment.
+export function usageFromRunLog(ndjson: string, at: Date) {
+  let stdout = "";
+  for (const raw of ndjson.split("\n")) {
+    if (!raw.trim()) continue;
+    try {
+      const rec = JSON.parse(raw) as { stream?: string; chunk?: string };
+      if (rec.stream === "stdout" && typeof rec.chunk === "string") stdout += rec.chunk;
+    } catch {
+      // a damaged line
+    }
+  }
+  for (const line of stdout.split("\n")) {
     if (!line.includes('"rate_limit_event"')) continue;
     try {
       const m = JSON.parse(line) as { type?: string; rate_limit_info?: unknown };
-      if (m.type === "rate_limit_event") recordUsage(m.rate_limit_info);
+      if (m.type === "rate_limit_event") recordUsage(m.rate_limit_info, at);
     } catch {
-      // a partial line
+      // a line split across chunks
     }
   }
 }

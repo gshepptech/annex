@@ -636,3 +636,11 @@ dialog p { margin: 0; color: var(--muted); }
 .run-log { margin: 0; height: 280px; overflow: auto; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere; font: 0.76rem/1.45 var(--term); background: var(--term-bg); color: var(--term-text); border-radius: var(--r); }
 .run-box { margin: 0 18px 8px; border-top: 1px solid var(--rule); }
 .run-box summary { padding: 8px 0; font-weight: 700; font-size: 0.86rem; cursor: pointer; }
+
+/* ---------- plan usage ---------- */
+
+.plan-use { font-size: 0.86rem; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.plan-use b { color: var(--text); }
+.plan-use.high, .plan-use.high b { color: var(--warn); }
+.panel-head .spend { margin: 4px 0 0; font-size: 0.82rem; color: var(--muted); }
+@media (max-width: 1300px) { .plan-use { display: none; } }

@@ -12,7 +12,7 @@ function fakeBureau(store: Store): Bureau & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
-    async state() { return { wings: [], director: null, lastEventId: 0, recent: store.eventsSince(0) }; },
+    async state() { return { wings: [], director: null, lastEventId: 0, recent: store.eventsSince(0), usage: null }; },
     async directorSay(t) { calls.push(`director ${t}`); },
     async chat(w, t) { calls.push(`chat ${w} ${t}`); },
     async handoff(w) { calls.push(`handoff ${w}`); },
