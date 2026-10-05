@@ -52,7 +52,14 @@ test("switching branches refuses a dirty checkout; publishing shows its commands
   const plan = await P.publishPlan(repo);
   assert.deepEqual(plan.commands, ["git push -u origin feature/x"], "no PR when the remote has no default branch to compare with");
   await assert.rejects(P.publish(repo, "main"), /on feature\/x now/);
-  g(repo, "checkout", "--", "a.txt");
+  writeFileSync(join(repo, "new.txt"), "n\n");
+  const seen = (await P.branches(repo)).changes;
+  assert.deepEqual(seen, [" M a.txt", "?? new.txt"], "untracked files count as changes too");
+  await assert.rejects(P.commitAll(repo, "work", [" M a.txt"]), /different from what you were shown/);
+  await assert.rejects(P.commitAll(repo, "  ", seen), /commit message/);
+  await P.commitAll(repo, "work", seen);
+  assert.equal(g(repo, "log", "-1", "--format=%s"), "work");
+  assert.deepEqual((await P.branches(repo)).changes, []);
   const done = await P.publish(repo, "feature/x");
   assert.equal(done.pushed, "feature/x");
   assert.match(g(bare, "branch"), /feature\/x/);

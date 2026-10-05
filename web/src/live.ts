@@ -259,6 +259,8 @@ export class LiveView {
 
 function describeInput(p: LivePrompt): HTMLElement {
   const s = (k: string) => (typeof p.input[k] === "string" ? (p.input[k] as string) : "");
+  // leaving plan mode: the plan is what you are approving
+  if (p.tool === "ExitPlanMode") return h("pre", { class: "prompt-detail plan-text" }, s("plan") || "Claude wants to stop planning and start making changes.");
   if (p.tool === "Bash") return h("pre", { class: "prompt-detail" }, s("command"));
   // everything you are approving is shown; long input scrolls rather than being cut
   if (p.tool === "Write") return h("div", {}, h("p", { class: "prompt-path" }, s("file_path")), h("pre", { class: "prompt-detail" }, s("content")));

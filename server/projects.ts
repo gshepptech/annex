@@ -27,7 +27,8 @@ export function knownProjects(extra: string[] = [], home = homedir()): string[] 
   } catch {
     // no ~/Projects
   }
-  return [...found].sort();
+  // a folder deleted since a session ran there is not offered
+  return [...found].filter((p) => existsSync(p)).sort();
 }
 
 function mustKnow(root: string, known: string[]): string {
@@ -40,7 +41,8 @@ function mustKnow(root: string, known: string[]): string {
 async function git(cwd: string, ...args: string[]): Promise<string> {
   // a credential prompt would hang the server; fail instead and say so
   const { stdout } = await run("git", args, { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }, maxBuffer: 8 * 1024 * 1024, timeout: 10 * 60_000 });
-  return stdout.trim();
+  // only the end: leading spaces carry meaning (git status puts the change kind in column one)
+  return stdout.trimEnd();
 }
 
 function gitError(err: unknown): string {
@@ -74,6 +76,8 @@ export interface BranchView {
   current: string | null;
   branches: string[];
   dirty: boolean;
+  // every changed or new file, as `git status --short` shows them
+  changes: string[];
   busy: string | null;
   remote: string | null;
   // commits on the current branch not yet on its upstream, or null when it has no upstream
@@ -85,6 +89,7 @@ export async function branches(root: string): Promise<BranchView> {
   const current = (await git(root, "branch", "--show-current").catch(() => "")) || null;
   const list = (await git(root, "branch", "--format=%(refname:short)")).split("\n").filter(Boolean);
   const dirty = !!(await git(root, "status", "--porcelain", "--untracked-files=no"));
+  const changes = (await git(root, "-c", "core.quotePath=false", "status", "--short", "--untracked-files=all")).split("\n").filter(Boolean);
   const remote = (await git(root, "remote").catch(() => "")).split("\n").filter(Boolean)[0] ?? null;
   let ahead: number | null = null;
   try {
@@ -94,7 +99,7 @@ export async function branches(root: string): Promise<BranchView> {
   }
   let defaultBranch: string | null = null;
   if (remote) defaultBranch = (await git(root, "symbolic-ref", "--short", `refs/remotes/${remote}/HEAD`).catch(() => "")).replace(`${remote}/`, "") || null;
-  return { current, branches: list, dirty, busy: await midOperation(root), remote, ahead, defaultBranch };
+  return { current, branches: list, dirty, changes, busy: await midOperation(root), remote, ahead, defaultBranch };
 }
 
 async function midOperation(root: string): Promise<string | null> {
@@ -102,6 +107,22 @@ async function midOperation(root: string): Promise<string | null> {
   const marks: [string, string][] = [["MERGE_HEAD", "merge"], ["rebase-merge", "rebase"], ["rebase-apply", "rebase"], ["CHERRY_PICK_HEAD", "cherry-pick"], ["REVERT_HEAD", "revert"], ["BISECT_LOG", "bisect"]];
   for (const [f, what] of marks) if (existsSync(join(gitDir, f))) return what;
   return null;
+}
+
+// Commit everything changed in the checkout (the list you were shown), with your message.
+export async function commitAll(root: string, message: string, expected: string[]): Promise<string> {
+  if (!message.trim()) throw new ProjectError("Write a commit message");
+  const b = await branches(root);
+  if (b.busy) throw new ProjectError(`The checkout is in the middle of a ${b.busy}; finish or abort it first`);
+  if (!b.changes.length) throw new ProjectError("Nothing to commit");
+  if (JSON.stringify(b.changes) !== JSON.stringify(expected)) throw new ProjectError("The changes are different from what you were shown; look again before committing");
+  try {
+    await git(root, "add", "-A");
+    await git(root, "commit", "-q", "-m", message.trim());
+  } catch (err) {
+    throw new ProjectError(`git commit failed: ${gitError(err)}`);
+  }
+  return (await git(root, "rev-parse", "--short", "HEAD")).trim();
 }
 
 export const BRANCH_NAME = /^(?!-)(?!.*\.\.)(?!.*\/\/)[\w./-]{1,100}(?<![./])$/;

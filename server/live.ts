@@ -147,6 +147,12 @@ export class LiveSessions {
 
   // Sessions Annex itself drove most recently (closed now): reopening one needs no "may be open
   // in a terminal" wait, because Annex knows its own child was the last writer.
+  // The mode a session last had while Annex drove it, so reopening it keeps it.
+  lastMode(sessionId: string): Mode | null {
+    const all = [...this.lives.values()].filter((l) => l.sessionId === sessionId);
+    return all.at(-1)?.mode ?? null;
+  }
+
   lastDrivenByBourne(sessionId: string): boolean {
     return [...this.lives.values()].some((l) => l.sessionId === sessionId);
   }

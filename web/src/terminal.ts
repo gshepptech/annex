@@ -117,7 +117,7 @@ export class Terminal {
         "div",
         { class: "resume" },
         h("span", {}, "Continue it here, live, or in your terminal"),
-        h("button", { class: "btn primary", type: "button", disabled: !quiet || s.replying, title: quiet ? "" : "Active in the last few minutes, so it may be open in a terminal", onclick: () => this.onOpenLive(s.id) }, "Open live"),
+        h("button", { class: "btn primary", type: "button", disabled: s.replying, title: quiet ? "" : "Active in the last few minutes; Annex opens it only if it is not open in a terminal", onclick: () => this.onOpenLive(s.id) }, "Open live"),
         h("code", {}, cmd),
         copy,
       ),

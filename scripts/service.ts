@@ -43,7 +43,9 @@ if (cmd === "install") {
   // claude, npx, gh, git credential helpers and plugins' MCP servers are found), plus the usual
   // places in case it was thin.
   const usual = ["/opt/homebrew/bin", "/usr/local/bin", join(homedir(), ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
-  const path = [...new Set([...(process.env.PATH ?? "").split(":").filter(Boolean), ...usual])].join(":");
+  // leave out temporary and version-numbered folders that will not exist after a reboot or update
+  const lasting = (p: string) => !/\/(tmp|var\/folders|private\/tmp)\/|\/plugins\/cache\/|\/Cellar\//.test(`${p}/`);
+  const path = [...new Set([...(process.env.PATH ?? "").split(":").filter(Boolean).filter(lasting), ...usual])].join(":");
   writeFileSync(plist, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

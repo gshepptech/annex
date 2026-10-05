@@ -36,7 +36,7 @@ export async function health(opts: { engineUrl: string; store: Store; lastTick: 
     const r = await fetch(`${opts.engineUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) engine = `the engine answered ${r.status}`;
   } catch (err) {
-    engine = `the engine is not reachable (${(err as Error).message})`;
+    engine = "Paperclip, the engine that runs the agents, is not answering. The login service restarts it; if this stays, run npm run service:install again.";
   }
   let database: string | null = null;
   try {

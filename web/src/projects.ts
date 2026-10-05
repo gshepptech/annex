@@ -13,6 +13,7 @@ interface Branches {
   current: string | null;
   branches: string[];
   dirty: boolean;
+  changes: string[];
   busy: string | null;
   remote: string | null;
   ahead: number | null;
@@ -66,6 +67,7 @@ export class ProjectsDialog {
               url,
               name,
               h("button", { class: "btn", type: "submit" }, "Clone into ~/Projects"),
+              this.cloneMsg,
             ),
           ),
           this.detail,
@@ -99,17 +101,23 @@ export class ProjectsDialog {
     );
   }
 
+  private cloneMsg = h("p", { class: "hint", role: "status" });
+
   private async clone(url: HTMLInputElement, name: HTMLInputElement) {
+    const folder = name.value.trim() || url.value.trim().split("/").pop()?.replace(/\.git$/, "") || "";
+    if (!confirm(`Clone ${url.value.trim()} into ~/Projects/${folder}?\n\nRuns: git clone -- ${url.value.trim()} ~/Projects/${folder}`)) return;
+    this.cloneMsg.textContent = "Cloning…";
     try {
       const r = (await post("/api/projects/clone", { url: url.value, name: name.value })) as { folder: string };
       url.value = "";
       name.value = "";
+      this.cloneMsg.textContent = "";
       this.note = `Cloned into ${r.folder}.`;
       await this.loadList();
       void this.show(r.folder);
     } catch (err) {
-      this.note = (err as Error).message;
-      void this.show(this.chosen);
+      // the refusal shows by the clone form, where you are looking
+      this.cloneMsg.textContent = (err as Error).message;
     }
   }
 
@@ -145,40 +153,59 @@ export class ProjectsDialog {
     } catch (err) {
       return h("p", { class: "notice bad" }, (err as Error).message);
     }
+    const msg = h("p", { class: "notice", role: "status", hidden: true });
+    const say = (text: string) => {
+      msg.textContent = text;
+      msg.hidden = false;
+      msg.scrollIntoView({ block: "nearest" });
+    };
     const pick = h("select", { "aria-label": "Branch" }, ...b.branches.map((x) => h("option", { value: x, selected: x === b.current }, x))) as HTMLSelectElement;
     const fresh = h("input", { placeholder: "new-branch-name", "aria-label": "New branch name" }) as HTMLInputElement;
     const sw = async (branch: string, create: boolean) => {
+      if (!confirm(`${create ? "Create the branch" : "Switch the checkout to"} ${branch} in ${root.split("/").pop()}?\n\nRuns: git switch ${create ? "-c " : ""}${branch}`)) return;
       try {
         await post("/api/projects/switch", { root, branch, create });
         this.note = create ? `Created and switched to ${branch}.` : `Switched to ${branch}.`;
+        void this.show(root);
       } catch (err) {
-        this.note = (err as Error).message;
+        say((err as Error).message);
       }
-      void this.show(root);
     };
-    const state = [b.dirty ? "uncommitted changes" : "clean", b.busy ? `in the middle of a ${b.busy}` : "", b.ahead !== null ? `${b.ahead} commit${b.ahead === 1 ? "" : "s"} not pushed` : b.remote ? "not pushed yet" : "no remote"].filter(Boolean).join(", ");
+    const commitMsg = h("input", { placeholder: "What changed, in a sentence", "aria-label": "Commit message" }) as HTMLInputElement;
+    const commit = async () => {
+      if (!commitMsg.value.trim()) return say("Write a commit message first.");
+      if (!confirm(`Commit these ${b.changes.length} change${b.changes.length === 1 ? "" : "s"} on ${b.current}?\n\n${b.changes.slice(0, 25).join("\n")}${b.changes.length > 25 ? `\n…and ${b.changes.length - 25} more` : ""}\n\nRuns: git add -A && git commit -m "${commitMsg.value.trim()}"`)) return;
+      try {
+        const r = (await post("/api/projects/commit", { root, message: commitMsg.value, changes: b.changes })) as { commit: string };
+        this.note = `Committed ${r.commit}.`;
+        void this.show(root);
+      } catch (err) {
+        say((err as Error).message);
+      }
+    };
+    const state = [b.changes.length ? `${b.changes.length} uncommitted change${b.changes.length === 1 ? "" : "s"}` : "nothing to commit", b.busy ? `in the middle of a ${b.busy}` : "", b.ahead !== null ? `${b.ahead} commit${b.ahead === 1 ? "" : "s"} not pushed` : b.remote ? "not pushed yet" : "no remote"].filter(Boolean).join(", ");
     const publishArea = h("div", {});
     const showPlan = async () => {
       try {
-        const plan = await get<{ branch: string; commands: string[] }>(`/api/projects/publish?root=${encodeURIComponent(root)}`);
+        const plan = await get<{ branch: string; commands: string[]; pr: boolean }>(`/api/projects/publish?root=${encodeURIComponent(root)}`);
         publishArea.replaceChildren(
           h(
             "div",
             { class: "confirm" },
             h("p", {}, "Annex will run, in this project:"),
             h("pre", { class: "brief" }, plan.commands.join("\n")),
-            h("p", { class: "hint" }, "It never force-pushes."),
+            h("p", { class: "hint" }, plan.pr ? "It never force-pushes." : "It never force-pushes. No pull request: this is the default branch, or the remote's default branch is not known here."),
             h(
               "div",
               { class: "row" },
               h("button", { class: "btn primary", type: "button", onclick: async () => {
                 try {
                   const r = (await post("/api/projects/publish", { root, branch: plan.branch })) as { pushed: string; pr: string | null };
-                  this.note = r.pr ? `Pushed ${r.pushed}. Pull request: ${r.pr}` : `Pushed ${r.pushed}.`;
+                  this.note = r.pr ? `Pushed ${r.pushed}. Pull request: ${r.pr}` : `Pushed ${r.pushed} (no pull request opened).`;
+                  void this.show(root);
                 } catch (err) {
-                  this.note = (err as Error).message;
+                  publishArea.replaceChildren(h("p", { class: "notice bad" }, (err as Error).message));
                 }
-                void this.show(root);
               } }, "Publish"),
               h("button", { class: "btn ghost", type: "button", onclick: () => publishArea.replaceChildren() }, "Cancel"),
             ),
@@ -192,9 +219,12 @@ export class ProjectsDialog {
       "div",
       { class: "branch-block" },
       h("p", {}, "On ", h("b", {}, b.current ?? "no branch"), `: ${state}.`),
+      msg,
+      b.changes.length ? h("details", {}, h("summary", {}, "What changed"), h("pre", { class: "brief" }, b.changes.join("\n"))) : null,
+      b.changes.length ? h("form", { class: "row", onsubmit: (ev: Event) => { ev.preventDefault(); void commit(); } }, commitMsg, h("button", { class: "btn", type: "submit" }, "Commit all")) : null,
       h("div", { class: "row" }, pick, h("button", { class: "btn", type: "button", onclick: () => void sw(pick.value, false) }, "Switch")),
       h("form", { class: "row", onsubmit: (ev: Event) => { ev.preventDefault(); if (fresh.value.trim()) void sw(fresh.value.trim(), true); } }, fresh, h("button", { class: "btn", type: "submit" }, "Create branch")),
-      h("div", { class: "row" }, h("button", { class: "btn", type: "button", disabled: !b.remote, title: b.remote ? "" : "This repo has no remote", onclick: () => void showPlan() }, "Publish (push and open a PR)")),
+      h("div", { class: "row" }, h("button", { class: "btn", type: "button", disabled: !b.remote, title: b.remote ? "" : "This repo has no remote", onclick: () => void showPlan() }, b.defaultBranch && b.current !== b.defaultBranch ? "Publish (push and open a PR)" : "Publish (push)")),
       publishArea,
     );
   }

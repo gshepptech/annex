@@ -336,7 +336,11 @@ function applyState(next: StateView) {
   );
   if (quests) stats.append(", ", h("span", { class: "asks" }, h("b", {}, String(quests)), ` waiting on you`));
   const u = next.usage;
-  if (u?.fiveHour) {
+  if (u?.fiveHour && new Date(u.fiveHour.resetsAt).getTime() < Date.now()) {
+    // the window this figure belongs to has ended; do not show an old number as current
+    plan.replaceChildren(`Plan: the 5-hour window reset at ${new Date(u.fiveHour.resetsAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}; a new figure comes with the next run`);
+    plan.classList.remove("high");
+  } else if (u?.fiveHour) {
     const at = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
     const pct = (n: number) => `${Math.round(n * 100)}%`;
     plan.replaceChildren(

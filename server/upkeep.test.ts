@@ -32,6 +32,6 @@ test("health names what is wrong", async () => {
   const now = Date.now();
   const h = await health({ engineUrl: "http://127.0.0.1:9", store, lastTick: new Date(now - 120_000), startedAt: new Date(now - 600_000), now });
   assert.equal(h.ok, false);
-  assert.match(h.engine!, /not reachable/);
+  assert.match(h.engine!, /not answering/);
   assert.match(h.database!, /no tick since/);
 });

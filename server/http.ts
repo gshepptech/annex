@@ -306,7 +306,7 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
   if (req.method === "POST" && path === "/api/live") {
     const body = await readJson(req);
     const resume = typeof body.resume === "string" && /^[0-9a-f-]{36}$/.test(body.resume) ? body.resume : null;
-    const mode = (typeof body.mode === "string" ? body.mode : defaultMode()) as Mode;
+    let mode = (typeof body.mode === "string" ? body.mode : defaultMode()) as Mode;
     let cwd = typeof body.cwd === "string" ? expandHome(body.cwd.trim()) : "";
     if (cwd && !cwd.startsWith("/")) throw new UserError("Name the folder by its full path (or start it with ~/)", 400);
     let history;
@@ -320,6 +320,8 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
       if (quiet < IDLE_MS && !live.lastDrivenByBourne(resume)) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
       cwd = t.session.cwd;
       history = t.entries;
+      // a resumed session keeps the permission mode it had, unless one was chosen just now
+      if (typeof body.mode !== "string") mode = (live.lastMode(resume) ?? (MODES.includes(t.session.permissionMode as Mode) ? t.session.permissionMode : defaultMode())) as Mode;
     }
     if (!cwd) throw new UserError("Name a folder to start the session in", 400);
     json(res, 201, live.start({ cwd, mode, resume, history }));
@@ -426,6 +428,8 @@ async function projectRoutes(req: IncomingMessage, res: ServerResponse, url: URL
       if (inUse(r)) throw new UserError("A live session or a run is using that folder. Close or stop it first.", 409);
       return (json(res, 200, { branch: await P.switchBranch(r, str(b.branch, "branch"), b.create === true) }), true);
     }
+    case "/api/projects/commit":
+      return (json(res, 200, { commit: await P.commitAll(root(b.root), str(b.message, "message"), Array.isArray(b.changes) ? b.changes.map(String) : []) }), true);
     case "/api/projects/publish":
       return (json(res, 200, await P.publish(root(b.root), str(b.branch, "branch"))), true);
     case "/api/mcp":
