@@ -163,3 +163,57 @@ export async function waiting(repo: string, base: string, integration: string): 
     return [];
   }
 }
+
+export interface ChangedFile {
+  path: string;
+  // A added, M modified, D deleted (a rename shows as a delete and an add)
+  status: string;
+  added: number;
+  removed: number;
+}
+
+// What `to` changes compared with where it left `from` (the three-dot form), file by file.
+// Read only: nothing here touches a working tree.
+export async function changedFiles(repo: string, from: string, to: string): Promise<ChangedFile[]> {
+  const range = `${from}...${to}`;
+  const [names, nums] = await Promise.all([git(repo, "-c", "core.quotePath=false", "diff", "--no-renames", "--name-status", range, "--"), git(repo, "-c", "core.quotePath=false", "diff", "--no-renames", "--numstat", range, "--")]);
+  const counts = new Map<string, { added: number; removed: number }>();
+  for (const l of nums.split("\n").filter(Boolean)) {
+    const [a, r, ...rest] = l.split("\t");
+    counts.set(rest.join("\t"), { added: a === "-" ? 0 : Number(a), removed: r === "-" ? 0 : Number(r) });
+  }
+  return names.split("\n").filter(Boolean).map((l) => {
+    const [status, ...rest] = l.split("\t");
+    const path = rest.join("\t");
+    return { path, status: status!.charAt(0), ...(counts.get(path) ?? { added: 0, removed: 0 }) };
+  });
+}
+
+// One file's patch. The caller passes a path it got from changedFiles, never one from a person.
+export async function filePatch(repo: string, from: string, to: string, path: string): Promise<string> {
+  const out = await git(repo, "-c", "core.quotePath=false", "diff", "--no-renames", `${from}...${to}`, "--", path);
+  return out.length > 400_000 ? out.slice(0, 400_000) + "\n… (cut: the rest of this diff is very long)" : out;
+}
+
+export async function revParse(repo: string, ref: string): Promise<string | null> {
+  try {
+    return (await git(repo, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`)).trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+// A throwaway checkout of the integration branch's latest commit, for running the app: never the
+// integration worktree itself, where Annex merges, checks and resets. Detached, so it holds no
+// branch; refreshed to the newest verified work each time. Untracked build output stays.
+export async function previewWorktree(ws: WingWorkspace): Promise<string> {
+  const dir = join(dirname(ws.integrationDir), "preview");
+  const sha = await git(ws.repo, "rev-parse", ws.integrationBranch);
+  if (!existsSync(dir)) {
+    await git(ws.repo, "worktree", "add", "--detach", dir, sha);
+  } else {
+    await git(dir, "checkout", "--detach", "--force", sha);
+  }
+  return dir;
+}
+

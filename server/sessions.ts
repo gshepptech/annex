@@ -162,6 +162,11 @@ export function sessionTranscript(id: string, opts: { root?: string; now?: numbe
 
 export class SessionBusy extends Error {}
 
+// A one-shot reply is running in this session; a live session must not start on it meanwhile.
+export function isReplying(id: string): boolean {
+  return replying.has(id);
+}
+
 // Sends your message to one of your sessions as its next turn, the way \`claude --resume <id> -p\`
 // would from its folder, in the permission mode the session was already using. The answer lands
 // in the session's own log, so its transcript shows it, and the terminal shows it next time you

@@ -5,7 +5,7 @@ import "./styles.css";
 
 import type { StateView, WingView, SessionView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
-import { getState, getSessions, stream } from "./api.ts";
+import { getState, getSessions, stream, apiFetch, whenKeyMissing, post } from "./api.ts";
 import { Room } from "./room.ts";
 import { Panel } from "./panel.ts";
 import { Sidebar } from "./sidebar.ts";
@@ -13,10 +13,27 @@ import { Terminal } from "./terminal.ts";
 import { newWingDialog } from "./newwing.ts";
 import { logDialog } from "./syslog.ts";
 import { DirectorDesk } from "./directorview.ts";
+import { LiveView } from "./live.ts";
+import { newSessionDialog } from "./newsession.ts";
 import { h } from "./dom.ts";
 import { setRoomTheme } from "./office/sprites.ts";
 
 const app = document.getElementById("app")!;
+
+// Without Annex's key nothing loads; say how to get it instead of showing an empty office.
+whenKeyMissing(() => {
+  if (document.querySelector(".no-key")) return;
+  document.body.append(
+    h(
+      "div",
+      { class: "no-key", role: "alertdialog", "aria-label": "Annex needs its key" },
+      h("h2", {}, "Annex needs its key"),
+      h("p", {}, "Annex only answers this browser once it has been given its key, so programs on this machine (Annex's own agents included) cannot drive it. In the annex folder, run:"),
+      h("pre", {}, "npm run open"),
+      h("p", {}, "It opens this page with the key; the browser keeps it from then on."),
+    ),
+  );
+});
 const rooms = new Map<string, Room>();
 const world = h("main", { class: "world", "aria-label": "Offices" });
 const drawer = h("aside", { class: "drawer box" });
@@ -28,6 +45,9 @@ let selectedWing: string | null = null;
 let selectedAgent: string | null = null;
 let showDirector = false;
 let sessions: SessionView[] = [];
+// live sessions Annex is driving, by the Claude session they continue once it has an id
+let lives: { id: string; sessionId: string | null; cwd: string; status: string }[] = [];
+let selectedLive: string | null = null;
 let deskRoom: Room | null = null;
 const DESK = "your-desk";
 let recent: BourneEvent[] = [];
@@ -51,6 +71,23 @@ const newOffice = newWingDialog((id) => {
   scheduleRefresh(0);
 });
 const syslog = logDialog();
+const liveView = new LiveView(
+  () => selectWing(selectedWing && selectedWing !== DESK ? selectedWing : state?.wings[0]?.id ?? ""),
+  () => void pollSessions(),
+);
+terminal.onOpenLive = async (sessionId) => {
+  try {
+    const v = (await post("/api/live", { resume: sessionId })) as { id: string; cwd: string };
+    selectLive(v.id, v.cwd);
+    void pollSessions();
+  } catch (err) {
+    toast((err as Error).message, "var(--bad)");
+  }
+};
+const newSession = newSessionDialog((id, cwd) => {
+  selectLive(id, cwd);
+  void pollSessions();
+});
 const director = new DirectorDesk(() => selectWing(selectedWing ?? state?.wings[0]?.id ?? ""), () => scheduleRefresh(0));
 
 // Dark by default; the choice is kept in this browser only.
@@ -83,12 +120,13 @@ const hud = h(
   h("h1", { class: "logo" }, "Annex"),
   stats,
   openState,
+  h("button", { class: "hud-btn new-session", type: "button", onclick: () => void newSession.open() }, "New session"),
   h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, "Director"),
   h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "System log"),
   themeBtn,
 );
 
-app.append(h("div", { class: "shell" }, hud, sidebar.el, world, drawer), toasts, newOffice, syslog.el);
+app.append(h("div", { class: "shell" }, hud, sidebar.el, world, drawer), toasts, newOffice, syslog.el, newSession.el);
 
 function toast(text: string, colour: string) {
   const t = h("div", { class: "toast", style: `--c: ${colour}` }, text);
@@ -107,6 +145,8 @@ function reveal(fromTap: boolean) {
 }
 
 function openDirector() {
+  selectedLive = null;
+  liveView.close();
   showDirector = true;
   selectedAgent = null;
   terminal.close();
@@ -115,6 +155,8 @@ function openDirector() {
 }
 
 function selectWing(id: string, fromTap = false) {
+  selectedLive = null;
+  liveView.close();
   selectedWing = id;
   selectedAgent = null;
   showDirector = false;
@@ -123,7 +165,23 @@ function selectWing(id: string, fromTap = false) {
   reveal(fromTap);
 }
 
+function selectLive(id: string, cwd: string, fromTap = true) {
+  selectedWing = DESK;
+  selectedAgent = null;
+  selectedLive = id;
+  showDirector = false;
+  terminal.close();
+  liveView.open(id, cwd);
+  draw();
+  reveal(fromTap);
+}
+
 function selectSession(id: string, fromTap = false) {
+  // a session Annex is driving live opens live
+  const l = lives.find((x) => x.sessionId === id && x.status !== "closed");
+  if (l) return selectLive(l.id, l.cwd, fromTap);
+  selectedLive = null;
+  liveView.close();
   selectedWing = DESK;
   selectedAgent = id;
   showDirector = false;
@@ -165,9 +223,24 @@ function applySessions(list: SessionView[]) {
   draw();
 }
 
+// Annex's own health: a dead engine or a stuck loop shows in the top bar instead of looking idle.
+let unhealthy: string | null = null;
+async function pollHealth() {
+  try {
+    const r = await apiFetch("/api/health");
+    const h = (await r.json()) as { ok: boolean; engine: string | null; database: string | null };
+    unhealthy = h.ok ? null : (h.engine ?? h.database ?? "something is wrong");
+  } catch {
+    unhealthy = "Annex's server is not answering";
+  }
+  if (state) applyState(state);
+}
+
 async function pollSessions() {
   try {
-    applySessions(await getSessions());
+    const [list, live] = await Promise.all([getSessions(), apiFetch("/api/live").then((r) => r.json()) as Promise<{ lives: typeof lives }>]);
+    lives = live.lives;
+    applySessions(list);
   } catch {
     // the offices still work without it; try again next time
   }
@@ -175,6 +248,8 @@ async function pollSessions() {
 
 function selectAgent(id: string, fromTap = false) {
   if (sessions.some((s) => s.id === id)) return selectSession(id, fromTap);
+  selectedLive = null;
+  liveView.close();
   const wing = state?.wings.find((w) => w.agents.some((a) => a.id === id));
   if (!wing) return;
   selectedWing = wing.id;
@@ -189,8 +264,10 @@ function draw() {
   if (!state) return;
   for (const [wid, r] of rooms) r.el.classList.toggle("selected", !showDirector && wid === selectedWing);
   deskRoom?.el.classList.toggle("selected", !showDirector && selectedWing === DESK);
-  sidebar.render(state, showDirector ? null : selectedWing, selectedAgent, sessions);
-  if (showDirector) {
+  sidebar.render(state, showDirector ? null : selectedWing, selectedLive ? lives.find((l) => l.id === selectedLive)?.sessionId ?? null : selectedAgent, sessions, lives.filter((l) => l.status !== "closed"), (id, cwd) => selectLive(id, cwd));
+  if (selectedLive) {
+    if (drawer.firstChild !== liveView.el) drawer.replaceChildren(liveView.el);
+  } else if (showDirector) {
     director.show(state.director);
     if (drawer.firstChild !== director.el) drawer.replaceChildren(director.el);
   } else if (selectedAgent && (terminal.agentId || terminal.sessionId)) {
@@ -230,7 +307,11 @@ function applyState(next: StateView) {
   );
   if (quests) stats.append(", ", h("span", { class: "asks" }, h("b", {}, String(quests)), ` waiting on you`));
   const held = next.wings.find((w) => w.held && !w.paused);
-  if (held?.held) {
+  if (unhealthy) {
+    openState.textContent = unhealthy.length > 70 ? `${unhealthy.slice(0, 67)}…` : unhealthy;
+    openState.title = unhealthy;
+    openState.classList.add("closed", "bad");
+  } else if (held?.held) {
     const until = held.held.until ? new Date(held.held.until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "";
     openState.textContent = `Closed${until ? ` until ${until}` : ""}`;
     openState.title = held.held.reason;
@@ -238,7 +319,7 @@ function applyState(next: StateView) {
   } else {
     openState.textContent = working ? `${working} at work` : "Open";
     openState.title = "";
-    openState.classList.remove("closed");
+    openState.classList.remove("closed", "bad");
   }
   draw();
 }
@@ -312,6 +393,8 @@ async function boot() {
   setInterval(() => scheduleRefresh(0), 10_000);
   void pollSessions();
   setInterval(() => void pollSessions(), 5_000);
+  void pollHealth();
+  setInterval(() => void pollHealth(), 30_000);
   let last = performance.now();
   const frame = (now: number) => {
     const dt = Math.min(100, now - last);

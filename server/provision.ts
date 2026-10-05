@@ -8,6 +8,7 @@ import { join } from "node:path";
 import type { Store, AgentRow } from "./db.ts";
 import type { Wing } from "./wing.ts";
 import { prepareWing, type WingWorkspace } from "./git.ts";
+import { KEY_DIR } from "./key.ts";
 import type { Paperclip, AgentSpec } from "./engine/paperclip.ts";
 import { leadInstructions, workerInstructions, reviewerInstructions, REPORT_SCRIPT } from "./prompts.ts";
 import { findPlugin, mcpRule, type PluginInfo } from "./plugins.ts";
@@ -47,7 +48,8 @@ export function nextName(role: AgentRow["role"], taken: Set<string>): string {
 // Read-only tools every agent may use, plus the shell commands its role needs. A command the
 // list does not cover is refused rather than asked about, because nobody is there to answer.
 const BASE_TOOLS = ["Read", "Glob", "Grep", "Skill", "TodoWrite"];
-const BASE_SHELL = ["ls", "cat", "head", "tail", "pwd", "wc", "diff", "curl"];
+// No curl: Annex's own API is on this machine, and an agent has no business calling it.
+const BASE_SHELL = ["ls", "cat", "head", "tail", "pwd", "wc", "diff"];
 // Git, by subcommand: everyone may read history, only the crew may commit, and nobody may move
 // branches, push, or point git at another directory (DENIED_GIT below wins over any allow).
 const READ_GIT = ["git status", "git log", "git diff", "git show", "git rev-parse", "git branch --show-current", "git ls-files"];
@@ -73,6 +75,15 @@ export function toolsFor(role: AgentRow["role"], wing: Wing, plugins: PluginInfo
 // Claude settings every Annex agent runs with: the person's global CLAUDE.md and auto-memory are
 // hidden, and together with `--setting-sources project,local` so are their hooks and plugins.
 // Plugins an office names are the exception: they are enabled here, for that office only.
+// The folder holding Annex's API key is off limits to agents, by every tool that can read a file.
+export function keyDenies(dir = KEY_DIR): string[] {
+  const abs = dir.replace(/\/$/, "");
+  const tilde = abs.startsWith(homedir()) ? `~${abs.slice(homedir().length)}` : abs;
+  const reads = ["Read", "Grep", "Glob", "Edit", "Write"].flatMap((t) => [`${t}(/${abs}/**)`, `${t}(${tilde}/**)`]);
+  const shell = [...BASE_SHELL, "grep", "find", "less", "more", "strings", "xxd", "od", "base64", "cp", "mv"].flatMap((c) => [`Bash(${c} ${abs}:*)`, `Bash(${c} ${tilde}:*)`]);
+  return [...reads, ...shell, "Bash(curl:*)", "Bash(wget:*)"];
+}
+
 export function writeAgentSettings(dir: string, plugins: string[] = []): string {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, "claude-settings.json");
@@ -80,7 +91,7 @@ export function writeAgentSettings(dir: string, plugins: string[] = []): string 
     claudeMdExcludes: [join(homedir(), ".claude", "CLAUDE.md"), join(homedir(), ".claude", "**", "CLAUDE.md")],
     autoMemoryEnabled: false,
     // deny rules beat any allow, so these hold whatever a wing file lists
-    permissions: { deny: DENIED_GIT.map((c) => `Bash(${c}:*)`) },
+    permissions: { deny: [...DENIED_GIT.map((c) => `Bash(${c}:*)`), ...keyDenies()] },
     ...(plugins.length ? { enabledPlugins: Object.fromEntries(plugins.map((p) => [p, true])) } : {}),
   };
   writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");

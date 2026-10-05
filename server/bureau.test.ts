@@ -418,6 +418,28 @@ test("two offices can work on the same repo, each on its own branch", async () =
   assert.notEqual(wings.find((w) => w.id === "upkeep")!.agents[0]!.name, qa.agents[0]!.name, "people are not shared");
 });
 
+test("an office's waiting changes can be read file by file, and nothing else can", async () => {
+  const { dir, repo, bureau } = await setup();
+  const wt = join(dir, "state", "wings", "upkeep", "integration");
+  writeFileSync(join(wt, "done.txt"), "yes\n");
+  writeFileSync(join(wt, "README.md"), "hi\nmore\n");
+  await git(wt, "add", ".");
+  await git(wt, "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "-m", "work");
+  const c = (await bureau.changes("upkeep")) as { from: string; to: string; head: string; files: { path: string; status: string; added: number; removed: number }[] };
+  assert.equal(c.from, "main");
+  assert.equal(c.to, "annex/upkeep");
+  assert.equal(c.head, (await git(repo, "rev-parse", "annex/upkeep")).trim());
+  assert.deepEqual(c.files.sort((a, b) => a.path.localeCompare(b.path)), [
+    { path: "done.txt", status: "A", added: 1, removed: 0 },
+    { path: "README.md", status: "M", added: 1, removed: 0 },
+  ]);
+  const p = (await bureau.changes("upkeep", { file: "done.txt" })) as { patch: string };
+  assert.match(p.patch, /\+yes/);
+  await assert.rejects(bureau.changes("upkeep", { file: "../../etc/passwd" }), /not one of the changed files/);
+  await assert.rejects(bureau.changes("upkeep", { file: "--output=/tmp/x" }), /not one of the changed files/);
+  await assert.rejects(bureau.changes("upkeep", { taskId: "nope" }), /does not belong/);
+});
+
 test("settings edited in the office are written to the file and used at once", async () => {
   const { dir, store, bureau } = await setup();
   const { mkdirSync, readFileSync } = await import("node:fs");

@@ -28,8 +28,11 @@ export class Sidebar {
     );
   }
 
-  render(state: StateView, selectedWing: string | null, selectedAgent: string | null, sessions: SessionView[] = []) {
-    const desk = sessions.length
+  render(state: StateView, selectedWing: string | null, selectedAgent: string | null, sessions: SessionView[] = [], lives: { id: string; sessionId: string | null; cwd: string; status: string }[] = [], openLive: (id: string, cwd: string) => void = () => {}) {
+    // a live session not yet in Claude's logs (nothing sent yet) still shows, at the top
+    const fresh = lives.filter((l) => !l.sessionId || !sessions.some((s) => s.id === l.sessionId));
+    const liveIds = new Set(lives.map((l) => l.sessionId));
+    const desk = sessions.length || fresh.length
       ? h(
           "div",
           { class: "office" },
@@ -37,6 +40,18 @@ export class Sidebar {
           h(
             "ul",
             { class: "members" },
+            ...fresh.map((l, i) =>
+              h(
+                "li",
+                {},
+                h(
+                  "button",
+                  { class: `member who-you working`, type: "button", onclick: () => openLive(l.id, l.cwd), "aria-label": `Open the live session in ${l.cwd}` },
+                  portrait("you", i + 9, 28, "portrait"),
+                  h("span", { class: "info" }, h("b", {}, l.cwd.split("/").pop() ?? l.cwd), h("span", { class: "cls" }, "live, new"), h("span", { class: "line" }, h("span", { class: "st" }, l.status === "working" ? "working" : "live"))),
+                ),
+              ),
+            ),
             ...sessions.map((s, i) =>
               h(
                 "li",
@@ -51,7 +66,7 @@ export class Sidebar {
                     h("b", {}, s.title),
                     h("span", { class: "cls" }, s.branch ?? "no branch"),
                     h("span", { class: "bar", "aria-hidden": "true" }, h("i", {})),
-                    h("span", { class: "line" }, h("span", { class: "st" }, s.status === "working" ? "working" : "waiting"), h("span", {}, ago(s.updatedAt))),
+                    h("span", { class: "line" }, h("span", { class: "st" }, liveIds.has(s.id) ? "live" : s.status === "working" ? "working" : "waiting"), h("span", {}, ago(s.updatedAt))),
                   ),
                 ),
               ),

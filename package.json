@@ -12,7 +12,11 @@
     "test": "node --test \"server/**/*.test.ts\" \"web/src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
     "web:dev": "vite web",
-    "web:build": "vite build web"
+    "web:build": "vite build web",
+    "service:install": "node scripts/service.ts install",
+    "service:remove": "node scripts/service.ts remove",
+    "service:status": "node scripts/service.ts status",
+    "open": "node scripts/open.ts"
   },
   "dependencies": {
     "smol-toml": "1.9.0"

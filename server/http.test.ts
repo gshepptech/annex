@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./db.ts";
 import { startHttp, UserError, type Bureau } from "./http.ts";
+import { refuseForeign } from "./http.ts";
 
 function fakeBureau(store: Store): Bureau & { calls: string[] } {
   const calls: string[] = [];
@@ -28,6 +29,7 @@ function fakeBureau(store: Store): Bureau & { calls: string[] } {
     async addGoal(w, t, d) { calls.push(`goal ${w} ${t} ${d}`); return { id: 1 }; },
     closeGoal(w, id, s) { calls.push(`goal ${w} ${id} ${s}`); },
     async setAutonomy(w, on) { calls.push(`autonomy ${w} ${on}`); },
+    async changes(w) { calls.push(`changes ${w}`); return { files: [] }; },
   };
 }
 
@@ -94,6 +96,37 @@ test("the stream replays what was missed, then sends live events once each", asy
     ctrl.abort();
   } finally {
     server.closeAllConnections();
+    server.close();
+  }
+});
+
+test("requests from another site or another host name are refused", () => {
+  const r = (headers: Record<string, string>) => refuseForeign({ headers } as never);
+  assert.equal(r({ host: "127.0.0.1:4300" }), null, "curl and Node clients send no Origin");
+  assert.equal(r({ host: "127.0.0.1:4300", origin: "http://127.0.0.1:4300", "sec-fetch-site": "same-origin" }), null);
+  assert.equal(r({ host: "localhost:4300", origin: "http://localhost:4300" }), null);
+  assert.match(r({ host: "evil.example:4300" })!, /addressed to this machine/, "DNS rebinding");
+  assert.match(r({ host: "127.0.0.1:4300", origin: "https://evil.example" })!, /not allowed/);
+  assert.match(r({ host: "127.0.0.1:4300", origin: "null" })!, /sandboxed/);
+  assert.match(r({ host: "127.0.0.1:4300", origin: "http://localhost:5173" })!, /not allowed/, "another local port is another site");
+  assert.match(r({ host: "127.0.0.1:4300", "sec-fetch-site": "cross-site" })!, /Cross-site/);
+});
+
+test("with a key set, every API call must carry it; the page and the health check do not", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "annex-key-"));
+  writeFileSync(join(dir, "index.html"), "<p>office</p>");
+  const store = new Store(join(dir, "b.db"));
+  const server = await startHttp({ bureau: fakeBureau(store), store, port: 0, webDir: dir, key: "k".repeat(32) });
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    assert.equal((await fetch(`${base}/`)).status, 200, "the page itself needs no key");
+    assert.equal((await fetch(`${base}/api/health`)).status, 200);
+    assert.equal((await fetch(`${base}/api/state`)).status, 401);
+    assert.equal((await fetch(`${base}/api/wings/upkeep/pause`, { method: "POST" })).status, 401, "curl from an agent is refused");
+    assert.equal((await fetch(`${base}/api/state`, { headers: { "x-annex-key": "k".repeat(31) + "x" } })).status, 401);
+    assert.equal((await fetch(`${base}/api/state`, { headers: { "x-annex-key": "k".repeat(32) } })).status, 200);
+    assert.equal((await fetch(`${base}/api/sessions?key=${"k".repeat(32)}`)).status, 200, "event streams pass it in the query");
+  } finally {
     server.close();
   }
 });

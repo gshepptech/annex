@@ -2,6 +2,7 @@
 // things a person can do to a wing. Bound to loopback; there is no login because nothing here is
 // reachable from another machine.
 
+import { readdirSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -10,6 +11,11 @@ import type { Store } from "./db.ts";
 import type { Logger } from "./logger.ts";
 import type { StateView, WingEdit, NewWing, TranscriptView } from "./api-types.ts";
 import { listSessions, sessionTranscript, replyToSession, SessionBusy } from "./sessions.ts";
+import { health } from "./upkeep.ts";
+import { Runner, RunError } from "./runner.ts";
+import { sameKey } from "./key.ts";
+import { LiveSessions, LiveError, MODES, defaultMode, type Mode } from "./live.ts";
+import { IDLE_MS, isReplying } from "./sessions.ts";
 
 export interface Bureau {
   state(): Promise<StateView>;
@@ -29,6 +35,9 @@ export interface Bureau {
   addGoal(wingId: string, text: string, doneWhen: string | null): Promise<unknown>;
   closeGoal(wingId: string, goalId: number, status: "done" | "dropped" | "active"): void;
   setAutonomy(wingId: string, on: boolean): Promise<void>;
+  changes(wingId: string, opts?: { taskId?: string; file?: string }): Promise<unknown>;
+  previewFolder?(wingId: string): Promise<{ folder: string; setup: string | null }>;
+  lastTickAt?: Date | null;
 }
 
 export class UserError extends Error {
@@ -48,13 +57,47 @@ const TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
 };
 
-export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string }): Promise<Server> {
+// Annex listens on 127.0.0.1 with no login, and some of its endpoints run commands and write
+// files. Two browser attacks reach a localhost server: a page on another site posting to it
+// (cross-site request), and a hostile domain re-pointed at 127.0.0.1 (DNS rebinding). The Host
+// header must name this machine, and any Origin a browser sends must be this page itself.
+const LOCAL_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+export function refuseForeign(req: IncomingMessage): string | null {
+  const host = req.headers.host ?? "";
+  if (!LOCAL_HOST.test(host)) return `Annex only answers requests addressed to this machine, not "${host}"`;
+  const origin = req.headers.origin;
+  if (origin === "null") return "Requests from a sandboxed page are not allowed";
+  if (origin) {
+    let o: URL;
+    try {
+      o = new URL(origin);
+    } catch {
+      return "Bad Origin header";
+    }
+    if (!LOCAL_HOST.test(o.host) || o.host !== host) return `Requests from ${origin} are not allowed`;
+  }
+  // a cross-site request that sends no Origin still marks itself; refuse anything not same-origin
+  const site = req.headers["sec-fetch-site"];
+  if (site && site !== "same-origin" && site !== "none") return "Cross-site requests are not allowed";
+  return null;
+}
+
+export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; liveToken?: string; key?: string; runner?: Runner }): Promise<Server> {
   const { bureau, store, webDir, logger } = opts;
 
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", "http://localhost");
       const path = url.pathname;
+      const refused = refuseForeign(req);
+      if (refused) return json(res, 403, { error: refused });
+      // every API call carries the key, except the health check and the live sessions' own
+      // permission channel, which has its own token; an event stream passes it in the query
+      // because EventSource cannot send headers
+      if (opts.key && path.startsWith("/api/") && path !== "/api/health" && !/^\/api\/live\/[0-9a-f-]{36}\/permission$/.test(path)) {
+        const given = (req.headers["x-annex-key"] as string | undefined) ?? url.searchParams.get("key");
+        if (!sameKey(given, opts.key)) return json(res, 401, { error: "Annex needs its key. Open it with `npm run open`, which gives this browser the key once." });
+      }
 
       if (req.method === "GET" && path === "/api/state") return json(res, 200, await bureau.state());
       if (req.method === "GET" && path === "/api/logs") {
@@ -104,7 +147,30 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
         return json(res, 200, await bureau.hireFromOffice(decodeURIComponent(hire[1]!), Number(body.count ?? 1)));
       }
 
+      if (req.method === "GET" && path === "/api/health") {
+        return json(res, 200, await health({ engineUrl: opts.engineUrl ?? "http://127.0.0.1:3100", store: opts.store, lastTick: bureau.lastTickAt ?? null, startedAt: opts.startedAt ?? new Date() }));
+      }
+      if (path.startsWith("/api/live")) {
+        if (!opts.live) throw new UserError("Live sessions are not available", 404);
+        try {
+          const handled = await liveRoutes(req, res, url, opts.live, opts.liveToken ?? "");
+          if (handled) return;
+        } catch (err) {
+          if (err instanceof LiveError) throw new UserError(err.message, 409);
+          throw err;
+        }
+      }
+      if (path.startsWith("/api/run")) {
+        if (!opts.runner) throw new UserError("Running apps is not available", 404);
+        try {
+          if (await runRoutes(req, res, url, opts.runner, bureau)) return;
+        } catch (err) {
+          if (err instanceof RunError) throw new UserError(err.message, 409);
+          throw err;
+        }
+      }
       if (req.method === "GET" && path === "/api/sessions") return json(res, 200, listSessions());
+      if (req.method === "GET" && path === "/api/projects") return json(res, 200, projectFolders());
       const session = /^\/api\/sessions\/([0-9a-f-]{36})\/transcript$/.exec(path);
       if (req.method === "GET" && session) {
         const t = sessionTranscript(session[1]!);
@@ -114,12 +180,20 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       const reply = /^\/api\/sessions\/([0-9a-f-]{36})\/reply$/.exec(path);
       if (req.method === "POST" && reply) {
         const body = await readJson(req);
+        // one conversation, one claude: a session driven live takes no one-shot replies
+        if (opts.live?.bySession(reply[1]!)) throw new UserError("This session is open live in Annex; reply there.", 409);
         try {
           return json(res, 202, replyToSession(reply[1]!, str(body.text, "text"), { claude: opts.claudeCommand ?? "claude" }));
         } catch (err) {
           if (err instanceof SessionBusy) throw new UserError(err.message, 409);
           throw err;
         }
+      }
+
+      const changes = /^\/api\/wings\/([^/]+)(?:\/tasks\/([^/]+))?\/changes$/.exec(path);
+      if (req.method === "GET" && changes) {
+        const file = url.searchParams.get("file");
+        return json(res, 200, await bureau.changes(decodeURIComponent(changes[1]!), { taskId: changes[2] ? decodeURIComponent(changes[2]) : undefined, file: file ?? undefined }));
       }
 
       const goals = /^\/api\/wings\/([^/]+)\/goals$/.exec(path);
@@ -186,8 +260,156 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
 
   return new Promise((resolve, reject) => {
     server.once("error", reject);
+    // a live session's permission question is one request held open until you answer it
+    server.requestTimeout = 0;
     server.listen(opts.port, "127.0.0.1", () => resolve(server));
   });
+}
+
+// Live sessions. Starting one runs Claude in a folder you name, as you; resuming one waits until
+// the session has been quiet long enough that it is not open in a terminal.
+async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, live: LiveSessions, token: string): Promise<boolean> {
+  const path = url.pathname;
+  if (req.method === "GET" && path === "/api/live") {
+    json(res, 200, { lives: live.list().map((l) => ({ id: l.id, sessionId: l.sessionId, cwd: l.cwd, status: l.status, mode: l.mode })), defaultMode: defaultMode(), modes: MODES });
+    return true;
+  }
+  if (req.method === "POST" && path === "/api/live") {
+    const body = await readJson(req);
+    const resume = typeof body.resume === "string" && /^[0-9a-f-]{36}$/.test(body.resume) ? body.resume : null;
+    const mode = (typeof body.mode === "string" ? body.mode : defaultMode()) as Mode;
+    let cwd = typeof body.cwd === "string" ? expandHome(body.cwd.trim()) : "";
+    let history;
+    if (resume) {
+      const already = live.bySession(resume);
+      if (already) return (json(res, 200, already), true);
+      if (isReplying(resume)) throw new UserError("A reply from Annex is still running in this session; open it live when it finishes.", 409);
+      const t = sessionTranscript(resume);
+      if (!t) throw new UserError("No session with that id", 404);
+      const quiet = Date.now() - new Date(t.session.updatedAt).getTime();
+      if (quiet < IDLE_MS) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
+      cwd = t.session.cwd;
+      history = t.entries;
+    }
+    if (!cwd) throw new UserError("Name a folder to start the session in", 400);
+    json(res, 201, live.start({ cwd, mode, resume, history }));
+    return true;
+  }
+  const m = /^\/api\/live\/([0-9a-f-]{36})(?:\/(events|message|interrupt|mode|close|answer|permission))?$/.exec(path);
+  if (!m) return false;
+  const id = m[1]!;
+  if (req.method === "GET" && !m[2]) {
+    const v = live.get(id);
+    if (!v) throw new UserError("No live session with that id", 404);
+    json(res, 200, v);
+    return true;
+  }
+  if (req.method === "GET" && m[2] === "events") {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+    const off = live.subscribe(id, (u) => res.write(`data: ${JSON.stringify(u)}\n\n`));
+    const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
+    req.on("close", () => {
+      off();
+      clearInterval(ping);
+    });
+    return true;
+  }
+  if (req.method !== "POST") return false;
+  const body = await readJson(req);
+  switch (m[2]) {
+    case "message":
+      live.send(id, str(body.text, "text"));
+      break;
+    case "interrupt":
+      live.interrupt(id);
+      break;
+    case "mode":
+      live.setMode(id, str(body.mode, "mode") as Mode);
+      break;
+    case "close":
+      live.close(id);
+      break;
+    case "answer":
+      live.answer(id, str(body.promptId, "promptId"), body.allow === true ? { allow: true, always: body.always === true } : { allow: false, message: typeof body.message === "string" ? body.message : undefined });
+      break;
+    case "permission": {
+      // only the approve MCP server Annex started for this session knows the token
+      if (req.headers["x-annex-token"] !== token || !token) throw new UserError("Not allowed", 403);
+      const d = await live.ask(id, str(body.tool, "tool"), (body.input ?? {}) as Record<string, unknown>);
+      json(res, 200, d);
+      return true;
+    }
+    default:
+      return false;
+  }
+  json(res, 200, { ok: true });
+  return true;
+}
+
+// Folders worth offering when you start a session or open an office: every git repo directly
+// under ~/Projects, then the folders your recent sessions ran in.
+function projectFolders(): string[] {
+  const home = process.env.HOME ?? "";
+  const root = join(home, "Projects");
+  const found = new Set<string>();
+  try {
+    for (const d of readdirSync(root, { withFileTypes: true })) {
+      if (d.isDirectory() && existsSync(join(root, d.name, ".git"))) found.add(join(root, d.name));
+    }
+  } catch {
+    // no ~/Projects
+  }
+  for (const s of listSessions({ limit: 30, withinMs: 30 * 86_400_000 })) found.add(s.cwd);
+  return [...found].sort();
+}
+
+// Running the app. A folder is one of yours (any folder you name, as in a terminal); an office runs
+// in its preview checkout, never in the worktree Annex merges in.
+async function runRoutes(req: IncomingMessage, res: ServerResponse, url: URL, runner: Runner, bureau: Bureau): Promise<boolean> {
+  const path = url.pathname;
+  const folderOf = async (q: { folder?: unknown; wing?: unknown }, refresh: boolean): Promise<{ folder: string; setup: string | null }> => {
+    if (typeof q.wing === "string" && q.wing) {
+      if (!bureau.previewFolder) throw new UserError("Offices cannot run apps here", 404);
+      if (refresh) return bureau.previewFolder(q.wing);
+      const all = runner.list().find((r) => r.folder.endsWith(`/wings/${q.wing}/preview`));
+      return all ? { folder: all.folder, setup: null } : bureau.previewFolder(q.wing);
+    }
+    const f = typeof q.folder === "string" ? expandHome(q.folder.trim()) : "";
+    if (!f.startsWith("/")) throw new UserError("Name a folder by its full path", 400);
+    return { folder: f, setup: null };
+  };
+  if (req.method === "GET" && path === "/api/run") {
+    const { folder } = await folderOf({ folder: url.searchParams.get("folder"), wing: url.searchParams.get("wing") }, false);
+    json(res, 200, { folder, scripts: runner.scripts(folder), runs: runner.list(folder) });
+    return true;
+  }
+  if (req.method === "POST" && path === "/api/run") {
+    const body = await readJson(req);
+    const { folder, setup } = await folderOf(body, true);
+    const script = typeof body.script === "string" ? body.script : undefined;
+    const command = typeof body.command === "string" ? body.command : undefined;
+    // an office's preview that was never set up gets its setup first (npm ci and the like)
+    const run = setup
+      ? runner.start({ folder, command: `${setup} && ${script ? `npm run ${script}` : command ?? ""}`, label: script ? `npm run ${script}` : command })
+      : runner.start({ folder, script, command });
+    json(res, 201, run);
+    return true;
+  }
+  const m = /^\/api\/run\/([0-9a-f-]{36})\/(stop|log)$/.exec(path);
+  if (!m) return false;
+  if (req.method === "POST" && m[2] === "stop") {
+    json(res, 200, runner.stop(m[1]!));
+    return true;
+  }
+  if (req.method === "GET" && m[2] === "log") {
+    json(res, 200, runner.log(m[1]!, Number(url.searchParams.get("after") ?? 0)));
+    return true;
+  }
+  return false;
+}
+
+function expandHome(p: string): string {
+  return p === "~" || p.startsWith("~/") ? `${process.env.HOME ?? ""}${p.slice(1)}` : p;
 }
 
 function streamEvents(req: IncomingMessage, res: ServerResponse, store: Store, after: number) {

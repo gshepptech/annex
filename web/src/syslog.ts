@@ -2,6 +2,7 @@
 // .annex/logs/annex.log. Follows new lines while open.
 
 import { h } from "./dom.ts";
+import { apiFetch } from "./api.ts";
 
 interface Line {
   id: number;
@@ -21,7 +22,7 @@ export function logDialog() {
   const wings = new Set<string>();
 
   const pull = async () => {
-    const r = await fetch(`/api/logs?after=${last}`).catch(() => null);
+    const r = await apiFetch(`/api/logs?after=${last}`).catch(() => null);
     if (!r?.ok) return;
     const { file, lines } = (await r.json()) as { file: string | null; lines: Line[] };
     where.textContent = file ? `Also written to ${file}` : "";

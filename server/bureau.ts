@@ -13,14 +13,14 @@ import { homedir } from "node:os";
 import type { Store, TaskRow } from "./db.ts";
 import type { Wing } from "./wing.ts";
 import { inQuietHours, parseWing } from "./wing.ts";
-import type { StateView, WingView, TaskView, WingEdit, NewWing, TranscriptView, RunView, Entry } from "./api-types.ts";
+import type { ChangesView, StateView, WingView, TaskView, WingEdit, NewWing, TranscriptView, RunView, Entry } from "./api-types.ts";
 import { applyEdit, toToml } from "./wingfile.ts";
 import { parseLog } from "./transcript.ts";
 import type { NewEvent } from "./events.ts";
 import { BOARD_USER_ID, type Paperclip, type Issue, type Frame } from "./engine/paperclip.ts";
 import { provision, type Provisioned } from "./provision.ts";
 import { runCommand, type RunResult } from "./run.ts";
-import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration, waiting, initRepo } from "./git.ts";
+import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration, waiting, initRepo, changedFiles, filePatch, revParse, previewWorktree } from "./git.ts";
 import { parseProposal, parseBrief, judge, similar, type ProposedTask, type GoalUpdate } from "./proposal.ts";
 import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
@@ -75,6 +75,8 @@ export class Bureau implements BureauApi {
   private now: () => Date;
   readonly logger: Logger;
   private ticking = false;
+  // when the last tick finished, for the health report
+  lastTickAt: Date | null = null;
   private director: Director | null = null;
   private experimentsOn = false;
   // when the person last overrode a usage-limit hold; failures before it no longer hold anything
@@ -207,6 +209,7 @@ export class Bureau implements BureauApi {
       }
     } finally {
       this.ticking = false;
+      this.lastTickAt = this.now();
     }
   }
 
@@ -770,6 +773,44 @@ export class Bureau implements BureauApi {
     this.store.addTask({ id: issue.id, wingId: rt.wing.id, identifier: issue.identifier, title: t.title, doneCheck: t.doneCheck, charterLine: t.charterLine, evidence: t.evidence, source: t.source, goalId: t.goalId ?? null });
     this.emit({ wingId: rt.wing.id, kind: "task.created", actor: t.source === "you" ? "you" : prov.lead.id, taskId: issue.id, payload: { title: t.title, assigneeId: worker.id, charterLine: t.charterLine } });
     return issue;
+  }
+
+  // ----- reading the work ------------------------------------------------------------------
+
+  // The office's changes waiting to be merged (integration branch against base), or one task's
+  // changes (its branch against the integration branch). With `file`, that file's patch; the
+  // file must be one of the changed files, so nothing else in the repo can be read this way.
+  async changes(wingId: string, opts: { taskId?: string; file?: string } = {}): Promise<ChangesView | { file: string; patch: string }> {
+    const rt = this.ready(wingId);
+    const repo = rt.wing.repo;
+    if (!repo) throw new UserError(`${rt.wing.name} has no repo`, 409);
+    let from = repo.baseBranch;
+    let to = repo.integrationBranch;
+    if (opts.taskId) {
+      const task = this.store.task(opts.taskId);
+      if (!task || task.wingId !== wingId) throw new UserError("That task does not belong to this office", 404);
+      const ew = await this.workspaceFor(rt, task.id, true);
+      from = repo.integrationBranch;
+      to = ew?.branchName ?? `${repo.integrationBranch}--${task.identifier}`;
+    }
+    const sha = await revParse(repo.path, to);
+    if (!sha) throw new UserError(`The branch ${to} is gone (its work was merged or stopped)`, 404);
+    const files = await changedFiles(repo.path, from, sha);
+    if (opts.file !== undefined) {
+      if (!files.some((f) => f.path === opts.file)) throw new UserError("That file is not one of the changed files", 404);
+      return { file: opts.file, patch: await filePatch(repo.path, from, sha, opts.file) };
+    }
+    return { from, to, head: sha, files };
+  }
+
+  // Where an office's app runs: a throwaway checkout of its newest verified work, plus the
+  // office's setup command to put in front of a run when that checkout has never been set up.
+  async previewFolder(wingId: string): Promise<{ folder: string; setup: string | null }> {
+    const rt = this.ready(wingId);
+    const ws = rt.prov.workspace;
+    if (!ws) throw new UserError(`${rt.wing.name} has no repo to run`, 409);
+    const folder = await this.inIntegration(rt, () => previewWorktree(ws));
+    return { folder, setup: rt.wing.setup && !existsSync(join(folder, "node_modules")) ? rt.wing.setup : null };
   }
 
   // ----- goals -----------------------------------------------------------------------------

@@ -5,6 +5,7 @@
 
 import type { TranscriptView, RunView, Entry, SessionTranscript } from "../../server/api-types.ts";
 import { h } from "./dom.ts";
+import { apiFetch } from "./api.ts";
 import { portrait, faceIndex } from "./portrait.ts";
 
 const ROLE_LABEL = { lead: "Lead", worker: "Crew", reviewer: "Reviewer" } as const;
@@ -15,6 +16,8 @@ export class Terminal {
   agentId: string | null = null;
   // set instead of agentId when showing one of your own sessions
   sessionId: string | null = null;
+  // set by the page: continue one of your sessions live
+  onOpenLive: (sessionId: string) => void = () => {};
   private screen = h("div", { class: "screen", tabindex: "0", "aria-live": "polite" });
   private head = h("header", { class: "term-head" });
   private briefing = h("div", { class: "briefing" });
@@ -78,7 +81,7 @@ export class Terminal {
     if (this.timer) clearTimeout(this.timer);
     let t: SessionTranscript;
     try {
-      const r = await fetch(`/api/sessions/${encodeURIComponent(id)}/transcript`);
+      const r = await apiFetch(`/api/sessions/${encodeURIComponent(id)}/transcript`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `answered ${r.status}`);
       t = await r.json();
     } catch (err) {
@@ -108,8 +111,16 @@ export class Terminal {
         s.status === "working" ? h("span", { class: "live" }, "Working") : h("span", {}, "idle"),
       ),
     );
+    const quiet = Date.now() - new Date(s.updatedAt).getTime() >= 3 * 60_000;
     this.briefing.replaceChildren(
-      h("div", { class: "resume" }, h("span", {}, "Continue it in your terminal"), h("code", {}, cmd), copy),
+      h(
+        "div",
+        { class: "resume" },
+        h("span", {}, "Continue it here, live, or in your terminal"),
+        h("button", { class: "btn primary", type: "button", disabled: !quiet || s.replying, title: quiet ? "" : "Active in the last few minutes, so it may be open in a terminal", onclick: () => this.onOpenLive(s.id) }, "Open live"),
+        h("code", {}, cmd),
+        copy,
+      ),
     );
     this.drawReply(s);
     const key = `${t.entries.length}:${t.entries.at(-1)?.at ?? ""}`;
@@ -119,7 +130,7 @@ export class Terminal {
     const results = new Map<string, Extract<Entry, { kind: "result" }>>();
     for (const e of t.entries) if (e.kind === "result") results.set(e.toolId, e);
     const body: (HTMLElement | null)[] = [];
-    for (const [i, e] of t.entries.entries()) body.push(...this.entry(e, results, `s:${i}`));
+    for (const [i, e] of t.entries.entries()) body.push(...renderEntry(e, results, `s:${i}`));
     if (!t.entries.length) body.push(line("sys", "✻", "Nothing in this session yet."));
     this.screen.replaceChildren(h("p", { class: "run-reason" }, "the latest part of this session"), ...body.filter((b): b is HTMLElement => b !== null));
     for (const d of this.screen.querySelectorAll("details")) if (open.has((d as HTMLElement).dataset.k)) (d as HTMLDetailsElement).open = true;
@@ -143,7 +154,7 @@ export class Terminal {
     const send = async () => {
       if (!text.value.trim()) return;
       try {
-        const r = await fetch(`/api/sessions/${encodeURIComponent(s.id)}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: text.value }) });
+        const r = await apiFetch(`/api/sessions/${encodeURIComponent(s.id)}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: text.value }) });
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `answered ${r.status}`);
         text.value = "";
         this.replyError = "";
@@ -194,7 +205,7 @@ export class Terminal {
     if (this.timer) clearTimeout(this.timer);
     let t: TranscriptView;
     try {
-      const r = await fetch(`/api/agents/${encodeURIComponent(id)}/transcript?limit=${this.limit}`);
+      const r = await apiFetch(`/api/agents/${encodeURIComponent(id)}/transcript?limit=${this.limit}`);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `answered ${r.status}`);
       t = await r.json();
     } catch (err) {
@@ -264,36 +275,38 @@ export class Terminal {
     for (const e of r.entries) if (e.kind === "result") results.set(e.toolId, e);
 
     const body: (HTMLElement | null)[] = [];
-    for (const [i, e] of r.entries.entries()) body.push(...this.entry(e, results, `${r.id}:${i}`));
+    for (const [i, e] of r.entries.entries()) body.push(...renderEntry(e, results, `${r.id}:${i}`));
     if (r.entries.length === 0) body.push(line("sys", "✻", r.status === "queued" ? "Waiting to start..." : "No output recorded."));
     const prompt = r.prompt ? h("details", { class: "run-prompt", "data-k": `${r.id}:prompt` }, h("summary", {}, "Prompt sent"), h("pre", {}, r.prompt)) : null;
     return h("div", { class: "run" }, rule, r.reason ? h("p", { class: "run-reason" }, `woke: ${r.reason.replace(/_/g, " ")}`) : null, prompt, ...body);
   }
 
-  private entry(e: Entry, results: Map<string, Extract<Entry, { kind: "result" }>>, k: string): (HTMLElement | null)[] {
-    switch (e.kind) {
-      case "start":
-        return [line("sys", "✻", `${e.model} in ${shortPath(e.cwd)}`)];
-      case "text":
-        return [line("say", "⏺", e.text)];
-      case "prompt":
-        return [line("you", "❯", e.text)];
-      case "tool": {
-        const res = results.get(e.id);
-        const state = !res ? "" : res.isError ? "err" : "ok";
-        const el = h("div", { class: `ln tool ${state}` }, h("span", { class: "mk" }, "⏺"), h("span", { class: "body" }, h("b", {}, e.name), "(", h("span", { class: "arg" }, e.summary), ")"));
-        const out: (HTMLElement | null)[] = [el];
-        if (e.detail) out.push(diff(e.detail));
-        if (res) out.push(result(res, k));
-        return out;
-      }
-      case "result":
-        return [];
-      case "done":
-        return [line(e.isError ? "done err" : "done", "✻", `${e.isError ? "Stopped" : "Done"}${e.durationMs ? ` in ${duration(e.durationMs)}` : ""}${e.turns ? `, ${e.turns} turns` : ""}`), e.text ? line("say", "⏺", e.text) : null];
-      case "error":
-        return [line("error", "✗", e.text)];
+}
+
+// One entry the way Claude Code prints it; shared by agents' runs, your sessions and live ones.
+export function renderEntry(e: Entry, results: Map<string, Extract<Entry, { kind: "result" }>>, k: string): (HTMLElement | null)[] {
+  switch (e.kind) {
+    case "start":
+      return [line("sys", "✻", `${e.model} in ${shortPath(e.cwd)}`)];
+    case "text":
+      return [line("say", "⏺", e.text)];
+    case "prompt":
+      return [line("you", "❯", e.text)];
+    case "tool": {
+      const res = results.get(e.id);
+      const state = !res ? "" : res.isError ? "err" : "ok";
+      const el = h("div", { class: `ln tool ${state}` }, h("span", { class: "mk" }, "⏺"), h("span", { class: "body" }, h("b", {}, e.name), "(", h("span", { class: "arg" }, e.summary), ")"));
+      const out: (HTMLElement | null)[] = [el];
+      if (e.detail) out.push(diff(e.detail));
+      if (res) out.push(result(res, k));
+      return out;
     }
+    case "result":
+      return [];
+    case "done":
+      return [line(e.isError ? "done err" : "done", "✻", `${e.isError ? "Stopped" : "Done"}${e.durationMs ? ` in ${duration(e.durationMs)}` : ""}${e.turns ? `, ${e.turns} turns` : ""}`), e.text ? line("say", "⏺", e.text) : null];
+    case "error":
+      return [line("error", "✗", e.text)];
   }
 }
 

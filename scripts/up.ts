@@ -5,7 +5,7 @@
 //   npm run up
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, openSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dirname, "..");
@@ -57,7 +57,12 @@ if (await healthy()) {
   console.log("[up] Paperclip is up");
 }
 
-if (!existsSync(join(root, "web", "dist", "index.html"))) {
+// build the page when it is missing or older than its source, so an always-on service never
+// serves a stale page after an update
+const built = join(root, "web", "dist", "index.html");
+const newestSource = (dir: string): number =>
+  readdirSync(dir, { withFileTypes: true }).reduce((t, e) => Math.max(t, e.isDirectory() ? newestSource(join(dir, e.name)) : statSync(join(dir, e.name)).mtimeMs), 0);
+if (!existsSync(built) || statSync(built).mtimeMs < Math.max(newestSource(join(root, "web", "src")), statSync(join(root, "web", "index.html")).mtimeMs)) {
   console.log("[up] building the office page...");
   await new Promise((resolve) => run("npx", ["vite", "build", "web"], root).on("exit", resolve));
 }

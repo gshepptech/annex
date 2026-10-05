@@ -18,6 +18,15 @@ export interface AgentView {
   filed: number;
 }
 
+export interface ChangesView {
+  // what is compared: the branch work started from, and the branch with the work
+  from: string;
+  to: string;
+  // the commit `to` points at now; a merge confirms this exact commit
+  head: string;
+  files: { path: string; status: string; added: number; removed: number }[];
+}
+
 export interface GoalView {
   id: number;
   text: string;
@@ -205,3 +214,60 @@ export interface StateView {
   lastEventId: number;
   recent: BourneEvent[];
 }
+
+// Live sessions (server/live.ts): your own Claude Code sessions driven from the browser.
+export const LIVE_MODES = ["default", "acceptEdits", "plan", "bypassPermissions"] as const;
+export type LiveMode = (typeof LIVE_MODES)[number];
+
+export interface LivePrompt {
+  id: string;
+  tool: string;
+  input: Record<string, unknown>;
+  at: string;
+}
+
+export interface LiveView {
+  id: string;
+  sessionId: string | null;
+  cwd: string;
+  mode: LiveMode;
+  model: string | null;
+  // starting: the process is coming up; working: a turn is running; waiting: your move; closed
+  status: "starting" | "working" | "waiting" | "closed";
+  entries: Entry[];
+  // the answer being written right now, before its message is complete
+  partial: string;
+  prompts: LivePrompt[];
+  slashCommands: string[];
+  error: string | null;
+}
+
+export interface LiveUpdate {
+  // entries from this index on replace what the client has
+  from: number;
+  entries: Entry[];
+  partial: string;
+  status: LiveView["status"];
+  mode: LiveMode;
+  prompts: LivePrompt[];
+  sessionId: string | null;
+  model: string | null;
+  slashCommands?: string[];
+  error: string | null;
+}
+
+// One command running for the app you are building (server/runner.ts).
+export interface AppRun {
+  id: string;
+  folder: string;
+  command: string;
+  label: string;
+  status: "running" | "exited" | "stopped";
+  // null while it runs, and for a run stopped by a signal
+  exitCode: number | null;
+  url: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  lines: number;
+}
+

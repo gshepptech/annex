@@ -1,14 +1,15 @@
 // The case file for the selected wing: what it is doing, what the lead is asking, the chat, the
 // brief, and every setting, which can be changed here and apply at once.
 
-import type { WingView, WingEdit } from "../../server/api-types.ts";
+import type { WingView, WingEdit, ChangesView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
 import { describe } from "./log.ts";
-import { post } from "./api.ts";
+import { post, apiFetch } from "./api.ts";
 import { h } from "./dom.ts";
 import { officeBadge } from "./sidebar.ts";
+import { RunPanel } from "./runpanel.ts";
 
-type Tab = "goals" | "log" | "talk" | "brief" | "loot" | "settings";
+type Tab = "goals" | "log" | "talk" | "brief" | "loot" | "run" | "settings";
 
 const MODELS = ["claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1", "claude-haiku-4-5-20251001"];
 
@@ -21,6 +22,9 @@ export class Panel {
   private error = "";
   private saved = "";
   private refresh: () => void;
+  private runPanel = new RunPanel();
+  // the Ready to merge tab's changes, kept across redraws: which office, the files, the open one
+  private changes: { wing: string; view: ChangesView | null; error: string; file: string | null; patch: string } = { wing: "", view: null, error: "", file: null, patch: "" };
 
   constructor(refresh: () => void) {
     this.refresh = refresh;
@@ -74,7 +78,7 @@ export class Panel {
       if (method === "POST") {
         await post(path, body);
       } else {
-        const r = await fetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const r = await apiFetch(path, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `Request failed (${r.status})`);
       }
       after?.();
@@ -190,7 +194,7 @@ export class Panel {
     }
 
     const active = w.goals.filter((g) => g.status === "active").length;
-    const tabs: [Tab, string, number][] = [["goals", active ? `Goals ${active}` : "Goals", 0], ["log", "Log", 0], ["talk", "Talk", 0], ["brief", "Brief", w.draft ? 1 : 0], ["loot", `Ready to merge ${w.loot.commits.length}`, 0], ["settings", "Settings", 0]];
+    const tabs: [Tab, string, number][] = [["goals", active ? `Goals ${active}` : "Goals", 0], ["log", "Log", 0], ["talk", "Talk", 0], ["brief", "Brief", w.draft ? 1 : 0], ["loot", `Ready to merge ${w.loot.commits.length}`, 0], ["run", "Run", 0], ["settings", "Settings", 0]];
     this.el.append(
       h(
         "nav",
@@ -209,6 +213,16 @@ export class Panel {
     if (this.tab === "brief") this.drawBrief(body, w, base, busy);
     if (this.tab === "loot") this.drawLoot(body, w);
     if (this.tab === "settings") this.drawSettings(body, w, base, busy);
+    if (this.tab === "run") {
+      if (w.repo) {
+        this.runPanel.show({ wing: w.id });
+        body.append(this.runPanel.el);
+      } else {
+        body.append(h("p", { class: "empty" }, "This office has no repo to run."));
+      }
+    } else {
+      this.runPanel.hide();
+    }
   }
 
   private drawGoals(body: HTMLElement, w: WingView, base: string, busy: boolean) {
@@ -333,9 +347,72 @@ export class Panel {
     body.append(
       h("h3", {}, `${w.loot.commits.length} verified commit${w.loot.commits.length === 1 ? "" : "s"} waiting on ${w.integrationBranch}`),
       h("ol", { class: "log loot" }, ...w.loot.commits.map((c) => h("li", {}, h("time", {}, c.date.slice(5)), h("b", { style: "font-family: var(--term)" }, c.sha), h("span", {}, c.subject)))),
-      h("p", { class: "empty" }, "Review them, then merge into your branch yourself:"),
+    );
+    this.drawChanges(body, w);
+    body.append(
+      h("p", { class: "empty" }, "Or merge it yourself in a terminal:"),
       h("div", { class: "row" }, h("pre", { class: "brief", style: "flex: 1; margin: 0" }, cmd), copy),
     );
+  }
+
+  // Every file the office changed, and any file's diff: what you are about to merge.
+  private drawChanges(body: HTMLElement, w: WingView) {
+    // read again whenever new work lands on the branch
+    const key = `${w.id}:${w.loot.commits[0]?.sha ?? ""}`;
+    if (this.changes.wing !== key) {
+      this.changes = { wing: key, view: null, error: "", file: null, patch: "" };
+      void this.loadChanges(w.id, key);
+    }
+    const c = this.changes;
+    if (c.error) return body.append(h("p", { class: "notice bad" }, c.error));
+    if (!c.view) return body.append(h("p", { class: "empty" }, "Reading the changes…"));
+    const v = c.view;
+    const total = v.files.reduce((n, f) => [n[0]! + f.added, n[1]! + f.removed], [0, 0]);
+    body.append(
+      h("h3", {}, `${v.files.length} file${v.files.length === 1 ? "" : "s"} changed, +${total[0]} −${total[1]}`),
+      h(
+        "ol",
+        { class: "files" },
+        ...v.files.map((f) =>
+          h(
+            "li",
+            {},
+            h(
+              "button",
+              { type: "button", class: `file${c.file === f.path ? " open" : ""}`, "aria-expanded": String(c.file === f.path), onclick: () => void this.openFile(w.id, f.path) },
+              h("span", { class: `st st-${f.status}`, title: { A: "added", M: "changed", D: "deleted" }[f.status] ?? f.status }, f.status),
+              h("span", { class: "path" }, f.path),
+              h("span", { class: "n" }, h("span", { class: "add" }, `+${f.added}`), " ", h("span", { class: "del" }, `−${f.removed}`)),
+            ),
+            c.file === f.path ? patchView(c.patch) : null,
+          ),
+        ),
+      ),
+    );
+  }
+
+  private async loadChanges(wingId: string, key: string) {
+    const r = await apiFetch(`/api/wings/${encodeURIComponent(wingId)}/changes`);
+    const data = await r.json().catch(() => ({}));
+    if (this.changes.wing !== key) return;
+    if (r.ok) this.changes.view = data as ChangesView;
+    else this.changes.error = (data as { error?: string }).error ?? `Annex answered ${r.status}`;
+    this.render();
+  }
+
+  private async openFile(wingId: string, file: string) {
+    if (this.changes.file === file) {
+      this.changes.file = null;
+      return this.render();
+    }
+    this.changes.file = file;
+    this.changes.patch = "";
+    this.render();
+    const r = await apiFetch(`/api/wings/${encodeURIComponent(wingId)}/changes?file=${encodeURIComponent(file)}`);
+    const data = (await r.json().catch(() => ({}))) as { patch?: string; error?: string };
+    if (this.changes.file !== file) return;
+    this.changes.patch = r.ok ? data.patch ?? "" : `Could not read the diff: ${data.error ?? r.status}`;
+    this.render();
   }
 
   private drawSettings(body: HTMLElement, w: WingView, base: string, busy: boolean) {
@@ -422,4 +499,11 @@ export class Panel {
     );
     body.append(form);
   }
+}
+
+// A unified diff, lines coloured by what they do; the file headers are dropped.
+function patchView(patch: string): HTMLElement {
+  if (!patch) return h("p", { class: "empty" }, "Loading the diff…");
+  const lines = patch.split("\n").filter((l) => !/^(diff --git|index |--- |\+\+\+ |new file mode|deleted file mode)/.test(l));
+  return h("pre", { class: "patch" }, ...lines.map((l) => h("div", { class: l.startsWith("@@") ? "hunk" : l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "" }, l || " ")));
 }
