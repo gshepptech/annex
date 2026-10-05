@@ -227,7 +227,8 @@ export class LiveSessions {
       l.status = "waiting";
     }
     const at = new Date().toISOString();
-    const add = toEntries(m, at);
+    // a turn's closing summary repeats its last message; keep only how it ended
+    const add = toEntries(m, at).map((e) => (e.kind === "done" ? { ...e, text: "" } : e));
     if (add.length) {
       l.entries.push(...add);
       if (l.entries.length > MAX_ENTRIES) l.entries.splice(0, l.entries.length - MAX_ENTRIES);

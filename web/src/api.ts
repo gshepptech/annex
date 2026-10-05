@@ -22,6 +22,13 @@ function readKey(): string | null {
   }
 }
 export const key = readKey();
+// the link opened in a tab that already shows Annex only changes the #; take the key and reload
+addEventListener("hashchange", () => {
+  if (/[#&]key=/.test(location.hash)) {
+    readKey();
+    location.reload();
+  }
+});
 
 // Called when Annex refuses the key, so the page can say how to fix it.
 let onMissingKey: () => void = () => {};
@@ -32,7 +39,7 @@ export function whenKeyMissing(fn: () => void) {
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
   if (key) headers.set("x-annex-key", key);
-  const r = await apiFetch(path, { ...init, headers });
+  const r = await fetch(path, { ...init, headers });
   if (r.status === 401) onMissingKey();
   return r;
 }

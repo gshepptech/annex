@@ -12,7 +12,7 @@ import { RunPanel } from "./runpanel.ts";
 const MODE_LABEL: Record<Mode, string> = { default: "Ask before acting", acceptEdits: "Accept edits", plan: "Plan only", bypassPermissions: "Don't ask" };
 
 export class LiveView {
-  readonly el = h("section", { class: "terminal live role-you", "aria-label": "Live session" });
+  readonly el = h("section", { class: "terminal live-session role-you", "aria-label": "Live session" });
   liveId: string | null = null;
   sessionId: string | null = null;
   private head = h("header", { class: "term-head" });
