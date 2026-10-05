@@ -675,3 +675,7 @@ dialog p { margin: 0; color: var(--muted); }
 .plugins li .hint { grid-column: 1; font-size: 0.8rem; color: var(--dim); }
 .plugins li .switch { grid-column: 2; grid-row: 1 / span 2; }
 @media (max-width: 860px) { .project-grid { grid-template-columns: 1fr; } }
+form.row { flex-direction: row; }
+.project-detail > * { min-width: 0; }
+.project-detail textarea, .project-detail input, .project-detail select { max-width: 100%; }
+.branch-block .row > * { min-width: 0; }
