@@ -75,13 +75,17 @@ export function toolsFor(role: AgentRow["role"], wing: Wing, plugins: PluginInfo
 // Claude settings every Annex agent runs with: the person's global CLAUDE.md and auto-memory are
 // hidden, and together with `--setting-sources project,local` so are their hooks and plugins.
 // Plugins an office names are the exception: they are enabled here, for that office only.
-// The folder holding Annex's API key is off limits to agents, by every tool that can read a file.
+// The folder holding Annex's API key is off limits to agents: the file tools by path, and any
+// shell command that names it anywhere (a wildcard rule matches the path in any position, as an
+// argument or a relative path). Rules match the command as written, so a shell glob that spells
+// the path differently, or an office that lets its crew run node, npm or npx (arbitrary code as
+// you), can still reach it; see key.ts.
 export function keyDenies(dir = KEY_DIR): string[] {
   const abs = dir.replace(/\/$/, "");
   const tilde = abs.startsWith(homedir()) ? `~${abs.slice(homedir().length)}` : abs;
+  const tail = abs.split("/").slice(-2).join("/");
   const reads = ["Read", "Grep", "Glob", "Edit", "Write"].flatMap((t) => [`${t}(/${abs}/**)`, `${t}(${tilde}/**)`]);
-  const shell = [...BASE_SHELL, "grep", "find", "less", "more", "strings", "xxd", "od", "base64", "cp", "mv"].flatMap((c) => [`Bash(${c} ${abs}:*)`, `Bash(${c} ${tilde}:*)`]);
-  return [...reads, ...shell, "Bash(curl:*)", "Bash(wget:*)"];
+  return [...reads, `Bash(*${tail}*)`, "Bash(curl:*)", "Bash(wget:*)"];
 }
 
 export function writeAgentSettings(dir: string, plugins: string[] = []): string {

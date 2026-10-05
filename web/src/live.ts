@@ -260,12 +260,13 @@ export class LiveView {
 function describeInput(p: LivePrompt): HTMLElement {
   const s = (k: string) => (typeof p.input[k] === "string" ? (p.input[k] as string) : "");
   if (p.tool === "Bash") return h("pre", { class: "prompt-detail" }, s("command"));
-  if (p.tool === "Write") return h("div", {}, h("p", { class: "prompt-path" }, s("file_path")), h("pre", { class: "prompt-detail" }, s("content").split("\n").slice(0, 30).join("\n")));
+  // everything you are approving is shown; long input scrolls rather than being cut
+  if (p.tool === "Write") return h("div", {}, h("p", { class: "prompt-path" }, s("file_path")), h("pre", { class: "prompt-detail" }, s("content")));
   if (p.tool === "Edit") {
-    const diff = [...s("old_string").split("\n").map((l) => `- ${l}`), ...s("new_string").split("\n").map((l) => `+ ${l}`)].slice(0, 40);
+    const diff = [...s("old_string").split("\n").map((l) => `- ${l}`), ...s("new_string").split("\n").map((l) => `+ ${l}`)];
     return h("div", {}, h("p", { class: "prompt-path" }, s("file_path")), h("pre", { class: "prompt-detail" }, ...diff.map((l) => h("div", { class: l.startsWith("+") ? "add" : "del" }, l))));
   }
-  return h("pre", { class: "prompt-detail" }, JSON.stringify(p.input, null, 2).slice(0, 2000));
+  return h("pre", { class: "prompt-detail" }, JSON.stringify(p.input, null, 2));
 }
 
 function shortPath(p: string): string {

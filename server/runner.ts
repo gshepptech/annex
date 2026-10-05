@@ -49,7 +49,8 @@ export class Runner {
   }
 
   // `script` runs `npm run <script>`; `command` runs a shell command line you typed.
-  start(o: { folder: string; script?: string; command?: string; label?: string }): RunView {
+  // `setup` runs first when given (an office's preview that has never been set up).
+  start(o: { folder: string; script?: string; command?: string; label?: string; setup?: string | null }): RunView {
     if (!existsSync(o.folder) || !statSync(o.folder).isDirectory()) throw new RunError(`${o.folder} is not a folder`);
     let command: string;
     if (o.script) {
@@ -60,14 +61,16 @@ export class Runner {
     } else {
       throw new RunError("Name a script or a command to run");
     }
-    const same = [...this.runs.values()].find((r) => r.folder === o.folder && r.command === command && r.status === "running");
+    const same = [...this.runs.values()].find((r) => r.folder === o.folder && r.label === (o.label ?? command) && r.status === "running");
     if (same) return view(same);
+    const label = o.label ?? command;
+    if (o.setup) command = `${o.setup} && ${command}`;
     // a login-like environment, without CI=1, so dev servers behave as they do in your terminal
     const env = { ...process.env, FORCE_COLOR: "0" } as Record<string, string>;
     delete env.CI;
     const child = spawn("/bin/sh", ["-c", command], { cwd: o.folder, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     const run: Run = {
-      id: randomUUID(), folder: o.folder, command, label: o.label ?? command, status: "running", exitCode: null, url: null,
+      id: randomUUID(), folder: o.folder, command, label, status: "running", exitCode: null, url: null,
       startedAt: new Date().toISOString(), endedAt: null, lines: 0, pgid: child.pid ?? null, out: [], dropped: 0,
     };
     this.runs.set(run.id, run);

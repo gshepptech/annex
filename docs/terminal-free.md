@@ -199,3 +199,28 @@ to the person's checkout or global config). Originally planned as 8, 1, 2, 3, 4,
 Annex staying up; live sessions next because they are the daily surface. Each gap is planned
 here, the plan is reviewed by a senior reviewer before code, the diff is reviewed after, and a
 fresh-eyes assessor checks the finished set against "Done when" in a real browser.
+
+## Diff review of batch 1, 5 October (senior reviewer), and what changed
+
+Verdict: revise. Fixed:
+
+- **Crash: an event stream for a session that is gone** (a tab reconnecting after a restart)
+  sent headers, then an error, and stopped Annex. The route checks first; the error handler
+  ends a started response instead of replying twice; the page says the session ended.
+- **Crash: writing to a session after Close.** A closing session refuses writes, writes check the
+  pipe is open, and a broken pipe is caught.
+- **The key and agents.** Deny rules now use a wildcard that matches the key's folder anywhere in
+  a command (verified with Claude Code: `cat` by relative path, `diff` with the path second,
+  `head -c` all refused). Stated plainly in `key.ts`: an office whose crew may run node, npm or
+  npx runs arbitrary code as you and is not stopped; that needs an OS sandbox for agents' shells.
+- **Mode switch** changes only when Claude accepts it, and shows its refusal (bypass cannot be
+  switched on mid-session unless the session started that way).
+- **Per-session tokens** for the permission channel, compared in constant time; closed sessions
+  are forgotten after half an hour.
+- A read of the Run tab no longer checks anything out; permission cards show everything they
+  ask about; reopening a session Annex just closed needs no wait; an office's setup is
+  validated with its script; the service uses the stable node path and fails loudly.
+- Tests added: live sessions (questions, allow for the session, Stop and Close answering no,
+  writes after Close, the mode switch, tokens, the stream), and the runner now proves the whole
+  process group is gone after Stop.
+

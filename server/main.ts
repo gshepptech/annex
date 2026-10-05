@@ -19,7 +19,6 @@ import { backupIfDue } from "./upkeep.ts";
 import { LiveSessions } from "./live.ts";
 import { Runner } from "./runner.ts";
 import { recordUsage } from "./usage.ts";
-import { randomUUID } from "node:crypto";
 import { loadOrCreateKey } from "./key.ts";
 
 const root = join(import.meta.dirname, "..");
@@ -64,11 +63,10 @@ const bureau = new Bureau({
 bureau.attachDirector(new Director({ store, pc, logger, offices: bureau, claudeCommand, settingsFile }));
 
 const startedAt = new Date();
-const liveToken = randomUUID();
-const live = new LiveSessions({ claude: claudeCommand, bourneUrl: `http://127.0.0.1:${port}`, token: liveToken, dir: join(stateDir, "live"), onUsage: recordUsage });
+const live = new LiveSessions({ claude: claudeCommand, bourneUrl: `http://127.0.0.1:${port}`, dir: join(stateDir, "live"), onUsage: recordUsage });
 const key = loadOrCreateKey();
 const runner = new Runner(stateDir);
-await startHttp({ backupsDir: join(stateDir, "backups", "config"), runner, key, live, liveToken,  bureau, store, logger, port, webDir: join(root, "web", "dist"), claudeCommand, engineUrl: process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100", startedAt });
+await startHttp({ backupsDir: join(stateDir, "backups", "config"), runner, key, live, bureau, store, logger, port, webDir: join(root, "web", "dist"), claudeCommand, engineUrl: process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100", startedAt });
 
 // a copy of the database a day, seven kept
 const backup = () => {

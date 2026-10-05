@@ -18,6 +18,13 @@ const plist = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 const domain = `gui/${userInfo().uid}`;
 const log = join(root, ".annex", "logs", "service.log");
 
+// A versioned Cellar path (/opt/homebrew/Cellar/node/26.x/bin/node) disappears on brew upgrade;
+// prefer the stable link that upgrades follow.
+function stableNode(): string {
+  for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node"]) if (existsSync(p)) return p;
+  return process.execPath;
+}
+
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 function launchctl(...args: string[]): string {
@@ -44,7 +51,7 @@ if (cmd === "install") {
   <key>Label</key><string>${LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${esc(process.execPath)}</string>
+    <string>${esc(stableNode())}</string>
     <string>${esc(join(root, "scripts", "up.ts"))}</string>
   </array>
   <key>WorkingDirectory</key><string>${esc(root)}</string>
@@ -62,8 +69,14 @@ if (cmd === "install") {
 </plist>
 `);
   launchctl("bootout", `${domain}/${LABEL}`);
-  const out = launchctl("bootstrap", domain, plist);
-  console.log(out.trim() || `Installed ${plist}. Annex starts at login and restarts if it exits; its log is ${log}.`);
+  // bootout returns before the old job is gone; bootstrapping too soon fails
+  for (let i = 0; i < 20 && launchctl("print", `${domain}/${LABEL}`).includes("state ="); i++) execFileSync("sleep", ["0.25"]);
+  const out = launchctl("bootstrap", domain, plist).trim();
+  if (out && !/^\s*$/.test(out)) {
+    console.error(`Could not start the service: ${out}`);
+    process.exit(1);
+  }
+  console.log(`Installed ${plist}. Annex starts at login and restarts if it exits; its log is ${log}.`);
 } else if (cmd === "remove") {
   launchctl("bootout", `${domain}/${LABEL}`);
   if (existsSync(plist)) rmSync(plist);

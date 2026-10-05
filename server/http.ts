@@ -36,7 +36,7 @@ export interface Bureau {
   closeGoal(wingId: string, goalId: number, status: "done" | "dropped" | "active"): void;
   setAutonomy(wingId: string, on: boolean): Promise<void>;
   changes(wingId: string, opts?: { taskId?: string; file?: string }): Promise<unknown>;
-  previewFolder?(wingId: string): Promise<{ folder: string; setup: string | null }>;
+  previewFolder?(wingId: string, refresh?: boolean): Promise<{ folder: string; setup: string | null }>;
   mergeIntoBase?(wingId: string, sha: string): Promise<{ commit: string; where: string }>;
   lastTickAt?: Date | null;
 }
@@ -83,7 +83,7 @@ export function refuseForeign(req: IncomingMessage): string | null {
   return null;
 }
 
-export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; liveToken?: string; key?: string; runner?: Runner; backupsDir?: string }): Promise<Server> {
+export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; key?: string; runner?: Runner; backupsDir?: string }): Promise<Server> {
   const { bureau, store, webDir, logger } = opts;
 
   const server = createServer(async (req, res) => {
@@ -154,7 +154,7 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       if (path.startsWith("/api/live")) {
         if (!opts.live) throw new UserError("Live sessions are not available", 404);
         try {
-          const handled = await liveRoutes(req, res, url, opts.live, opts.liveToken ?? "");
+          const handled = await liveRoutes(req, res, url, opts.live);
           if (handled) return;
         } catch (err) {
           if (err instanceof LiveError) throw new UserError(err.message, 409);
@@ -297,7 +297,7 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
 
 // Live sessions. Starting one runs Claude in a folder you name, as you; resuming one waits until
 // the session has been quiet long enough that it is not open in a terminal.
-async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, live: LiveSessions, token: string): Promise<boolean> {
+async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, live: LiveSessions): Promise<boolean> {
   const path = url.pathname;
   if (req.method === "GET" && path === "/api/live") {
     json(res, 200, { lives: live.list().map((l) => ({ id: l.id, sessionId: l.sessionId, cwd: l.cwd, status: l.status, mode: l.mode })), defaultMode: defaultMode(), modes: MODES });
@@ -308,6 +308,7 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
     const resume = typeof body.resume === "string" && /^[0-9a-f-]{36}$/.test(body.resume) ? body.resume : null;
     const mode = (typeof body.mode === "string" ? body.mode : defaultMode()) as Mode;
     let cwd = typeof body.cwd === "string" ? expandHome(body.cwd.trim()) : "";
+    if (cwd && !cwd.startsWith("/")) throw new UserError("Name the folder by its full path (or start it with ~/)", 400);
     let history;
     if (resume) {
       const already = live.bySession(resume);
@@ -316,7 +317,7 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
       const t = sessionTranscript(resume);
       if (!t) throw new UserError("No session with that id", 404);
       const quiet = Date.now() - new Date(t.session.updatedAt).getTime();
-      if (quiet < IDLE_MS) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
+      if (quiet < IDLE_MS && !live.lastDrivenByBourne(resume)) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
       cwd = t.session.cwd;
       history = t.entries;
     }
@@ -365,7 +366,7 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
       break;
     case "permission": {
       // only the approve MCP server Annex started for this session knows the token
-      if (req.headers["x-annex-token"] !== token || !token) throw new UserError("Not allowed", 403);
+      if (!live.tokenOk(id, req.headers["x-annex-token"] as string | undefined)) throw new UserError("Not allowed", 403);
       const d = await live.ask(id, str(body.tool, "tool"), (body.input ?? {}) as Record<string, unknown>);
       json(res, 200, d);
       return true;
@@ -445,9 +446,7 @@ async function runRoutes(req: IncomingMessage, res: ServerResponse, url: URL, ru
   const folderOf = async (q: { folder?: unknown; wing?: unknown }, refresh: boolean): Promise<{ folder: string; setup: string | null }> => {
     if (typeof q.wing === "string" && q.wing) {
       if (!bureau.previewFolder) throw new UserError("Offices cannot run apps here", 404);
-      if (refresh) return bureau.previewFolder(q.wing);
-      const all = runner.list().find((r) => r.folder.endsWith(`/wings/${q.wing}/preview`));
-      return all ? { folder: all.folder, setup: null } : bureau.previewFolder(q.wing);
+      return bureau.previewFolder(q.wing, refresh);
     }
     const f = typeof q.folder === "string" ? expandHome(q.folder.trim()) : "";
     if (!f.startsWith("/")) throw new UserError("Name a folder by its full path", 400);
@@ -464,9 +463,7 @@ async function runRoutes(req: IncomingMessage, res: ServerResponse, url: URL, ru
     const script = typeof body.script === "string" ? body.script : undefined;
     const command = typeof body.command === "string" ? body.command : undefined;
     // an office's preview that was never set up gets its setup first (npm ci and the like)
-    const run = setup
-      ? runner.start({ folder, command: `${setup} && ${script ? `npm run ${script}` : command ?? ""}`, label: script ? `npm run ${script}` : command })
-      : runner.start({ folder, script, command });
+    const run = runner.start({ folder, script, command, setup });
     json(res, 201, run);
     return true;
   }

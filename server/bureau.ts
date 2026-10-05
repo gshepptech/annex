@@ -8,7 +8,7 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { homedir } from "node:os";
 import type { Store, TaskRow } from "./db.ts";
 import type { Wing } from "./wing.ts";
@@ -849,11 +849,12 @@ export class Bureau implements BureauApi {
 
   // Where an office's app runs: a throwaway checkout of its newest verified work, plus the
   // office's setup command to put in front of a run when that checkout has never been set up.
-  async previewFolder(wingId: string): Promise<{ folder: string; setup: string | null }> {
+  // `refresh` false only works out where it is; a run (refresh true) brings it up to date first.
+  async previewFolder(wingId: string, refresh = true): Promise<{ folder: string; setup: string | null }> {
     const rt = this.ready(wingId);
     const ws = rt.prov.workspace;
     if (!ws) throw new UserError(`${rt.wing.name} has no repo to run`, 409);
-    const folder = await this.inIntegration(rt, () => previewWorktree(ws));
+    const folder = refresh ? await this.inIntegration(rt, () => previewWorktree(ws)) : join(dirname(ws.integrationDir), "preview");
     return { folder, setup: rt.wing.setup && !existsSync(join(folder, "node_modules")) ? rt.wing.setup : null };
   }
 

@@ -136,7 +136,7 @@ test("an event stream for a session that does not exist is refused cleanly, and 
   const dir = mkdtempSync(join(tmpdir(), "annex-sse-"));
   writeFileSync(join(dir, "index.html"), "<p>office</p>");
   const store = new Store(join(dir, "b.db"));
-  const live = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", token: "t", dir });
+  const live = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
   const server = await startHttp({ bureau: fakeBureau(store), store, port: 0, webDir: dir, live });
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {

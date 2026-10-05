@@ -191,7 +191,7 @@ export async function changedFiles(repo: string, from: string, to: string): Prom
 
 // One file's patch. The caller passes a path it got from changedFiles, never one from a person.
 export async function filePatch(repo: string, from: string, to: string, path: string): Promise<string> {
-  const out = await git(repo, "-c", "core.quotePath=false", "diff", "--no-renames", `${from}...${to}`, "--", path);
+  const out = await git(repo, "--literal-pathspecs", "-c", "core.quotePath=false", "diff", "--no-renames", `${from}...${to}`, "--", path);
   return out.length > 400_000 ? out.slice(0, 400_000) + "\n… (cut: the rest of this diff is very long)" : out;
 }
 

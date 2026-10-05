@@ -9,7 +9,8 @@
 // browser, and the answer goes back to Claude. A question nobody answers waits; the card stays up.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { sameKey } from "./key.ts";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +24,11 @@ export type Decision = { allow: true; always?: boolean } | { allow: false; messa
 
 interface Live extends LiveView {
   child: ChildProcess | null;
+  // this session's own token for its approve MCP server: a token read from another session's
+  // config cannot put a question in front of you for this one
+  token: string;
+  // Close was pressed: nothing more is written to the child while it winds down
+  closing: boolean;
   pending: Map<string, { prompt: LivePrompt; resolve: (d: Decision) => void }>;
   // tools you allowed for the rest of the session (a Bash command is matched exactly)
   allowed: Set<string>;
@@ -34,9 +40,9 @@ const MAX_ENTRIES = 2000;
 
 export class LiveSessions {
   private lives = new Map<string, Live>();
-  private opts: { claude: string; bourneUrl: string; token: string; dir: string; onUsage?: (info: unknown) => void; approveScript: string };
+  private opts: { claude: string; bourneUrl: string; dir: string; onUsage?: (info: unknown) => void; approveScript: string };
 
-  constructor(opts: { claude: string; bourneUrl: string; token: string; dir: string; onUsage?: (info: unknown) => void; approveScript?: string }) {
+  constructor(opts: { claude: string; bourneUrl: string; dir: string; onUsage?: (info: unknown) => void; approveScript?: string }) {
     this.opts = { ...opts, approveScript: opts.approveScript ?? join(import.meta.dirname, "agent-tools", "approve-mcp.mjs") };
   }
 
@@ -64,11 +70,12 @@ export class LiveSessions {
       if (already) return already;
     }
     const id = randomUUID();
-    mkdirSync(this.opts.dir, { recursive: true });
+    const token = randomBytes(24).toString("base64url");
+    mkdirSync(this.opts.dir, { recursive: true, mode: 0o700 });
     const configFile = join(this.opts.dir, `${id}.mcp.json`);
     writeFileSync(
       configFile,
-      JSON.stringify({ mcpServers: { bourne_live: { command: process.execPath, args: [this.opts.approveScript], env: { BOURNE_URL: this.opts.bourneUrl, BOURNE_LIVE: id, BOURNE_TOKEN: this.opts.token } } } }),
+      JSON.stringify({ mcpServers: { bourne_live: { command: process.execPath, args: [this.opts.approveScript], env: { BOURNE_URL: this.opts.bourneUrl, BOURNE_LIVE: id, BOURNE_TOKEN: token } } } }),
       { mode: 0o600 },
     );
     const args = [
@@ -81,7 +88,7 @@ export class LiveSessions {
     const child = (o.run ?? spawn)(this.opts.claude, args, { cwd: o.cwd, stdio: ["pipe", "pipe", "pipe"], env });
     const live: Live = {
       id, sessionId: o.resume ?? null, cwd: o.cwd, mode: o.mode, model: null, status: "starting", entries: [...(o.history ?? [])], partial: "", prompts: [], slashCommands: [], error: null,
-      child, pending: new Map(), allowed: new Set(), listeners: new Set(), configFile,
+      child, pending: new Map(), allowed: new Set(), listeners: new Set(), configFile, token, closing: false,
     };
     this.lives.set(id, live);
     let buf = "";
@@ -98,6 +105,8 @@ export class LiveSessions {
     child.stderr?.on("data", (d: Buffer) => {
       err = (err + d.toString()).slice(-4000);
     });
+    // a child that died or never started: writes to it fail quietly and the session closes
+    child.stdin?.on("error", () => {});
     child.on("error", (e) => this.closed(live, e.message));
     child.on("exit", (code) => this.closed(live, code ? err.trim().split("\n").slice(-3).join("\n") || `claude exited ${code}` : null));
     return view(live);
@@ -119,17 +128,33 @@ export class LiveSessions {
     this.write(l, { type: "control_request", request_id: randomUUID(), request: { subtype: "interrupt" } });
   }
 
+  // The mode changes when Claude accepts it (its control response says so); a refusal is shown.
   setMode(id: string, mode: Mode) {
     const l = this.need(id);
     if (!MODES.includes(mode)) throw new LiveError(`Unknown mode "${mode}"`);
-    this.write(l, { type: "control_request", request_id: randomUUID(), request: { subtype: "set_permission_mode", mode } });
-    l.mode = mode;
-    this.publish(l);
+    const request_id = randomUUID();
+    this.modeRequests.set(request_id, { live: l, mode });
+    this.write(l, { type: "control_request", request_id, request: { subtype: "set_permission_mode", mode } });
+  }
+
+  private modeRequests = new Map<string, { live: Live; mode: Mode }>();
+
+  // The approve MCP server proves which session it serves with that session's own token.
+  tokenOk(id: string, given: string | undefined): boolean {
+    const l = this.lives.get(id);
+    return !!l && sameKey(given, l.token);
+  }
+
+  // Sessions Annex itself drove most recently (closed now): reopening one needs no "may be open
+  // in a terminal" wait, because Annex knows its own child was the last writer.
+  lastDrivenByBourne(sessionId: string): boolean {
+    return [...this.lives.values()].some((l) => l.sessionId === sessionId);
   }
 
   close(id: string) {
     const l = this.lives.get(id);
-    if (!l) return;
+    if (!l || l.closing) return;
+    l.closing = true;
     this.settle(l, "The session was closed.");
     l.child?.stdin?.end();
     // a turn that does not end on its own is stopped
@@ -187,12 +212,14 @@ export class LiveSessions {
   private need(id: string): Live {
     const l = this.lives.get(id);
     if (!l) throw new LiveError("No live session with that id");
-    if (l.status === "closed") throw new LiveError("That session is closed. Open it again from Your desk.");
+    if (l.status === "closed" || l.closing) throw new LiveError("That session is closed. Open it again from Your desk.");
     return l;
   }
 
   private write(l: Live, msg: unknown) {
-    l.child?.stdin?.write(JSON.stringify(msg) + "\n");
+    const stdin = l.child?.stdin;
+    if (!stdin || stdin.destroyed || stdin.writableEnded) throw new LiveError("That session has ended.");
+    stdin.write(JSON.stringify(msg) + "\n");
   }
 
   private onLine(l: Live, line: string) {
@@ -215,6 +242,21 @@ export class LiveSessions {
       const ev = m.event as { type?: string; delta?: { type?: string; text?: string } } | undefined;
       if (ev?.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) {
         l.partial += ev.delta.text;
+        this.publish(l);
+      }
+      return;
+    }
+    if (m.type === "control_response") {
+      const r = m.response as { subtype?: string; request_id?: string; error?: string } | undefined;
+      const asked = r?.request_id ? this.modeRequests.get(r.request_id) : undefined;
+      if (asked) {
+        this.modeRequests.delete(r!.request_id!);
+        if (r!.subtype === "success") {
+          l.mode = asked.mode;
+          l.error = null;
+        } else {
+          l.error = `Claude kept the mode: ${r!.error ?? "it refused the change"}`;
+        }
         this.publish(l);
       }
       return;
@@ -249,6 +291,10 @@ export class LiveSessions {
     l.child = null;
     rmSync(l.configFile, { force: true });
     this.publish(l);
+    // a closed session stays visible a while (a page reconnecting sees why it ended), then goes
+    setTimeout(() => {
+      if (l.status === "closed" && !l.listeners.size) this.lives.delete(l.id);
+    }, 30 * 60_000).unref();
   }
 
   private publish(l: Live, from = l.entries.length, withCommands = false) {
