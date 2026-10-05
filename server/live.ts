@@ -168,8 +168,10 @@ export class LiveSessions {
     this.publish(l);
   }
 
+  // A closed session can still be watched (its last state), so a page that reconnects sees why it ended.
   subscribe(id: string, fn: (u: LiveUpdate) => void): () => void {
-    const l = this.need(id);
+    const l = this.lives.get(id);
+    if (!l) throw new LiveError("No live session with that id");
     l.listeners.add(fn);
     fn({ ...update(l, 0), slashCommands: l.slashCommands });
     return () => l.listeners.delete(fn);

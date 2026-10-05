@@ -78,7 +78,14 @@ export class LiveView {
     this.source = new EventSource(withKey(`/api/live/${liveId}/events`));
     this.source.onmessage = (m) => this.apply(JSON.parse(m.data) as LiveUpdate);
     this.source.onerror = () => {
-      // the stream reconnects by itself; a closed session simply stops sending
+      // a passing hiccup reconnects by itself; a refused stream means the session is gone (Annex
+      // restarted), which the person should be told rather than left looking at nothing
+      if (this.source?.readyState === EventSource.CLOSED) {
+        this.status = "closed";
+        this.error = "This live session ended when Annex restarted. Its conversation is kept: open it again from Your desk.";
+        this.drawn = -1;
+        this.draw();
+      }
     };
     this.drawHead();
   }

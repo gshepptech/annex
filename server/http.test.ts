@@ -130,3 +130,20 @@ test("with a key set, every API call must carry it; the page and the health chec
     server.close();
   }
 });
+
+test("an event stream for a session that does not exist is refused cleanly, and Annex keeps running", async () => {
+  const { LiveSessions } = await import("./live.ts");
+  const dir = mkdtempSync(join(tmpdir(), "annex-sse-"));
+  writeFileSync(join(dir, "index.html"), "<p>office</p>");
+  const store = new Store(join(dir, "b.db"));
+  const live = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", token: "t", dir });
+  const server = await startHttp({ bureau: fakeBureau(store), store, port: 0, webDir: dir, live });
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const r = await fetch(`${base}/api/live/00000000-0000-4000-8000-000000000000/events`);
+    assert.equal(r.status, 404);
+    assert.equal((await fetch(`${base}/api/health`)).status, 200, "still up");
+  } finally {
+    server.close();
+  }
+});

@@ -275,6 +275,12 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       if (req.method === "GET" && !path.startsWith("/api/")) return serveStatic(res, webDir, path);
       return json(res, 404, { error: `No such route: ${req.method} ${path}` });
     } catch (err) {
+      // a stream that already started cannot switch to an error reply; end it instead of crashing
+      if (res.headersSent) {
+        if (!(err instanceof UserError)) console.error("[annex] request failed after it started", err);
+        res.end();
+        return;
+      }
       if (err instanceof UserError) return json(res, err.status, { error: err.message });
       console.error("[annex] request failed", err);
       return json(res, 500, { error: `Annex hit an error: ${(err as Error).message}` });
@@ -328,6 +334,8 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
     return true;
   }
   if (req.method === "GET" && m[2] === "events") {
+    // a session from before Annex restarted is gone: say so before the stream starts
+    if (!live.get(id)) throw new UserError("No live session with that id", 404);
     res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
     const off = live.subscribe(id, (u) => res.write(`data: ${JSON.stringify(u)}\n\n`));
     const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
