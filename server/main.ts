@@ -57,7 +57,7 @@ const bureau = new Bureau({
 });
 bureau.attachDirector(new Director({ store, pc, logger, offices: bureau, claudeCommand, settingsFile }));
 
-await startHttp({ bureau, store, logger, port, webDir: join(root, "web", "dist") });
+await startHttp({ bureau, store, logger, port, webDir: join(root, "web", "dist"), claudeCommand });
 logger.info(null, `the office is at http://127.0.0.1:${port}; this log is ${logger.file}`);
 await bureau.start();
 

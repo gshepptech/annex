@@ -20,7 +20,7 @@ import type { NewEvent } from "./events.ts";
 import { BOARD_USER_ID, type Paperclip, type Issue, type Frame } from "./engine/paperclip.ts";
 import { provision, type Provisioned } from "./provision.ts";
 import { runCommand, type RunResult } from "./run.ts";
-import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration, waiting } from "./git.ts";
+import { git, hasCommitsBeyond, isClean, head, mergeBranch, resetIntegration, waiting, initRepo } from "./git.ts";
 import { parseProposal, parseBrief, judge, similar, type ProposedTask, type GoalUpdate } from "./proposal.ts";
 import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
@@ -1126,7 +1126,17 @@ export class Bureau implements BureauApi {
     const id = n.id.trim().toLowerCase();
     if (!/^[a-z][a-z0-9-]{1,30}$/.test(id)) throw new UserError("An office id is 2 to 31 lowercase letters, digits or dashes, starting with a letter", 400);
     if (this.rts.has(id) || existsSync(join(this.opts.wingsDir, id))) throw new UserError(`There is already an office called "${id}"`, 409);
-    const repoPath = n.repoPath?.trim() ? expandHome(n.repoPath.trim()) : null;
+    let repoPath = n.repoPath?.trim() ? expandHome(n.repoPath.trim()) : null;
+    if (n.newRepo) {
+      repoPath ??= join(homedir(), "Projects", id);
+      try {
+        await initRepo(repoPath, n.name.trim() || id, n.charter ?? "");
+      } catch (err) {
+        throw new UserError(`Could not start a new repo at ${repoPath}: ${(err as Error).message}`, 400);
+      }
+      this.logger.info(id, `started a new repo at ${repoPath}`);
+      n = { ...n, baseBranch: "main" };
+    }
     if (repoPath && !existsSync(join(repoPath, ".git"))) throw new UserError(`${repoPath} is not a git repository`, 400);
     const base: Wing = parseWing(id, `name = ${JSON.stringify(n.name.trim() || id)}`);
     const wing = applyEdit({ ...base, charter: n.charter?.trim() ?? "" }, repoPath ? { repoPath, baseBranch: n.baseBranch?.trim() || "main" } : {});

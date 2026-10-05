@@ -9,7 +9,7 @@ import { extname, join, normalize } from "node:path";
 import type { Store } from "./db.ts";
 import type { Logger } from "./logger.ts";
 import type { StateView, WingEdit, NewWing, TranscriptView } from "./api-types.ts";
-import { listSessions, sessionTranscript } from "./sessions.ts";
+import { listSessions, sessionTranscript, replyToSession, SessionBusy } from "./sessions.ts";
 
 export interface Bureau {
   state(): Promise<StateView>;
@@ -48,7 +48,7 @@ const TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
 };
 
-export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string }): Promise<Server> {
+export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string }): Promise<Server> {
   const { bureau, store, webDir, logger } = opts;
 
   const server = createServer(async (req, res) => {
@@ -82,6 +82,7 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
           charter: typeof body.charter === "string" ? body.charter : undefined,
           repoPath: typeof body.repoPath === "string" ? body.repoPath : undefined,
           baseBranch: typeof body.baseBranch === "string" ? body.baseBranch : undefined,
+          newRepo: body.newRepo === true || body.newRepo === "on",
         }));
       }
 
@@ -109,6 +110,16 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
         const t = sessionTranscript(session[1]!);
         if (!t) throw new UserError("No session with that id", 404);
         return json(res, 200, t);
+      }
+      const reply = /^\/api\/sessions\/([0-9a-f-]{36})\/reply$/.exec(path);
+      if (req.method === "POST" && reply) {
+        const body = await readJson(req);
+        try {
+          return json(res, 202, replyToSession(reply[1]!, str(body.text, "text"), { claude: opts.claudeCommand ?? "claude" }));
+        } catch (err) {
+          if (err instanceof SessionBusy) throw new UserError(err.message, 409);
+          throw err;
+        }
       }
 
       const goals = /^\/api\/wings\/([^/]+)\/goals$/.exec(path);

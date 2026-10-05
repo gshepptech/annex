@@ -565,3 +565,10 @@ dialog p { margin: 0; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* replying in one of your sessions */
+.term-foot { margin: 0 18px 18px; }
+.term-foot:empty { display: none; }
+.term-foot .hint { font-size: 0.8rem; color: var(--dim); flex: 1; }
+.term-foot .notice { margin: 8px 0 0; }
+.screen + .term-foot { margin-top: -6px; }

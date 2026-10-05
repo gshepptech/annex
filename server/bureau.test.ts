@@ -393,6 +393,31 @@ test("an office with you wakes for its goals when work finishes, and not otherwi
   assert.match(wake.description!, /Work only on the goals above/);
 });
 
+test("a new office can start its own empty project", async () => {
+  const { dir, bureau } = await setup();
+  const where = join(dir, "fresh");
+  await bureau.createWing({ id: "fresh", name: "Fresh", newRepo: true, repoPath: where, charter: "Sell abstract prints" });
+  assert.match(await git(where, "log", "--format=%s"), /Start the project/);
+  assert.equal((await git(where, "branch", "--show-current")).trim(), "main");
+  const { readFileSync } = await import("node:fs");
+  assert.match(readFileSync(join(where, "README.md"), "utf8"), /# Fresh[\s\S]*abstract prints/);
+  assert.match(readFileSync(join(dir, "wings", "fresh", "wing.toml"), "utf8"), /base_branch = "main"/);
+  await assert.rejects(bureau.createWing({ id: "again", name: "Again", newRepo: true, repoPath: where }), /not empty/);
+});
+
+test("two offices can work on the same repo, each on its own branch", async () => {
+  const { repo, bureau } = await setup();
+  await bureau.createWing({ id: "qa", name: "QA", repoPath: repo, baseBranch: "main" });
+  const branches = await git(repo, "branch", "--format=%(refname:short)");
+  assert.match(branches, /^annex\/upkeep$/m);
+  assert.match(branches, /^annex\/qa$/m);
+  const wings = (await bureau.state()).wings;
+  const qa = wings.find((w) => w.id === "qa")!;
+  assert.equal(qa.offline, null, `qa connected: ${qa.offline}`);
+  assert.equal(qa.integrationBranch, "annex/qa");
+  assert.notEqual(wings.find((w) => w.id === "upkeep")!.agents[0]!.name, qa.agents[0]!.name, "people are not shared");
+});
+
 test("settings edited in the office are written to the file and used at once", async () => {
   const { dir, store, bureau } = await setup();
   const { mkdirSync, readFileSync } = await import("node:fs");

@@ -18,6 +18,10 @@ export class Terminal {
   private screen = h("div", { class: "screen", tabindex: "0", "aria-live": "polite" });
   private head = h("header", { class: "term-head" });
   private briefing = h("div", { class: "briefing" });
+  // the reply box under one of your sessions; empty for an agent
+  private foot = h("div", { class: "term-foot" });
+  private replyError = "";
+  private footKey = "";
   private stick = true;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private soon: ReturnType<typeof setTimeout> | null = null;
@@ -30,7 +34,7 @@ export class Terminal {
   constructor(onBack: () => void, wingName: (id: string) => string) {
     this.onBack = onBack;
     this.wingName = wingName;
-    this.el.append(this.head, this.briefing, this.screen);
+    this.el.append(this.head, this.briefing, this.screen, this.foot);
     this.screen.addEventListener("scroll", () => {
       this.stick = this.screen.scrollHeight - this.screen.scrollTop - this.screen.clientHeight < 40;
     });
@@ -38,6 +42,8 @@ export class Terminal {
 
   open(agentId: string) {
     this.sessionId = null;
+    this.foot.replaceChildren();
+    this.footKey = "";
     if (this.agentId !== agentId) {
       this.agentId = agentId;
       this.stick = true;
@@ -59,6 +65,9 @@ export class Terminal {
       this.head.replaceChildren();
       this.briefing.replaceChildren();
       this.screen.replaceChildren(h("p", { class: "term-empty" }, "Loading…"));
+      this.foot.replaceChildren();
+      this.replyError = "";
+      this.footKey = "";
     }
     void this.loadSession();
   }
@@ -102,6 +111,7 @@ export class Terminal {
     this.briefing.replaceChildren(
       h("div", { class: "resume" }, h("span", {}, "Continue it in your terminal"), h("code", {}, cmd), copy),
     );
+    this.drawReply(s);
     const key = `${t.entries.length}:${t.entries.at(-1)?.at ?? ""}`;
     if (key === this.lastRender) return;
     this.lastRender = key;
@@ -114,6 +124,53 @@ export class Terminal {
     this.screen.replaceChildren(h("p", { class: "run-reason" }, "the latest part of this session"), ...body.filter((b): b is HTMLElement => b !== null));
     for (const d of this.screen.querySelectorAll("details")) if (open.has((d as HTMLElement).dataset.k)) (d as HTMLDetailsElement).open = true;
     if (this.stick) this.screen.scrollTop = this.screen.scrollHeight;
+  }
+
+  // A session quiet for a few minutes can be answered from here; a busy one is probably open in a
+  // terminal, and answering it here would fork the conversation.
+  private drawReply(s: SessionTranscript["session"]) {
+    const box = this.foot.querySelector("textarea") as HTMLTextAreaElement | null;
+    const kept = box?.value ?? "";
+    const focused = !!box && document.activeElement === box;
+    const quietFor = Date.now() - new Date(s.updatedAt).getTime();
+    const open = quietFor < 3 * 60_000;
+    const reason = s.replying ? "Claude is answering in this session now." : open ? "Active in the last few minutes, so it may be open in a terminal. Reply there, or wait a few minutes." : "";
+    const key = `${s.id}:${reason}:${this.replyError}:${s.permissionMode}`;
+    if (key === this.footKey) return;
+    this.footKey = key;
+    const text = h("textarea", { rows: 2, placeholder: "Reply in this session", "aria-label": "Reply in this session", disabled: !!reason }) as HTMLTextAreaElement;
+    text.value = kept;
+    const send = async () => {
+      if (!text.value.trim()) return;
+      try {
+        const r = await fetch(`/api/sessions/${encodeURIComponent(s.id)}/reply`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: text.value }) });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `answered ${r.status}`);
+        text.value = "";
+        this.replyError = "";
+        this.stick = true;
+      } catch (err) {
+        this.replyError = (err as Error).message;
+      }
+      void this.loadSession();
+    };
+    text.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) void send();
+    });
+    this.foot.replaceChildren(
+      h(
+        "form",
+        { onsubmit: (ev: Event) => { ev.preventDefault(); void send(); } },
+        text,
+        h(
+          "div",
+          { class: "row" },
+          h("button", { class: "btn primary", type: "submit", disabled: !!reason }, "Send ⌘↵"),
+          h("span", { class: "hint" }, reason || `Runs as this session's next turn${s.permissionMode ? `, in ${s.permissionMode} mode like the rest of it` : ""}.`),
+        ),
+        this.replyError ? h("p", { class: "notice bad", role: "alert" }, this.replyError) : null,
+      ),
+    );
+    if (focused) text.focus();
   }
 
   close() {

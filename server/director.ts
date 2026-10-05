@@ -18,7 +18,7 @@ export const ROUTE_FENCE = "annex-route";
 export type RouteAction =
   | { do: "drop_in"; office: string; title: string; detail?: string }
   | { do: "add_goal"; office: string; text: string; done_when?: string }
-  | { do: "new_office"; id: string; name: string; repo?: string; base_branch?: string; charter?: string }
+  | { do: "new_office"; id: string; name: string; repo?: string; base_branch?: string; charter?: string; new_repo?: boolean }
   | { do: "hire"; office: string; count?: number }
   | { do: "pause"; office: string }
   | { do: "resume"; office: string }
@@ -30,7 +30,7 @@ export interface Offices {
   state(): Promise<StateView>;
   dropIn(wingId: string, title: string, detail: string): Promise<unknown>;
   addGoal(wingId: string, text: string, doneWhen: string | null, by: "director"): Promise<unknown>;
-  createWing(n: { id: string; name: string; repoPath?: string; baseBranch?: string; charter?: string }): Promise<unknown>;
+  createWing(n: { id: string; name: string; repoPath?: string; baseBranch?: string; charter?: string; newRepo?: boolean }): Promise<unknown>;
   hireFromOffice(wingId: string, count: number): Promise<unknown>;
   pause(wingId: string): void;
   resume(wingId: string): void;
@@ -57,6 +57,7 @@ To act, end your reply with one fenced block tagged \`${ROUTE_FENCE}\` holding a
   { "do": "add_goal", "office": "upkeep", "text": "QA test the whole app", "done_when": "every user flow has a passing test" },
   { "do": "drop_in", "office": "upkeep", "title": "Short imperative title", "detail": "What the lead needs to know" },
   { "do": "new_office", "id": "docs", "name": "Docs", "repo": "~/Projects/x", "base_branch": "main", "charter": "What it keeps true" },
+  { "do": "new_office", "id": "printshop", "name": "Print shop", "new_repo": true, "charter": "A store selling abstract prints" },
   { "do": "hire", "office": "upkeep", "count": 1 },
   { "do": "pause", "office": "studio" },
   { "do": "resume", "office": "studio" },
@@ -70,6 +71,8 @@ To act, end your reply with one fenced block tagged \`${ROUTE_FENCE}\` holding a
 - \`drop_in\` hands the office's lead one piece of work; the lead turns it into tasks under its
   own rules.
 - Use the office ids from the summary.
+- For a project that does not exist yet, \`new_office\` with \`"new_repo": true\` makes an empty
+  repo at ~/Projects/<id>; then give it the person's idea as a goal with \`add_goal\`.
 - Leave the block out when you are only answering or asking.
 - Handing an office off to run on its own is the person's decision in that office's file; tell
   them where to do it rather than doing it.
@@ -230,7 +233,7 @@ export class Director {
           await this.offices.dropIn(a.office, a.title, a.detail ?? "");
           return `✔ Dropped "${a.title}" into ${a.office}`;
         case "new_office":
-          await this.offices.createWing({ id: a.id, name: a.name, repoPath: a.repo, baseBranch: a.base_branch, charter: a.charter });
+          await this.offices.createWing({ id: a.id, name: a.name, repoPath: a.repo, baseBranch: a.base_branch, charter: a.charter, newRepo: a.new_repo === true });
           return `✔ Opened the ${a.name} office`;
         case "hire":
           await this.offices.hireFromOffice(a.office, a.count ?? 1);

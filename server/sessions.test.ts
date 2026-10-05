@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listSessions, sessionTranscript } from "./sessions.ts";
+import { listSessions, sessionTranscript, replyToSession } from "./sessions.ts";
+import { EventEmitter } from "node:events";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -21,6 +22,7 @@ function fixture() {
     { type: "assistant", cwd: "/Users/me/app/web", timestamp: "2026-10-02T10:00:05Z", message: { model: "claude-opus-5-5", content: [{ type: "text", text: "On it." }, { type: "tool_use", id: "t1", name: "Read", input: { file_path: "/Users/me/app/web/login.ts" } }] } },
     { type: "user", cwd: "/Users/me/app/web", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "export {}" }] } },
     { type: "last-prompt", lastPrompt: "add a login page", sessionId: A },
+    { type: "permission-mode", permissionMode: "acceptEdits", sessionId: A },
   ];
   writeFileSync(join(mine, `${A}.jsonl`), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
   writeFileSync(join(agent, `${B}.jsonl`), JSON.stringify({ type: "user", cwd: "/Users/me/annex/.paperclip/instances/default/workspaces/w", message: { content: "Wake" } }) + "\n");
@@ -49,4 +51,21 @@ test("a session's transcript shows what you typed and what Claude did, not its i
   assert.deepEqual(t.entries.map((e) => e.kind), ["prompt", "text", "tool", "result"]);
   assert.equal(sessionTranscript(B, { root: fixture() }), null, "an agent's session is not yours to read here");
   assert.equal(sessionTranscript("../../etc/passwd", { root: fixture() }), null);
+});
+
+test("a reply goes to an idle session as its next turn, in its own folder and permission mode", () => {
+  const root = fixture();
+  const calls: { cmd: string; args: string[]; cwd: string }[] = [];
+  const run = ((cmd: string, args: string[], o: { cwd: string }) => {
+    calls.push({ cmd, args, cwd: o.cwd });
+    return Object.assign(new EventEmitter(), { unref() {} });
+  }) as never;
+  assert.throws(() => replyToSession(A, "hi", { claude: "claude", root, run }), /may be open in a terminal/);
+  const old = new Date(Date.now() - 10 * 60_000);
+  utimesSync(join(root, "-Users-me-app", `${A}.jsonl`), old, old);
+  const s = replyToSession(A, "now add a logout button", { claude: "/bin/claude", root, run });
+  assert.equal(s.replying, true);
+  assert.deepEqual(calls, [{ cmd: "/bin/claude", args: ["-p", "now add a logout button", "--resume", A, "--output-format", "json", "--permission-mode", "acceptEdits"], cwd: "/Users/me/app" }]);
+  assert.throws(() => replyToSession(A, "again", { claude: "claude", root, run }), /already running/);
+  assert.throws(() => replyToSession(B, "x", { claude: "claude", root, run }), /Annex's agents/);
 });

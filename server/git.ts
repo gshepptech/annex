@@ -24,6 +24,23 @@ async function branchExists(repo: string, branch: string): Promise<boolean> {
   }
 }
 
+// A brand-new project: an empty folder made into a git repo with one commit, so an office can
+// branch from it. Refuses a folder that already has anything in it.
+export async function initRepo(dir: string, name: string, about: string): Promise<void> {
+  const { existsSync, mkdirSync, readdirSync, writeFileSync } = await import("node:fs");
+  if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
+  mkdirSync(dir, { recursive: true });
+  await git(dir, "init", "-q", "-b", "main");
+  writeFileSync(`${dir}/README.md`, `# ${name}\n${about ? `\n${about.trim()}\n` : ""}`);
+  await git(dir, "add", "README.md");
+  try {
+    await git(dir, "commit", "-q", "-m", "Start the project");
+  } catch {
+    // no git identity set up on this machine: sign the first commit as Annex
+    await git(dir, "-c", "user.name=Annex", "-c", "user.email=annex@localhost", "commit", "-q", "-m", "Start the project");
+  }
+}
+
 export interface WingWorkspace {
   repo: string;
   baseBranch: string;

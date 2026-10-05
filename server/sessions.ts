@@ -4,6 +4,7 @@
 // already appear in their offices.
 
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { Entry, SessionView, SessionTranscript } from "./api-types.ts";
@@ -11,6 +12,11 @@ import { toEntries } from "./transcript.ts";
 
 
 export const PROJECTS = join(homedir(), ".claude", "projects");
+// A session touched this recently may be open in a terminal; a reply then would fork the
+// conversation behind the person's back, so Annex waits.
+export const IDLE_MS = 3 * 60_000;
+const MODES = new Set(["default", "acceptEdits", "plan", "bypassPermissions", "auto", "dontAsk"]);
+const replying = new Set<string>();
 // A session whose log moved this recently is mid-turn.
 const WORKING_MS = 20_000;
 // The end of a log holds everything the list needs; a transcript reads more of it.
@@ -56,7 +62,9 @@ function describe(id: string, recs: Record<string, unknown>[], mtime: Date, now:
   let model: string | null = null;
   let title: string | null = null;
   let lastPrompt: string | null = null;
+  let permissionMode: string | null = null;
   for (const r of recs) {
+    if (r.type === "permission-mode" && typeof r.permissionMode === "string") permissionMode = r.permissionMode;
     // the project is where the session started; it may have changed into a subfolder since
     if (typeof r.cwd === "string" && (!cwd || r.cwd.length < cwd.length)) cwd = r.cwd;
     if (typeof r.gitBranch === "string" && r.gitBranch) branch = r.gitBranch;
@@ -75,6 +83,8 @@ function describe(id: string, recs: Record<string, unknown>[], mtime: Date, now:
     status: now - mtime.getTime() < WORKING_MS ? "working" : "idle",
     updatedAt: mtime.toISOString(),
     lastPrompt,
+    permissionMode,
+    replying: replying.has(id),
   };
 }
 
@@ -148,4 +158,32 @@ export function sessionTranscript(id: string, opts: { root?: string; now?: numbe
     else entries.push(...toEntries(r, at));
   }
   return { session, entries: entries.slice(-600) };
+}
+
+export class SessionBusy extends Error {}
+
+// Sends your message to one of your sessions as its next turn, the way \`claude --resume <id> -p\`
+// would from its folder, in the permission mode the session was already using. The answer lands
+// in the session's own log, so its transcript shows it, and the terminal shows it next time you
+// resume there. Refused while the session looks open, or while a reply is already running.
+export function replyToSession(id: string, text: string, opts: { claude: string; root?: string; now?: number; run?: typeof spawn }): SessionView {
+  const root = opts.root ?? PROJECTS;
+  const file = findFile(root, id);
+  if (!file) throw new SessionBusy("No session with that id");
+  const mtime = statSync(file).mtime;
+  const session = describe(id, records(tail(file, LIST_BYTES)), mtime, opts.now ?? Date.now());
+  if (!session) throw new SessionBusy("That session belongs to one of Annex's agents");
+  if (replying.has(id)) throw new SessionBusy("A reply is already running in this session");
+  const quiet = (opts.now ?? Date.now()) - mtime.getTime();
+  if (quiet < IDLE_MS) {
+    throw new SessionBusy(`This session was active ${Math.max(1, Math.round(quiet / 1000))}s ago and may be open in a terminal. Reply there, or wait until it has been quiet for ${IDLE_MS / 60000} minutes.`);
+  }
+  const mode = session.permissionMode && MODES.has(session.permissionMode) ? session.permissionMode : null;
+  const args = ["-p", text, "--resume", id, "--output-format", "json", ...(mode ? ["--permission-mode", mode] : [])];
+  const child = (opts.run ?? spawn)(opts.claude, args, { cwd: session.cwd, detached: true, stdio: "ignore" });
+  replying.add(id);
+  child.on("exit", () => replying.delete(id));
+  child.on("error", () => replying.delete(id));
+  child.unref();
+  return { ...session, replying: true };
 }

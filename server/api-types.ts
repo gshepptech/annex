@@ -85,6 +85,8 @@ export interface NewWing {
   charter?: string;
   repoPath?: string;
   baseBranch?: string;
+  // make repoPath a new, empty git repo first (for a project that does not exist yet)
+  newRepo?: boolean;
 }
 
 export type Entry =
@@ -108,6 +110,10 @@ export interface SessionView {
   status: "working" | "idle";
   updatedAt: string;
   lastPrompt: string | null;
+  // the permission mode the session last ran in; a reply from Annex runs in the same one
+  permissionMode: string | null;
+  // a reply from Annex is running in it now
+  replying: boolean;
 }
 
 export interface SessionTranscript {
