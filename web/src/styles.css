@@ -115,7 +115,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 ::selection { background: color-mix(in srgb, var(--focus) 35%, transparent); }
 
 /* panes have no chrome of their own; the shell's rules separate them */
-.box { background: transparent; }
+.box:not(dialog) { background: transparent; }
 
 /* ---------- shell ---------- */
 
