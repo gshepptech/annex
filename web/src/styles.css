@@ -753,3 +753,6 @@ form.row { flex-direction: row; }
 .slash-menu li .note { margin-left: 8px; font-size: 0.8rem; color: var(--dim); }
 /* inside the query, or its two classes would beat the narrower layouts */
 @media (min-width: 1301px) { .shell.wide { grid-template-columns: 272px minmax(0, 1fr) minmax(460px, 52vw); } }
+/* below that the drawer grows with its content, and a terminal fitted to its box would grow it
+   without end: give the screen a height of its own */
+@media (max-width: 1300px) { .tty-host { flex: none; height: 65vh; } }

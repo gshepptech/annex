@@ -17,6 +17,7 @@ interface Tty {
   fit: FitAddon;
   source: EventSource;
   host: HTMLElement;
+  sized: ResizeObserver;
   opened: boolean;
   pending: string;
   sending: boolean;
@@ -79,6 +80,7 @@ export class TermPane {
     const t = this.ttys.get(id);
     if (!t) return;
     t.source.close();
+    t.sized.disconnect();
     t.xterm.dispose();
     t.host.remove();
     this.ttys.delete(id);
@@ -100,7 +102,10 @@ export class TermPane {
     xterm.loadAddon(fit);
     xterm.loadAddon(new WebLinksAddon());
     const host = h("div", { class: "tty-host" });
-    const t: Tty = { view: v, xterm, fit, host, opened: false, pending: "", sending: false, resizeTimer: null, hint: null, error: null, source: new EventSource(withKey(`/api/terminals/${v.id}/events`)) };
+    const sized = new ResizeObserver(() => {
+      if (this.current === t && t.opened) requestAnimationFrame(() => this.fitNow(t));
+    });
+    const t: Tty = { view: v, xterm, fit, host, sized, opened: false, pending: "", sending: false, resizeTimer: null, hint: null, error: null, source: new EventSource(withKey(`/api/terminals/${v.id}/events`)) };
     // the browser resumes from the last event id by itself after a dropped connection
     t.source.onmessage = (m) => {
       const u = JSON.parse(m.data) as TerminalUpdate;
@@ -126,9 +131,7 @@ export class TermPane {
       if (t.resizeTimer) clearTimeout(t.resizeTimer);
       t.resizeTimer = setTimeout(() => void post(`/api/terminals/${t.view.id}/resize`, { cols, rows }).catch(() => {}), 120);
     });
-    new ResizeObserver(() => {
-      if (this.current === t && t.opened) requestAnimationFrame(() => this.fitNow(t));
-    }).observe(host);
+    sized.observe(host);
     return t;
   }
 
