@@ -17,7 +17,9 @@ export class Terminal {
   // set instead of agentId when showing one of your own sessions
   sessionId: string | null = null;
   // set by the page: continue one of your sessions live
-  onOpenLive: (sessionId: string) => void = () => {};
+  onOpenLive: (sessionId: string, force?: boolean) => void = () => {};
+  // the session whose "it may be open in a terminal" question is showing
+  private confirming: string | null = null;
   private screen = h("div", { class: "screen", tabindex: "0", "aria-live": "polite" });
   private head = h("header", { class: "term-head" });
   private briefing = h("div", { class: "briefing" });
@@ -112,16 +114,34 @@ export class Terminal {
       ),
     );
     const quiet = Date.now() - new Date(s.updatedAt).getTime() >= 3 * 60_000;
-    this.briefing.replaceChildren(
-      h(
-        "div",
-        { class: "resume" },
-        h("span", {}, "Continue it here, live, or in your terminal"),
-        h("button", { class: "btn primary", type: "button", disabled: s.replying, title: quiet ? "" : "Active in the last few minutes; Annex opens it only if it is not open in a terminal", onclick: () => this.onOpenLive(s.id) }, "Open live"),
-        h("code", {}, cmd),
-        copy,
-      ),
+    const redraw = () => { this.lastRender = ""; this.renderSession(t); };
+    const openLive = () => {
+      if (quiet) return this.onOpenLive(s.id);
+      this.confirming = s.id;
+      redraw();
+    };
+    const resume = h(
+      "div",
+      { class: "resume" },
+      h("span", {}, "Continue it here, live, or in your terminal"),
+      h("button", { class: "btn primary", type: "button", disabled: s.replying, onclick: openLive }, "Open live"),
+      h("code", {}, cmd),
+      copy,
     );
+    const ask = !quiet && this.confirming === s.id
+      ? h(
+          "div",
+          { class: "confirm" },
+          h("p", {}, "This session changed in the last few minutes. If it is still open in a terminal, exit Claude there first: two copies of one conversation split it in two."),
+          h(
+            "div",
+            { class: "row" },
+            h("button", { class: "btn primary", type: "button", onclick: () => { this.confirming = null; this.onOpenLive(s.id, true); } }, "Open anyway"),
+            h("button", { class: "btn ghost", type: "button", onclick: () => { this.confirming = null; redraw(); } }, "Cancel"),
+          ),
+        )
+      : null;
+    this.briefing.replaceChildren(resume, ...(ask ? [ask] : []));
     this.drawReply(s);
     const key = `${t.entries.length}:${t.entries.at(-1)?.at ?? ""}`;
     if (key === this.lastRender) return;

@@ -88,9 +88,9 @@ liveView.onGone = async (sessionId) => {
   }
 };
 
-terminal.onOpenLive = async (sessionId) => {
+terminal.onOpenLive = async (sessionId, force) => {
   try {
-    const v = (await post("/api/live", { resume: sessionId })) as { id: string; cwd: string };
+    const v = (await post("/api/live", { resume: sessionId, force: !!force })) as { id: string; cwd: string };
     selectLive(v.id, v.cwd);
     void pollSessions();
   } catch (err) {

@@ -317,7 +317,8 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
       const t = sessionTranscript(resume);
       if (!t) throw new UserError("No session with that id", 404);
       const quiet = Date.now() - new Date(t.session.updatedAt).getTime();
-      if (quiet < IDLE_MS && !live.lastDrivenByBourne(resume)) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
+      // force: the person says the terminal is closed; still refused while Annex itself is replying
+      if (quiet < IDLE_MS && body.force !== true && !live.lastDrivenByBourne(resume)) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
       cwd = t.session.cwd;
       history = t.entries;
       // a resumed session keeps the permission mode it had, unless one was chosen just now
