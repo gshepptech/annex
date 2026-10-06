@@ -42,6 +42,11 @@ export class FilesDialog {
   private hash = "";
   // the folders open in the tree, kept across Refresh
   private expanded = new Set<string>();
+  // a save in flight: a second Cmd+S (or a held key repeating) would send the hash the first one
+  // just replaced and come back as a false "changed on disk"
+  private saving = false;
+  // the newest file asked for; a slower earlier open must not land over it
+  private opening = 0;
   private guard = (ev: BeforeUnloadEvent) => ev.preventDefault();
 
   constructor() {
@@ -128,11 +133,16 @@ export class FilesDialog {
   }
 
   private async load() {
+    const root = this.root;
     this.tree.replaceChildren(h("p", { class: "empty" }, "Reading the files…"));
     try {
-      this.files = await get<Listing>(`/api/files?root=${encodeURIComponent(this.root)}`);
-      this.top = buildTree(this.files.files);
+      const files = await get<Listing>(`/api/files?root=${encodeURIComponent(root)}`);
+      // another project was opened while this one was listed
+      if (root !== this.root) return;
+      this.files = files;
+      this.top = buildTree(files.files);
     } catch (err) {
+      if (root !== this.root) return;
       this.files = null;
       this.top = null;
       this.tree.replaceChildren(h("p", { class: "notice bad" }, (err as Error).message));
@@ -190,6 +200,7 @@ export class FilesDialog {
     const parts = path.split("/");
     for (let i = 1; i < parts.length; i++) this.expanded.add(parts.slice(0, i).join("/"));
     this.dropEditor();
+    const ticket = ++this.opening;
     this.path = path;
     this.pathEl.textContent = path;
     this.say("");
@@ -199,33 +210,39 @@ export class FilesDialog {
     try {
       this.cm ??= await import("./codemirror.ts");
       const f = await get<{ path: string; text: string; hash: string }>(`/api/files/read?root=${encodeURIComponent(this.root)}&path=${encodeURIComponent(path)}`);
-      // another file was chosen while this one loaded
-      if (this.path !== path) return;
+      // another file (or the same one again) was chosen while this one loaded
+      if (ticket !== this.opening) return;
       this.hash = f.hash;
       this.host.replaceChildren();
       this.ed = this.cm.createEditor(this.host, { text: f.text, path, onChange: (dirty) => this.setDirty(dirty) });
       this.setDirty(false);
       this.ed.focus();
     } catch (err) {
-      if (this.path === path) this.host.replaceChildren(h("p", { class: "notice bad" }, (err as Error).message));
+      if (ticket === this.opening) this.host.replaceChildren(h("p", { class: "notice bad" }, (err as Error).message));
     }
   }
 
   private async save(hash = this.hash) {
     const ed = this.ed;
-    if (!ed || (!ed.dirty() && hash === this.hash)) return;
+    if (!ed || this.saving || (!ed.dirty() && hash === this.hash)) return;
     const text = ed.text();
     this.status.textContent = "Saving…";
+    this.saving = true;
     try {
       const r = (await put("/api/files", { root: this.root, path: this.path, text, hash })) as { hash: string; backup: string | null };
+      // another file was opened while this one saved: the answer is not about it
+      if (this.ed !== ed) return;
       this.hash = r.hash;
       ed.markSaved(text);
       this.notice.replaceChildren();
       this.say(r.backup ? `Saved. The previous version is in ${r.backup.replace(/^\/Users\/[^/]+/, "~")}` : "Saved.");
     } catch (err) {
+      if (this.ed !== ed) return;
       this.setDirty(ed.dirty());
       if (err instanceof ApiError && err.data.conflict) return this.conflict();
       this.notice.replaceChildren(h("p", { class: "notice bad" }, (err as Error).message));
+    } finally {
+      this.saving = false;
     }
   }
 

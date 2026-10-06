@@ -44,6 +44,11 @@ test("paths stay inside the project", () => {
   assert.throws(() => F.insideProject("/etc", "hosts", known), /not one of your projects/);
   // a project that holds the key folder still refuses it
   assert.throws(() => F.insideProject(deny, "key", [deny], [deny]), /key folder/);
+  // APFS ignores case: the key folder typed in another case is still the key folder
+  const home = temp("annex-home-");
+  mkdirSync(join(home, "keys"));
+  writeFileSync(join(home, "keys", "key"), "secret");
+  assert.throws(() => F.insideProject(home, "KEYS/key", [home], [join(home, "keys")]), /key folder/);
 });
 
 test("the list is git's: tracked and untracked, not ignored, not deleted, odd names intact", async () => {

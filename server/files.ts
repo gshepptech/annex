@@ -23,7 +23,7 @@ const isGit = (segment: string) => segment.toLowerCase() === ".git";
 
 function realOr(p: string): string {
   try {
-    return realpathSync(p);
+    return realpathSync.native(p);
   } catch {
     return p;
   }
@@ -41,10 +41,12 @@ export function insideProject(root: string, rel: string, known: string[], deny: 
   if (parts.some((p) => p === "" || p === "." || p === "..")) throw new ProjectError("Name a file by its path inside the project");
   // APFS ignores case, so .GIT/HEAD is the git folder too
   if (parts.some(isGit)) throw new ProjectError("Annex does not open files inside .git");
-  const rootReal = realpathSync(root);
+  // .native: the case as stored on disk (APFS takes .CONFIG/ANNEX for .config/annex), so the
+  // checks below compare real names, not what was typed
+  const rootReal = realpathSync.native(root);
   let real: string;
   try {
-    real = realpathSync(join(rootReal, rel));
+    real = realpathSync.native(join(rootReal, rel));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") throw new ProjectError("That file does not exist (it may have been moved or deleted)");
     throw new ProjectError(`Could not open that file: ${(err as Error).message}`);
@@ -71,7 +73,7 @@ export async function listProjectFiles(root: string, known: string[], limit = MA
     all = listed.filter((f) => f && !gone.has(f) && !f.split("/").some(isGit));
   } catch {
     git = false;
-    all = walk(realpathSync(root), "", 8, limit + 1);
+    all = walk(realpathSync.native(root), "", 8, limit + 1);
   }
   all = [...new Set(all)].sort();
   return { root, git, files: all.slice(0, limit), truncated: all.length > limit };
@@ -104,7 +106,7 @@ export function readProjectFile(root: string, rel: string, known: string[], deny
 export function writeProjectFile(o: { root: string; path: string; text: string; hash: string; known: string[]; backups: string; deny?: string[] }): { path: string; hash: string; backup: string | null } {
   if (Buffer.byteLength(o.text) > MAX_FILE_BYTES) throw new ProjectError("That is too large to save here (the limit is 1 MB)");
   const { real, rel } = insideProject(o.root, o.path, o.known, o.deny);
-  const rootReal = realpathSync(o.root);
+  const rootReal = realpathSync.native(o.root);
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   try {
     const saved = saveChecked({
@@ -128,7 +130,7 @@ export function locateFile(abs: string, known: string[]): { root: string; path: 
   if (!abs.startsWith("/")) throw new ProjectError("That is not a full path");
   let real: string;
   try {
-    real = realpathSync(abs);
+    real = realpathSync.native(abs);
   } catch {
     // deleted since: its folder still places it
     real = join(realOr(dirname(abs)), basename(abs));
