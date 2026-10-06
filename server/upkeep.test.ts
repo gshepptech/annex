@@ -30,7 +30,9 @@ test("the database is copied once a day and seven copies are kept", () => {
 test("health names what is wrong", async () => {
   const store = new Store(join(mkdtempSync(join(tmpdir(), "annex-h-")), "b.db"));
   const now = Date.now();
-  const h = await health({ engineUrl: "http://127.0.0.1:9", store, lastTick: new Date(now - 120_000), startedAt: new Date(now - 600_000), now });
+  const opts = { engineUrl: "http://127.0.0.1:9", store, lastTick: new Date(now - 120_000), startedAt: new Date(now - 600_000), now };
+  assert.equal((await health(opts)).engine, null, "one missed check is not an outage");
+  const h = await health(opts);
   assert.equal(h.ok, false);
   assert.match(h.engine!, /not answering/);
   assert.match(h.database!, /no tick since/);

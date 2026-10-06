@@ -30,14 +30,22 @@ export interface Health {
   startedAt: string;
 }
 
+// Failed engine checks in a row, per engine. The page asks every 30 seconds, and Paperclip
+// sometimes takes a few seconds to answer while busy, so one miss is not reported as an outage.
+const engineMisses = new Map<string, number>();
+const MISSES_BEFORE_DOWN = 2;
+
 export async function health(opts: { engineUrl: string; store: Store; lastTick: Date | null; startedAt: Date; now?: number }): Promise<Health> {
   let engine: string | null = null;
   try {
-    const r = await fetch(`${opts.engineUrl}/api/health`, { signal: AbortSignal.timeout(3000) });
+    const r = await fetch(`${opts.engineUrl}/api/health`, { signal: AbortSignal.timeout(10_000) });
     if (!r.ok) engine = `the engine answered ${r.status}`;
   } catch (err) {
     engine = "Paperclip, the engine that runs the agents, is not answering. The login service restarts it; if this stays, run npm run service:install again.";
   }
+  const misses = engine ? (engineMisses.get(opts.engineUrl) ?? 0) + 1 : 0;
+  engineMisses.set(opts.engineUrl, misses);
+  if (misses < MISSES_BEFORE_DOWN) engine = null;
   let database: string | null = null;
   try {
     // taking the write lock and letting it go proves the database can be written, not just read
