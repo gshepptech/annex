@@ -36,12 +36,39 @@ const headers = {
   "content-type": "application/json",
   ...(process.env.PAPERCLIP_RUN_ID ? { "x-paperclip-run-id": process.env.PAPERCLIP_RUN_ID } : {}),
 };
+// Inside Claude Code's sandbox an agent cannot connect to localhost directly; its traffic goes
+// through the sandbox's proxy (HTTP_PROXY), which lets through only the hosts Annex allowed, here
+// the engine's own address. Outside the sandbox (no proxy) the request goes straight there.
+import { request } from "node:http";
+
+function send(method, url, payload) {
+  const proxy = process.env.HTTP_PROXY || process.env.http_proxy;
+  const target = new URL(url);
+  const via = proxy ? new URL(proxy) : null;
+  return new Promise((resolve, reject) => {
+    // the sandbox proxy names its credentials in the HTTP_PROXY address itself
+    const auth = via?.username ? { "proxy-authorization": `Basic ${Buffer.from(`${decodeURIComponent(via.username)}:${decodeURIComponent(via.password)}`).toString("base64")}` } : {};
+    const req = request(
+      via
+        ? { host: via.hostname, port: via.port || 80, method, path: target.href, headers: { ...headers, ...auth, host: target.host } }
+        : { host: target.hostname, port: target.port || 80, method, path: target.pathname + target.search, headers },
+      (res) => {
+        let text = "";
+        res.on("data", (d) => (text += d));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
+      },
+    );
+    req.on("error", reject);
+    req.end(JSON.stringify(payload));
+  });
+}
+
 const res =
   action === "comment"
-    ? await fetch(`${base}/api/issues/${issue}/comments`, { method: "POST", headers, body: JSON.stringify({ body }) })
-    : await fetch(`${base}/api/issues/${issue}`, { method: "PATCH", headers, body: JSON.stringify({ status: action, comment: body }) });
-const text = await res.text();
-if (!res.ok) {
+    ? await send("POST", `${base}/api/issues/${issue}/comments`, { body })
+    : await send("PATCH", `${base}/api/issues/${issue}`, { status: action, comment: body });
+const text = res.text;
+if (res.status < 200 || res.status >= 300) {
   console.error(`report.mjs: FAILED, Paperclip answered ${res.status}: ${text.slice(0, 400)}`);
   process.exit(1);
 }

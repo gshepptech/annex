@@ -76,3 +76,9 @@ test("turning a plugin on for you changes only that key in your settings, with a
   assert.deepEqual(P.pluginRows(home), [{ id: "smith@the-tavern", version: "4.8.0", enabledForYou: true }]);
   assert.throws(() => P.setPluginForYou("nope@x", true, join(home, "b"), home), /not installed/);
 });
+
+test("claude mcp list is read into rows; servers from plugins and claude.ai are not yours to remove here", () => {
+  const rows = P.parseMcpList("Checking MCP server health…\n\nclaude.ai Docs: https://x/mcp - ✔ Connected\nplugin:pw:pw: npx @playwright/mcp - ✔ Connected\ngithub: npx -y gh-mcp - ✗ Failed to connect\nlinear: https://mcp.linear.app (HTTP) - ! Needs authentication\n");
+  assert.deepEqual(rows.map((r) => [r.name, r.ok, r.yours]), [["claude.ai Docs", true, false], ["plugin:pw:pw", true, false], ["github", false, true], ["linear", false, true]]);
+  assert.equal(rows[3]!.status, "Needs authentication");
+});

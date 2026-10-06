@@ -82,6 +82,12 @@ export function toToml(w: Wing, settings: FileSettings): string {
   out.push(`check_timeout = ${q(settings.checkTimeout)}`);
   out.push(`wake_timeout = ${q(settings.wakeTimeout)}`);
   out.push(`max_backoff = ${q(settings.maxBackoff)}`);
+  const sb = w.sandbox;
+  if (!sb.enabled || sb.allowedDomains.length || sb.allowWrite.length) {
+    out.push("", "# Claude Code's OS sandbox around the crew's shell commands (on by default)", "[sandbox]", `enabled = ${sb.enabled}`);
+    if (sb.allowedDomains.length) out.push(`allowed_domains = [${sb.allowedDomains.map(q).join(", ")}]`);
+    if (sb.allowWrite.length) out.push(`allow_write = [${sb.allowWrite.map(q).join(", ")}]`);
+  }
   if (w.allow.length) out.push("", "[permissions]", `allow = [${w.allow.map(q).join(", ")}]`);
   return out.join("\n") + "\n";
 }

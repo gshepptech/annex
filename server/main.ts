@@ -50,7 +50,7 @@ const store = new Store(join(stateDir, "annex.db"));
 const logger = new Logger(join(stateDir, "logs"));
 const pc = new Paperclip(process.env.PAPERCLIP_URL);
 const claudeCommand = findClaude();
-const settingsFile = writeAgentSettings(stateDir);
+const settingsFile = writeAgentSettings(stateDir, [], { enabled: true, stateDir });
 const bureau = new Bureau({
   store,
   pc,

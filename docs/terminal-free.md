@@ -242,9 +242,10 @@ proven by tests, not clicked on a real repo), 4, 5 and 7. Fixed after it:
 
 Still open, by choice or for later:
 
-- **Agents that may run node, npm or npx can reach the API key** (stated in `key.ts`); closing it
-  needs an OS sandbox for agents' shells.
 - Getting the key into a new browser needs `npm run open` once (a terminal, once).
-- No model picker (the model is set by editing settings JSON); the MCP section shows the CLI's
-  own output; the office plugin field takes exact ids; usage is hidden on narrow screens.
+- Closed since: agents run in Claude Code's OS sandbox (key folder unreadable even from node or
+  npm, writes limited to the worktree, git and caches, network allowlist plus localhost; verified
+  with a real `claude -p` run: reckon's 120 tests passed and the commit landed). The live session
+  has a model picker, the MCP section lists servers as rows with Remove, the office plugin field
+  is a checklist of installed plugins, and usage shows on narrow screens.
 

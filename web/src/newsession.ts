@@ -3,6 +3,7 @@
 import { apiFetch, post } from "./api.ts";
 import { h } from "./dom.ts";
 
+export const MODELS: [string, string][] = [["default", "Your default"], ["opus", "Opus"], ["sonnet", "Sonnet"], ["haiku", "Haiku"], ["fable", "Fable"]];
 const MODES: [string, string][] = [["default", "Ask before acting"], ["acceptEdits", "Accept edits"], ["plan", "Plan only"], ["bypassPermissions", "Don't ask"]];
 
 export function newSessionDialog(started: (id: string, cwd: string) => void): { el: HTMLDialogElement; open: () => void } {
@@ -10,6 +11,7 @@ export function newSessionDialog(started: (id: string, cwd: string) => void): { 
   const folder = h("input", { name: "cwd", required: true, list: "project-folders", placeholder: "~/Projects/my-app", autocomplete: "off" }) as HTMLInputElement;
   const folders = h("datalist", { id: "project-folders" });
   const mode = h("select", { name: "mode", "aria-label": "Permission mode" }, ...MODES.map(([v, l]) => h("option", { value: v }, l))) as HTMLSelectElement;
+  const model = h("select", { name: "model", "aria-label": "Model" }, ...MODELS.map(([v, l]) => h("option", { value: v }, l))) as HTMLSelectElement;
   const el = h("dialog", { "aria-label": "New session" }) as HTMLDialogElement;
   el.append(
     h(
@@ -18,7 +20,7 @@ export function newSessionDialog(started: (id: string, cwd: string) => void): { 
         onsubmit: async (ev: Event) => {
           ev.preventDefault();
           try {
-            const v = (await post("/api/live", { cwd: folder.value, mode: mode.value })) as { id: string; cwd: string };
+            const v = (await post("/api/live", { cwd: folder.value, mode: mode.value, model: model.value })) as { id: string; cwd: string };
             el.close();
             error.hidden = true;
             started(v.id, v.cwd);
@@ -32,7 +34,7 @@ export function newSessionDialog(started: (id: string, cwd: string) => void): { 
       h("p", {}, "Claude Code in a folder you choose, on your own settings, the way the terminal runs it. Tools that need your yes show as cards."),
       error,
       h("div", { class: "field" }, h("label", {}, "Folder", folder), folders),
-      h("div", { class: "field" }, h("label", {}, "Permissions", mode)),
+      h("div", { class: "two" }, h("div", { class: "field" }, h("label", {}, "Permissions", mode)), h("div", { class: "field" }, h("label", {}, "Model", model))),
       h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "Start the session"), h("button", { class: "btn ghost", type: "button", onclick: () => el.close() }, "Cancel")),
     ),
   );

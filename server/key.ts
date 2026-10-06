@@ -4,9 +4,10 @@
 //   - a web page in your browser: stopped (and by the Host/Origin checks in http.ts);
 //   - an agent with Annex's default shell allow list: no curl, and its settings deny reading the
 //     key's folder by any file tool or any shell command that names it (provision.ts);
-//   - an agent in an office whose allow list includes node, npm or npx: NOT stopped. Those run
-//     arbitrary code as you, which can read any file you can. Isolating that needs an OS-level
-//     sandbox for agents' shells, which Annex does not set up yet.
+//   - an agent whose shell may run node, npm or npx (arbitrary code): stopped by Claude Code's
+//     sandbox, which Annex turns on for every agent (provision.ts, sandboxSettings). The operating
+//     system refuses any read of this folder from the agent's commands and everything they start.
+//     An office that sets [sandbox] enabled = false gives that up, and its wing file says so.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes, timingSafeEqual } from "node:crypto";

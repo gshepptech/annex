@@ -103,7 +103,8 @@ export class LiveSessions {
   }
 
   // `history` is what a resumed session already said, read from its log, so the view starts whole.
-  start(o: { cwd: string; mode: Mode; resume?: string | null; history?: Entry[]; run?: typeof spawn }): LiveView {
+  start(o: { cwd: string; mode: Mode; resume?: string | null; history?: Entry[]; model?: string | null; run?: typeof spawn }): LiveView {
+    if (o.model && !MODEL.test(o.model)) throw new LiveError(`Unknown model "${o.model}"`);
     if (!existsSync(o.cwd) || !statSync(o.cwd).isDirectory()) throw new LiveError(`${o.cwd} is not a folder`);
     if (!MODES.includes(o.mode)) throw new LiveError(`Unknown mode "${o.mode}"`);
     if (o.resume) {
@@ -123,6 +124,7 @@ export class LiveSessions {
       "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
       "--permission-mode", o.mode, "--mcp-config", configFile, "--permission-prompt-tool", "mcp__bourne_live__approve",
       ...(o.resume ? ["--resume", o.resume] : []),
+      ...(o.model ? ["--model", o.model] : []),
     ];
     // a permission question can wait as long as you take; do not let the MCP call time out
     const env = { ...process.env, MCP_TOOL_TIMEOUT: String(7 * 86_400_000) };
@@ -226,6 +228,17 @@ export class LiveSessions {
   }
 
   private modeRequests = new Map<string, { live: Live; mode: Mode }>();
+  private modelRequests = new Map<string, Live>();
+
+  // Switches the model mid-session (\`opus\`, \`sonnet\`, \`haiku\` or a full model id); Claude's
+  // next init says which model it is now running.
+  setModel(id: string, model: string) {
+    const l = this.need(id);
+    if (!MODEL.test(model)) throw new LiveError(`Unknown model "${model}"`);
+    const request_id = randomUUID();
+    this.modelRequests.set(request_id, l);
+    this.write(l, { type: "control_request", request_id, request: { subtype: "set_model", model } });
+  }
 
   // The approve MCP server proves which session it serves with that session's own token.
   tokenOk(id: string, given: string | undefined): boolean {
@@ -347,6 +360,15 @@ export class LiveSessions {
     }
     if (m.type === "control_response") {
       const r = m.response as { subtype?: string; request_id?: string; error?: string } | undefined;
+      const modelFor = r?.request_id ? this.modelRequests.get(r.request_id) : undefined;
+      if (modelFor) {
+        this.modelRequests.delete(r!.request_id!);
+        if (r!.subtype !== "success") {
+          l.error = `Claude kept the model: ${r!.error ?? "it refused the change"}`;
+          this.publish(l);
+        }
+        return;
+      }
       const asked = r?.request_id ? this.modeRequests.get(r.request_id) : undefined;
       if (asked) {
         this.modeRequests.delete(r!.request_id!);
@@ -458,3 +480,6 @@ function walk(root: string, rel: string, depth: number, limit: number, out: stri
 function startedAt(l: { startedAt: string }): string {
   return l.startedAt;
 }
+
+// a model alias Claude Code knows, or a model id
+const MODEL = /^(opus|sonnet|haiku|fable|default|claude-[a-z0-9.-]+(\[1m\])?)$/;

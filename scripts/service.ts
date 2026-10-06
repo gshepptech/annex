@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
+import { loadOrCreateKey, openLink } from "../server/key.ts";
 
 const LABEL = "dev.annex.office";
 const root = join(import.meta.dirname, "..");
@@ -79,6 +80,17 @@ if (cmd === "install") {
     process.exit(1);
   }
   console.log(`Installed ${plist}. Annex starts at login and restarts if it exits; its log is ${log}.`);
+  // open it in the browser with its key once it answers, so this browser never needs a terminal for it
+  for (let i = 0; i < 90; i++) {
+    try {
+      execFileSync("curl", ["-sf", "-o", "/dev/null", "http://127.0.0.1:4300/api/health"]);
+      execFileSync("open", [openLink(Number(process.env.BOURNE_PORT ?? 4300), loadOrCreateKey())]);
+      console.log("Opened Annex in your browser.");
+      break;
+    } catch {
+      execFileSync("sleep", ["2"]);
+    }
+  }
 } else if (cmd === "remove") {
   launchctl("bootout", `${domain}/${LABEL}`);
   if (existsSync(plist)) rmSync(plist);

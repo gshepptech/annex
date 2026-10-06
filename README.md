@@ -134,6 +134,11 @@ wake_every = "15m"
 
 [permissions]
 allow = ["npm", "npx", "node", "git"]    # shell commands the crew may run
+
+# [sandbox]                              # on by default; see below
+# allowed_domains = ["api.example.com"]  # hosts beyond npm, PyPI, GitHub and Claude's own
+# allow_write = ["~/.cargo"]             # folders beyond the worktree, git and package caches
+# enabled = false                        # gives up the protection below
 ```
 
 ## What Annex will and will not do
@@ -142,6 +147,10 @@ allow = ["npm", "npx", "node", "git"]    # shell commands the crew may run
   lands on the integration branch; you review and merge it yourself.
 - Agents run your `claude` with your subscription, without `--dangerously-skip-permissions`,
   and without your global `~/.claude/CLAUDE.md`, hooks, plugins or auto-memory.
+- Every agent's shell runs inside Claude Code's sandbox (the operating system's, Seatbelt on
+  macOS), including anything `node` or `npm` starts. It cannot read Annex's key or live-session
+  folders, cannot write outside its worktree, the repo's git folder and package caches, and can
+  only reach package registries, GitHub, Claude and localhost (so tests that start a server work).
 - When Claude reports your plan's usage limit, every wing holds and starts again by itself at
   the reset time.
 

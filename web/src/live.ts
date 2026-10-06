@@ -8,6 +8,7 @@ import { apiFetch, withKey } from "./api.ts";
 import { h } from "./dom.ts";
 import { renderEntry } from "./terminal.ts";
 import { RunPanel } from "./runpanel.ts";
+import { MODELS } from "./newsession.ts";
 
 const MODE_LABEL: Record<Mode, string> = { default: "Ask before acting", acceptEdits: "Accept edits", plan: "Plan only", bypassPermissions: "Don't ask" };
 
@@ -94,6 +95,7 @@ export class LiveView {
     this.error = null;
     this.drawn = -1;
     this.cardsKey = "";
+    this.headKey = "";
     this.stick = true;
     this.screen.replaceChildren(h("p", { class: "term-empty" }, "Starting Claude…"));
     this.source = new EventSource(withKey(`/api/live/${liveId}/events`));
@@ -161,11 +163,20 @@ export class LiveView {
     (this.foot.querySelector("button[type=submit]") as HTMLButtonElement).disabled = closed;
   }
 
+  private headKey = "";
+
   private drawHead() {
+    // only when something in it changed, so an open dropdown is not rebuilt under your pointer
+    const key = `${this.liveId}|${this.status}|${this.mode}|${this.model}|${this.cwd}`;
+    if (key === this.headKey) return;
+    this.headKey = key;
     const name = this.cwd.split("/").filter(Boolean).pop() ?? this.cwd;
     const working = this.status === "working";
     const modeSel = h("select", { "aria-label": "Permission mode", disabled: this.status === "closed" }, ...Object.entries(MODE_LABEL).map(([v, label]) => h("option", { value: v, selected: v === this.mode }, label))) as HTMLSelectElement;
     modeSel.addEventListener("change", () => void this.post("mode", { mode: modeSel.value }));
+    const family = (this.model ?? "").match(/opus|sonnet|haiku|fable/)?.[0] ?? "";
+    const modelSel = h("select", { "aria-label": "Model", disabled: this.status === "closed" }, ...MODELS.filter(([v]) => v !== "default").map(([v, label]) => h("option", { value: v, selected: v === family }, label))) as HTMLSelectElement;
+    modelSel.addEventListener("change", () => void this.post("model", { model: modelSel.value }));
     this.head.replaceChildren(
       h("button", { class: "back", type: "button", onclick: () => this.onBack() }, "← Offices"),
       h("h2", {}, name),
@@ -181,6 +192,7 @@ export class LiveView {
         "div",
         { class: "row live-controls" },
         modeSel,
+        modelSel,
         h("button", { class: "btn", type: "button", disabled: !working, onclick: () => void this.post("interrupt") }, "Stop"),
         h("button", { class: "btn ghost", type: "button", disabled: this.status === "closed", onclick: () => void this.post("close") }, "Close session"),
       ),

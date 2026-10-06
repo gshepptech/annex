@@ -88,7 +88,43 @@ export function keyDenies(dir = KEY_DIR): string[] {
   return [...reads, `Bash(*${tail}*)`, "Bash(curl:*)", "Bash(wget:*)"];
 }
 
-export function writeAgentSettings(dir: string, plugins: string[] = []): string {
+// Hosts agents' commands may reach through Claude Code's sandbox: package registries and source
+// hosts, nothing else unless a wing adds it. The engine is reached on localhost.
+export const SANDBOX_DOMAINS = [
+  "registry.npmjs.org", "*.npmjs.org", "registry.yarnpkg.com", "github.com", "*.github.com", "*.githubusercontent.com",
+  "pypi.org", "files.pythonhosted.org", "crates.io", "*.crates.io", "static.crates.io", "proxy.golang.org", "sum.golang.org",
+];
+
+export interface SandboxOptions {
+  enabled: boolean;
+  // the repo's .git folder: a worktree's commits are written there, outside the worktree
+  gitDir?: string | null;
+  allowedDomains?: string[];
+  allowWrite?: string[];
+  // Annex's own state folder; its live sessions' tokens live under it
+  stateDir?: string;
+}
+
+// Claude Code's sandbox, enforced by the operating system around every shell command an agent
+// runs and everything those commands start (node and npm included): Annex's key and its live
+// sessions' tokens cannot be read, writes stay in the worktree, the repo's git folder and the
+// package caches, and the network reaches only the allowed hosts and localhost (tests often start
+// a local server; Annex's own API on localhost refuses anything without the key). No unsandboxed
+// retry. Without the key, an agent cannot call Annex's API at all.
+export function sandboxSettings(o: SandboxOptions): Record<string, unknown> | null {
+  if (!o.enabled) return null;
+  return {
+    enabled: true,
+    allowUnsandboxedCommands: false,
+    filesystem: {
+      denyRead: [KEY_DIR, ...(o.stateDir ? [join(o.stateDir, "live")] : [])],
+      allowWrite: [...(o.gitDir ? [o.gitDir] : []), "~/.npm", "~/.cache", "~/Library/Caches", ...(o.allowWrite ?? [])],
+    },
+    network: { allowedDomains: [...SANDBOX_DOMAINS, ...(o.allowedDomains ?? [])], strictAllowlist: true, allowLocalBinding: true },
+  };
+}
+
+export function writeAgentSettings(dir: string, plugins: string[] = [], sandbox: SandboxOptions = { enabled: true }): string {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, "claude-settings.json");
   const settings = {
@@ -97,6 +133,7 @@ export function writeAgentSettings(dir: string, plugins: string[] = []): string 
     // deny rules beat any allow, so these hold whatever a wing file lists
     permissions: { deny: [...DENIED_GIT.map((c) => `Bash(${c}:*)`), ...keyDenies()] },
     ...(plugins.length ? { enabledPlugins: Object.fromEntries(plugins.map((p) => [p, true])) } : {}),
+    ...(sandboxSettings(sandbox) ? { sandbox: sandboxSettings(sandbox) } : {}),
   };
   writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
   return file;
@@ -144,7 +181,14 @@ export async function provision(opts: {
 
   const plugins = wing.plugins.map((id) => findPlugin(id)).filter((p): p is PluginInfo => p !== null);
   const missingPlugins = wing.plugins.filter((id) => !plugins.some((p) => p.id === id));
-  const settingsFile = plugins.length ? writeAgentSettings(wingDir, plugins.map((p) => p.id)) : opts.settingsFile;
+  // every office gets its own settings: its plugins, and a sandbox that knows its repo
+  const settingsFile = writeAgentSettings(wingDir, plugins.map((p) => p.id), {
+    enabled: wing.sandbox.enabled,
+    gitDir: wing.repo ? join(wing.repo.path, ".git") : null,
+    allowedDomains: wing.sandbox.allowedDomains,
+    allowWrite: wing.sandbox.allowWrite,
+    stateDir: opts.stateDir,
+  });
 
   const existing = new Set((await pc.agents(companyId)).map((a) => a.id));
   for (const a of store.agents(wing.id)) if (!existing.has(a.id)) store.removeAgent(a.id);

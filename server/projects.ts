@@ -238,10 +238,31 @@ export function writeConfig(o: { kind: string; root: string | null; text: string
 
 export const MCP_NAME = /^[\w.-]{1,64}$/;
 
-export async function mcpList(claude: string, root: string): Promise<string> {
+export interface McpRow {
+  name: string;
+  target: string;
+  status: string;
+  ok: boolean;
+  // added by you (removable here) rather than by a plugin or claude.ai
+  yours: boolean;
+}
+
+// \`claude mcp list\` prints "name: command-or-url - ✔ Connected" per server; read it into rows.
+export function parseMcpList(text: string): McpRow[] {
+  const rows: McpRow[] = [];
+  for (const line of text.split("\n")) {
+    const m = /^(.+?): (.+) - ([✔✗!]) (.+)$/.exec(line.trim());
+    if (!m) continue;
+    const name = m[1]!;
+    rows.push({ name, target: m[2]!, status: m[4]!, ok: m[3] === "✔", yours: !name.startsWith("plugin:") && !name.startsWith("claude.ai ") });
+  }
+  return rows;
+}
+
+export async function mcpList(claude: string, root: string): Promise<{ rows: McpRow[]; text: string }> {
   try {
     const { stdout } = await run(claude, ["mcp", "list"], { cwd: root, timeout: 60_000 });
-    return stdout.trim();
+    return { rows: parseMcpList(stdout), text: stdout.trim() };
   } catch (err) {
     throw new ProjectError(`claude mcp list failed: ${gitError(err)}`);
   }
@@ -259,11 +280,13 @@ export async function mcpAdd(claude: string, root: string, o: { name: string; sc
   }
 }
 
-export async function mcpRemove(claude: string, root: string, name: string, scope: string): Promise<string> {
+// Without a scope Claude Code removes the server from wherever it is defined (and says so if
+// that is more than one place).
+export async function mcpRemove(claude: string, root: string, name: string, scope: string | null): Promise<string> {
   if (!MCP_NAME.test(name)) throw new ProjectError("That is not a server name");
-  if (!["user", "project", "local"].includes(scope)) throw new ProjectError("Scope is user, project or local");
+  if (scope && !["user", "project", "local"].includes(scope)) throw new ProjectError("Scope is user, project or local");
   try {
-    const { stdout } = await run(claude, ["mcp", "remove", "--scope", scope, name], { cwd: root, timeout: 60_000 });
+    const { stdout } = await run(claude, ["mcp", "remove", ...(scope ? ["--scope", scope] : []), name], { cwd: root, timeout: 60_000 });
     return stdout.trim();
   } catch (err) {
     throw new ProjectError(`claude mcp remove failed: ${gitError(err)}`);

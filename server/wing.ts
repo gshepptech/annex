@@ -65,6 +65,8 @@ export interface Wing {
   allow: string[];
   // Claude Code plugins the crew may use, as "name@marketplace"
   plugins: string[];
+  // Claude Code's OS sandbox around the agents' shell commands (on unless the wing turns it off)
+  sandbox: { enabled: boolean; allowedDomains: string[]; allowWrite: string[] };
 }
 
 export class WingFileError extends Error {}
@@ -166,6 +168,12 @@ export function parseWing(id: string, source: string): Wing {
       if (!PLUGIN_ID.test(p)) throw new WingFileError(`${at("plugins")} entries look like "smith@the-tavern", got "${p}"`);
       return p;
     }),
+    sandbox: (() => {
+      const t = table(raw.sandbox, at("sandbox")) ?? {};
+      const enabled = t.enabled === undefined ? true : t.enabled === true;
+      if (t.enabled !== undefined && typeof t.enabled !== "boolean") throw new WingFileError(`${at("sandbox.enabled")} must be true or false`);
+      return { enabled, allowedDomains: strList(t.allowed_domains, at("sandbox.allowed_domains")), allowWrite: strList(t.allow_write, at("sandbox.allow_write")) };
+    })(),
   };
 }
 

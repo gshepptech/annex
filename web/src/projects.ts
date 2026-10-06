@@ -259,15 +259,40 @@ export class ProjectsDialog {
   }
 
   private async mcp(root: string): Promise<HTMLElement> {
-    const out = h("pre", { class: "brief" }, "Checking MCP servers…");
+    type Row = { name: string; target: string; status: string; ok: boolean; yours: boolean };
+    const list = h("ol", { class: "mcp-rows" }, h("li", { class: "hint" }, "Checking MCP servers…"));
+    const note = h("p", { class: "hint", role: "status" });
     const name = h("input", { placeholder: "name", "aria-label": "Server name" }) as HTMLInputElement;
     const cmd = h("input", { placeholder: "command and arguments, e.g. npx -y @modelcontextprotocol/server-github", "aria-label": "Command" }) as HTMLInputElement;
     const scope = h("select", { "aria-label": "Scope" }, h("option", { value: "local" }, "Just you, this project"), h("option", { value: "project" }, "Everyone, this project (.mcp.json)"), h("option", { value: "user" }, "You, every project")) as HTMLSelectElement;
     const load = async () => {
       try {
-        out.textContent = (await get<{ text: string }>(`/api/mcp?root=${encodeURIComponent(root)}`)).text || "No MCP servers.";
+        const rows = (await get<{ rows: Row[] }>(`/api/mcp?root=${encodeURIComponent(root)}`)).rows;
+        list.replaceChildren(
+          ...(rows.length ? rows : []).map((r) =>
+            h(
+              "li",
+              {},
+              h("b", {}, r.name),
+              h("span", { class: `mcp-st ${r.ok ? "ok" : "bad"}` }, r.status),
+              h("code", {}, r.target),
+              r.yours
+                ? h("button", { class: "btn ghost", type: "button", onclick: async () => {
+                    if (!confirm(`Remove the MCP server "${r.name}"?\n\nRuns: claude mcp remove ${r.name}`)) return;
+                    try {
+                      note.textContent = ((await post("/api/mcp/remove", { root, name: r.name })) as { text: string }).text;
+                    } catch (err) {
+                      note.textContent = (err as Error).message;
+                    }
+                    void load();
+                  } }, "Remove")
+                : h("span", { class: "hint" }, r.name.startsWith("plugin:") ? "from a plugin" : "from claude.ai"),
+            ),
+          ),
+        );
+        if (!rows.length) list.replaceChildren(h("li", { class: "hint" }, "No MCP servers."));
       } catch (err) {
-        out.textContent = (err as Error).message;
+        list.replaceChildren(h("li", { class: "notice bad" }, (err as Error).message));
       }
     };
     void load();
@@ -275,36 +300,27 @@ export class ProjectsDialog {
       "div",
       {},
       h("h3", {}, "MCP servers"),
-      out,
+      list,
+      note,
       h(
         "form",
         { class: "row", onsubmit: async (ev: Event) => {
           ev.preventDefault();
           const [command, ...args] = cmd.value.trim().split(/\s+/);
+          if (!confirm(`Add the MCP server "${name.value}"?\n\nRuns: claude mcp add --scope ${scope.value} ${name.value} -- ${cmd.value.trim()}`)) return;
           try {
-            out.textContent = ((await post("/api/mcp", { root, name: name.value, scope: scope.value, command, args })) as { text: string }).text;
-            void load();
+            note.textContent = ((await post("/api/mcp", { root, name: name.value, scope: scope.value, command, args })) as { text: string }).text;
+            name.value = "";
+            cmd.value = "";
           } catch (err) {
-            out.textContent = (err as Error).message;
+            note.textContent = (err as Error).message;
           }
+          void load();
         } },
         name,
         cmd,
         scope,
-        h("button", { class: "btn", type: "submit" }, "Add"),
-      ),
-      h(
-        "form",
-        { class: "row", onsubmit: async (ev: Event) => {
-          ev.preventDefault();
-          try {
-            out.textContent = ((await post("/api/mcp/remove", { root, name: name.value, scope: scope.value })) as { text: string }).text;
-            void load();
-          } catch (err) {
-            out.textContent = (err as Error).message;
-          }
-        } },
-        h("button", { class: "btn ghost", type: "submit" }, "Remove the server named above"),
+        h("button", { class: "btn", type: "submit" }, "Add server"),
       ),
     );
   }

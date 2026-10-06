@@ -324,10 +324,10 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
       if (typeof body.mode !== "string") mode = (live.lastMode(resume) ?? (MODES.includes(t.session.permissionMode as Mode) ? t.session.permissionMode : defaultMode())) as Mode;
     }
     if (!cwd) throw new UserError("Name a folder to start the session in", 400);
-    json(res, 201, live.start({ cwd, mode, resume, history }));
+    json(res, 201, live.start({ cwd, mode, resume, history, model: typeof body.model === "string" && body.model && body.model !== "default" ? body.model : null }));
     return true;
   }
-  const m = /^\/api\/live\/([0-9a-f-]{36})(?:\/(events|message|interrupt|mode|close|answer|permission|files|shell))?$/.exec(path);
+  const m = /^\/api\/live\/([0-9a-f-]{36})(?:\/(events|message|interrupt|mode|model|close|answer|permission|files|shell))?$/.exec(path);
   if (!m) return false;
   const id = m[1]!;
   if (req.method === "GET" && !m[2]) {
@@ -369,6 +369,9 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
       break;
     case "mode":
       live.setMode(id, str(body.mode, "mode") as Mode);
+      break;
+    case "model":
+      live.setModel(id, str(body.model, "model"));
       break;
     case "close":
       live.close(id);
@@ -429,7 +432,7 @@ async function projectRoutes(req: IncomingMessage, res: ServerResponse, url: URL
   if (req.method === "GET" && path === "/api/projects/branches") return (json(res, 200, await P.branches(root(q("root")))), true);
   if (req.method === "GET" && path === "/api/projects/publish") return (json(res, 200, await P.publishPlan(root(q("root")))), true);
   if (req.method === "GET" && path === "/api/config") return (json(res, 200, P.readConfig(str(q("kind"), "kind"), q("root") ? root(q("root")) : null, known)), true);
-  if (req.method === "GET" && path === "/api/mcp") return (json(res, 200, { text: await P.mcpList(claude, root(q("root"))) }), true);
+  if (req.method === "GET" && path === "/api/mcp") return (json(res, 200, await P.mcpList(claude, root(q("root")))), true);
   if (req.method === "PUT" && path === "/api/config") {
     const b = await readJson(req);
     return (json(res, 200, P.writeConfig({ kind: str(b.kind, "kind"), root: b.root ? root(b.root) : null, text: typeof b.text === "string" ? b.text : "", hash: str(b.hash, "hash"), known, backups })), true);
@@ -451,7 +454,7 @@ async function projectRoutes(req: IncomingMessage, res: ServerResponse, url: URL
     case "/api/mcp":
       return (json(res, 200, { text: await P.mcpAdd(claude, root(b.root), { name: str(b.name, "name"), scope: str(b.scope, "scope"), command: str(b.command, "command"), args: Array.isArray(b.args) ? b.args.map(String) : [] }) }), true);
     case "/api/mcp/remove":
-      return (json(res, 200, { text: await P.mcpRemove(claude, root(b.root), str(b.name, "name"), str(b.scope, "scope")) }), true);
+      return (json(res, 200, { text: await P.mcpRemove(claude, root(b.root), str(b.name, "name"), typeof b.scope === "string" && b.scope ? b.scope : null) }), true);
     case "/api/plugins/you":
       P.setPluginForYou(str(b.id, "id"), b.on === true, backups);
       return (json(res, 200, { ok: true }), true);

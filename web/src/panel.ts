@@ -23,6 +23,44 @@ export class Panel {
   private saved = "";
   private refresh: () => void;
   private runPanel = new RunPanel();
+  // your installed plugins, read once for the office plugin picker
+  private installed: string[] | null = null;
+
+  // The plugins this office's crew may use: a box per installed plugin. The hidden field carries
+  // the choice to the form, so saving works as for every other setting.
+  private pluginPicker(current: string[]): HTMLElement {
+    const hidden = h("input", { type: "hidden", name: "plugins", value: current.join(",") }) as HTMLInputElement;
+    const box = h("div", { class: "plugin-picks" });
+    const draw = () => {
+      const chosen = new Set(hidden.value.split(",").filter(Boolean));
+      // a plugin the wing file names that is no longer installed still shows, so it can be removed
+      const all = [...new Set([...(this.installed ?? []), ...chosen])].sort();
+      box.replaceChildren(
+        ...(this.installed === null ? [h("span", { class: "hint" }, "Reading your plugins…")] : []),
+        ...all.map((id) => {
+          const cb = h("input", { type: "checkbox", checked: chosen.has(id) }) as HTMLInputElement;
+          cb.onchange = () => {
+            if (cb.checked) chosen.add(id);
+            else chosen.delete(id);
+            hidden.value = [...chosen].join(",");
+          };
+          return h("label", { class: "field check" }, cb, id, this.installed && !this.installed.includes(id) ? h("span", { class: "hint" }, " (not installed)") : null);
+        }),
+        ...(this.installed !== null && !all.length ? [h("span", { class: "hint" }, "No plugins installed. Install them with /plugin in a session.")] : []),
+      );
+    };
+    if (this.installed === null) {
+      void apiFetch("/api/plugins").then((r) => r.json()).then((rows: { id: string }[]) => {
+        this.installed = rows.map((r) => r.id);
+        draw();
+      }).catch(() => {
+        this.installed = [];
+        draw();
+      });
+    }
+    draw();
+    return h("fieldset", { class: "plugin-field" }, h("legend", {}, "Plugins the crew may use"), hidden, box, h("span", { class: "hint" }, "Turned on for this office's lead and crew only."));
+  }
   // the Ready to merge tab's changes, kept across redraws: which office, the files, the open one
   private changes: { wing: string; view: ChangesView | null; error: string; file: string | null; patch: string } = { wing: "", view: null, error: "", file: null, patch: "" };
   // the merge being confirmed, and how the last one went
@@ -503,7 +541,7 @@ export class Panel {
             maxBackoff: val("maxBackoff"),
             askBefore: val("askBefore").split("\n"),
             allow: val("allow").split(/[,\s]+/).filter(Boolean),
-            plugins: val("plugins").split(/[,\s]+/).filter(Boolean),
+            plugins: val("plugins").split(",").filter(Boolean),
           };
           void this.act("Saving and applying", base, edit, () => (this.saved = "Saved. The office is using the new settings."), "PUT");
         },
@@ -527,7 +565,7 @@ export class Panel {
         h("div", { class: "two" }, field("Lead model", input("leadModel", e.leadModel, { list: "models" })), field("Crew model", input("workerModel", e.workerModel, { list: "models" }))),
         field("Reviewer model", input("reviewerModel", e.reviewerModel, { list: "models" })),
         field("Commands the crew may run", input("allow", e.allow.join(", "), { placeholder: "npm, npx, node" })),
-        field("Plugins", input("plugins", e.plugins.join(", "), { placeholder: "smith@the-tavern, sage@the-tavern" }), "Claude Code plugins the crew may use. Install them in Claude Code first; Annex turns them on for this office only."),
+        this.pluginPicker(e.plugins),
       ),
       h(
         "fieldset",
