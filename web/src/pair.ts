@@ -8,21 +8,26 @@ export function pairDialog() {
   const link = h("input", { class: "pair-link", readonly: true, "aria-label": "Pairing link", onfocus: () => link.select() }) as HTMLInputElement;
   const until = h("p", {});
   const err = h("p", { class: "bad" });
-  const copy = h("button", { class: "btn primary", type: "button", onclick: async () => { await navigator.clipboard?.writeText(link.value).catch(() => {}); copy.textContent = "Copied"; } }, "Copy link");
+  const copy = h("button", { class: "btn primary", type: "button", onclick: async () => { const ok = await navigator.clipboard?.writeText(link.value).then(() => true, () => false); if (ok) copy.textContent = "Copied"; else link.select(); } }, "Copy link");
   const el = h("dialog", { "aria-label": "Pair a browser" }) as HTMLDialogElement;
 
+  // only the latest request's link is shown: an earlier one that answers late was already cancelled
+  let asked = 0;
   const make = async () => {
+    const mine = ++asked;
     link.value = "";
     until.textContent = "Making a link…";
     err.textContent = "";
     copy.textContent = "Copy link";
     try {
       const { code, expiresAt } = await makePairing();
+      if (mine !== asked) return;
       // localStorage is per origin: the new browser has to open the address this one uses
       link.value = `${location.origin}/#pair=${code}`;
       const at = new Date(expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
       until.textContent = `Open this link in another browser on this computer. It gives that browser Annex's key, works once, and stops working at ${at}.`;
     } catch (e) {
+      if (mine !== asked) return;
       until.textContent = "";
       err.textContent = `Could not make a link: ${(e as Error).message}`;
     }

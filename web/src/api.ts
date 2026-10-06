@@ -28,19 +28,25 @@ addEventListener("hashchange", () => {
     readKey();
     location.reload();
   } else if (/[#&]pair=/.test(location.hash)) {
-    void claimPairing().then(() => location.reload());
+    // a refused link keeps the page, so the key screen can say why; a browser without a working
+    // key gets a 401 from this check and the screen comes back
+    void claimPairing().then((r) => (r === "paired" ? location.reload() : void apiFetch("/api/state")));
   }
 });
 
 // A pairing link (#pair=...) made in a browser that has the key: trade the one-time code for the
 // key and keep it the way #key= does. The code leaves the address bar before anything else. Plain
 // fetch, so a refused code does not read as a refused key.
+export let pairFailed = false;
 export async function claimPairing(): Promise<"paired" | "failed" | null> {
   const m = /[#&]pair=([\w-]+)/.exec(location.hash);
   if (!m) return null;
   history.replaceState(null, "", location.pathname + location.search);
   const r = await fetch("/api/pair/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: m[1] }) }).catch(() => null);
-  if (!r?.ok) return "failed";
+  if (!r?.ok) {
+    pairFailed = true;
+    return "failed";
+  }
   const { key: k } = (await r.json()) as { key: string };
   try {
     localStorage.setItem(KEY_STORE, k);

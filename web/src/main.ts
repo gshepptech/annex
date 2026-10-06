@@ -4,7 +4,7 @@ import "./styles.css";
 
 import type { StateView, WingView, SessionView, TerminalView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
-import { getState, getSessions, stream, apiFetch, whenKeyMissing, post, claimPairing } from "./api.ts";
+import { getState, getSessions, stream, apiFetch, whenKeyMissing, post, claimPairing, pairFailed } from "./api.ts";
 import { Room } from "./room.ts";
 import { Panel } from "./panel.ts";
 import { Sidebar } from "./sidebar.ts";
@@ -23,17 +23,20 @@ import { setRoomTheme } from "./office/sprites.ts";
 
 const app = document.getElementById("app")!;
 
-// a pairing link this page was opened with that Annex refused (expired, used or wrong)
-let pairFailed = false;
 // Without Annex's key nothing loads; say how to get it instead of showing an empty office.
 whenKeyMissing(() => {
-  if (document.querySelector(".no-key")) return;
+  // pairFailed: a pairing link opened here that Annex refused (expired, used or wrong)
+  const shown = document.querySelector(".no-key");
+  if (shown) {
+    shown.querySelector<HTMLElement>(".bad")!.hidden = !pairFailed;
+    return;
+  }
   document.body.append(
     h(
       "div",
       { class: "no-key", role: "alertdialog", "aria-label": "Annex needs its key" },
       h("h2", {}, "Annex needs its key"),
-      pairFailed && h("p", { class: "bad" }, "That pairing link has expired or was already used."),
+      h("p", { class: "bad", hidden: !pairFailed }, "That pairing link has expired or was already used."),
       h("p", {}, "Annex only answers a browser that has its key, so programs on this machine (Annex's own agents included) cannot drive it. Two ways to give it one:"),
       h("h3", {}, "From a browser that has Annex open"),
       h("p", {}, "Choose Pair a browser in the top bar and open the link here. It works once, for five minutes."),
@@ -518,7 +521,7 @@ const REFRESH_ON = new Set(["task.created", "task.started", "task.done", "task.s
 async function boot() {
   // a pairing link trades its code for the key before anything asks for it; once the # is gone
   // this does nothing, so a retry below does not claim twice
-  if ((await claimPairing()) === "failed") pairFailed = true;
+  await claimPairing();
   try {
     const first = await getState();
     recent = first.recent;
