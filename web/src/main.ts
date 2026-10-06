@@ -77,6 +77,18 @@ const liveView = new LiveView(
   () => void pollSessions(),
   (tool) => alertMe("Claude is waiting for your yes", `It wants to use ${tool}`),
 );
+// Annex restarted under an open live session: wait for it to reopen that conversation, then follow.
+liveView.onGone = async (sessionId) => {
+  if (!sessionId) return;
+  for (let i = 0; i < 30; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    await pollSessions();
+    const again = lives.find((l) => l.sessionId === sessionId && l.status !== "closed");
+    if (again) return selectLive(again.id, again.cwd, false);
+    if (!selectedLive) return;
+  }
+};
+
 terminal.onOpenLive = async (sessionId) => {
   try {
     const v = (await post("/api/live", { resume: sessionId })) as { id: string; cwd: string };

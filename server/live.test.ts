@@ -104,3 +104,45 @@ test("the stream becomes entries; the turn's closing summary does not repeat the
   assert.equal(v.status, "waiting");
   assert.equal(v.partial, "");
 });
+
+test("open sessions are written down and reopened after a restart, with their mode; closed ones are not", async () => {
+  const { lives, f, id, dir } = setup();
+  f.say({ type: "system", subtype: "init", session_id: "11111111-1111-4111-8111-111111111111", model: "m", slash_commands: [] });
+  await tick();
+  const g = fakeClaude();
+  const other = lives.start({ cwd: dir, mode: "plan", run: g.run });
+  g.say({ type: "system", subtype: "init", session_id: "22222222-2222-4222-8222-222222222222", model: "m", slash_commands: [] });
+  await tick();
+  lives.close(other.id);
+  lives.closeAll();
+  const after = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  const started: string[] = [];
+  const orig = after.start.bind(after);
+  after.start = ((o: Parameters<typeof orig>[0]) => { started.push(`${o.resume} ${o.mode}`); return orig({ ...o, run: fakeClaude().run }); }) as typeof after.start;
+  assert.equal(after.restore(() => [{ kind: "prompt", at: "", text: "earlier" }]), 1);
+  assert.deepEqual(started, ["11111111-1111-4111-8111-111111111111 default"], "the closed one stays closed");
+  assert.equal(after.list()[0]!.entries[0]!.kind, "prompt", "its history is shown again");
+  void id;
+});
+
+test("pasted images go to Claude as image blocks; anything that is not a small image is refused", () => {
+  const { lives, f, id } = setup();
+  lives.send(id, "what is this", [{ mediaType: "image/png", data: "iVBORw0KGgo=" }]);
+  const msg = f.written.at(-1) as { message: { content: { type: string }[] } };
+  assert.deepEqual(msg.message.content.map((c) => c.type), ["text", "image"]);
+  assert.throws(() => lives.send(id, "x", [{ mediaType: "text/html", data: "PGgxPg==" }]), /PNG, JPEG/);
+  assert.throws(() => lives.send(id, "x", [{ mediaType: "image/png", data: "not base64!" }]), /too large|damaged/);
+});
+
+test("!command runs in the session's folder and Claude gets the output; @ finds files there", async () => {
+  const { lives, f, id, dir } = setup();
+  const { writeFileSync, mkdirSync } = await import("node:fs");
+  mkdirSync(join(dir, "src"));
+  writeFileSync(join(dir, "src", "cart.ts"), "export {}\n");
+  const r = await lives.shell(id, "echo hello && pwd");
+  assert.equal(r.exitCode, 0);
+  const sent = (f.written.at(-1) as { message: { content: string } }).message.content;
+  assert.match(sent, /\$ echo hello && pwd\nhello\n/);
+  assert.match(sent, /\(exit 0\)/);
+  assert.deepEqual(await lives.files(id, "cart"), ["src/cart.ts"]);
+});

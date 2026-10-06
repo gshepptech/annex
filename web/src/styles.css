@@ -679,3 +679,23 @@ form.row { flex-direction: row; }
 .project-detail > * { min-width: 0; }
 .project-detail textarea, .project-detail input, .project-detail select { max-width: 100%; }
 .branch-block .row > * { min-width: 0; }
+
+/* Claude asking you a question */
+.prompt-card.ask { border-color: var(--focus); background: color-mix(in srgb, var(--focus) 7%, transparent); }
+.question { margin: 0; padding: 0; border: 0; display: grid; gap: 8px; }
+.question legend { font-weight: 700; margin-bottom: 4px; }
+.choices { display: grid; gap: 6px; }
+.choice { display: grid; gap: 2px; text-align: left; padding: 8px 10px; background: var(--raised); border: 1px solid var(--rule); border-radius: var(--r); cursor: pointer; }
+.choice span { font-size: 0.82rem; color: var(--muted); }
+.choice[aria-pressed="true"] { border-color: var(--focus); box-shadow: inset 3px 0 0 var(--focus); }
+
+/* a subagent's work, nested under the call that started it; a to-do list */
+.screen .sub { margin-left: 2.2em; opacity: 0.8; border-left: 1px solid var(--term-line); padding-left: 0.6em; }
+.todos { margin: 2px 0 6px 2.7em; padding: 4px 8px; white-space: pre-wrap; font: inherit; color: var(--term-text); background: var(--term-2); border-radius: var(--r); }
+
+/* images waiting to be sent */
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; }
+.attachments:empty { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 3px; font-size: 0.8rem; background: var(--raised); border: 1px solid var(--rule); border-radius: var(--r); }
+.chip img { width: 32px; height: 32px; object-fit: cover; border-radius: 2px; }
+.chip button { border: 0; background: none; cursor: pointer; font-size: 1rem; color: var(--muted); }

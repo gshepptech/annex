@@ -18,6 +18,7 @@ import { Director } from "./director.ts";
 import { backupIfDue } from "./upkeep.ts";
 import { LiveSessions } from "./live.ts";
 import { Runner } from "./runner.ts";
+import { sessionTranscript } from "./sessions.ts";
 import { recordUsage } from "./usage.ts";
 import { loadOrCreateKey } from "./key.ts";
 
@@ -79,6 +80,9 @@ const backup = () => {
 };
 backup();
 setInterval(backup, 3600_000).unref();
+// sessions that were open when Annex last stopped carry on where they were
+const reopened = live.restore((id) => sessionTranscript(id)?.entries ?? null);
+if (reopened) logger.info(null, `reopened ${reopened} live session${reopened === 1 ? "" : "s"} from before the restart`);
 logger.info(null, `the office is at http://127.0.0.1:${port} (first time in a browser: npm run open); this log is ${logger.file}`);
 await bureau.start();
 

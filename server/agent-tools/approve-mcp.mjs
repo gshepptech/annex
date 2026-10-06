@@ -25,7 +25,8 @@ function ask(args) {
           try {
             const d = JSON.parse(body);
             if (res.statusCode !== 200) return deny(d.error ?? `Annex answered ${res.statusCode}`);
-            resolve(d.allow === true ? { behavior: "allow", updatedInput: args.input ?? {} } : { behavior: "deny", message: d.message ? `The person said no, so do not do it and do not say it was done. Their reason: ${d.message}` : "The person said no, so do not do it and do not say it was done." });
+            // an answer to Claude's question goes back inside the tool's input, as Claude Code expects
+            resolve(d.allow === true ? { behavior: "allow", updatedInput: d.answers ? { ...(args.input ?? {}), answers: d.answers } : args.input ?? {} } : { behavior: "deny", message: d.message ? `The person said no, so do not do it and do not say it was done. Their reason: ${d.message}` : "The person said no, so do not do it and do not say it was done." });
           } catch {
             deny("Annex's answer could not be read.");
           }

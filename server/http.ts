@@ -327,7 +327,7 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
     json(res, 201, live.start({ cwd, mode, resume, history }));
     return true;
   }
-  const m = /^\/api\/live\/([0-9a-f-]{36})(?:\/(events|message|interrupt|mode|close|answer|permission))?$/.exec(path);
+  const m = /^\/api\/live\/([0-9a-f-]{36})(?:\/(events|message|interrupt|mode|close|answer|permission|files|shell))?$/.exec(path);
   if (!m) return false;
   const id = m[1]!;
   if (req.method === "GET" && !m[2]) {
@@ -348,12 +348,22 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
     });
     return true;
   }
+  if (req.method === "GET" && m[2] === "files") {
+    json(res, 200, await live.files(id, url.searchParams.get("q") ?? ""));
+    return true;
+  }
   if (req.method !== "POST") return false;
-  const body = await readJson(req);
+  // a message may carry pasted images (up to four, base64), so it may be larger than other requests
+  const body = await readJson(req, m[2] === "message" ? 24_000_000 : 1_000_000);
   switch (m[2]) {
-    case "message":
-      live.send(id, str(body.text, "text"));
+    case "message": {
+      const images = Array.isArray(body.images) ? (body.images as { mediaType?: unknown; data?: unknown }[]) : [];
+      live.send(id, typeof body.text === "string" ? body.text : "", images.map((i) => ({ mediaType: String(i.mediaType ?? ""), data: String(i.data ?? "") })));
       break;
+    }
+    case "shell":
+      json(res, 200, await live.shell(id, str(body.command, "command")));
+      return true;
     case "interrupt":
       live.interrupt(id);
       break;
@@ -364,7 +374,13 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
       live.close(id);
       break;
     case "answer":
-      live.answer(id, str(body.promptId, "promptId"), body.allow === true ? { allow: true, always: body.always === true } : { allow: false, message: typeof body.message === "string" ? body.message : undefined });
+      live.answer(
+        id,
+        str(body.promptId, "promptId"),
+        body.allow === true
+          ? { allow: true, always: body.always === true, ...(body.answers && typeof body.answers === "object" ? { answers: Object.fromEntries(Object.entries(body.answers as Record<string, unknown>).map(([k, v]) => [k, String(v)])) } : {}) }
+          : { allow: false, message: typeof body.message === "string" ? body.message : undefined },
+      );
       break;
     case "permission": {
       // only the approve MCP server Annex started for this session knows the token
@@ -528,11 +544,11 @@ function json(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(req: IncomingMessage, limit = 1_000_000): Promise<Record<string, unknown>> {
   let raw = "";
   for await (const chunk of req) {
     raw += chunk;
-    if (raw.length > 1_000_000) throw new UserError("Request body is too large", 413);
+    if (raw.length > limit) throw new UserError("Request body is too large", 413);
   }
   if (!raw) return {};
   try {

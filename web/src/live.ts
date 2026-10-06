@@ -22,7 +22,7 @@ export class LiveView {
   private foot = h("div", { class: "term-foot" });
   private run = new RunPanel();
   private runBox = h("details", { class: "run-box" }, h("summary", {}, "Run the app"));
-  private input = h("textarea", { rows: 3, placeholder: "Message Claude (/ for commands)", "aria-label": "Message Claude" }) as HTMLTextAreaElement;
+  private input = h("textarea", { rows: 3, placeholder: "Message Claude", "aria-label": "Message Claude" }) as HTMLTextAreaElement;
   private menu = h("ul", { class: "slash-menu", role: "listbox", hidden: true });
   private source: EventSource | null = null;
   private entries: Entry[] = [];
@@ -40,6 +40,8 @@ export class LiveView {
   private onBack: () => void;
   private onChange: () => void;
   private onPrompt: (tool: string) => void;
+  // the stream went away (Annex restarted): the page looks for the same conversation reopened
+  onGone: (sessionId: string | null) => void = () => {};
 
   constructor(onBack: () => void, onChange: () => void, onPrompt: (tool: string) => void = () => {}) {
     this.onBack = onBack;
@@ -53,12 +55,30 @@ export class LiveView {
     });
     this.input.addEventListener("keydown", (ev) => this.keys(ev));
     this.input.addEventListener("input", () => this.complete());
+    // paste or drop an image to send it with the next message
+    this.input.addEventListener("paste", (ev) => {
+      for (const item of ev.clipboardData?.items ?? []) {
+        const f = item.kind === "file" ? item.getAsFile() : null;
+        if (f && f.type.startsWith("image/")) {
+          ev.preventDefault();
+          void this.addImage(f);
+        }
+      }
+    });
+    this.input.addEventListener("dragover", (ev) => ev.preventDefault());
+    this.input.addEventListener("drop", (ev) => {
+      const files = [...(ev.dataTransfer?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+      if (!files.length) return;
+      ev.preventDefault();
+      for (const f of files) void this.addImage(f);
+    });
     this.foot.append(
       h(
         "form",
         { onsubmit: (ev: Event) => { ev.preventDefault(); void this.send(); } },
+        this.attachments,
         h("div", { class: "slash-wrap" }, this.menu, this.input),
-        h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "Send ⌘↵"), h("span", { class: "hint" }, "Enter for a new line; ⌘↵ sends")),
+        h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "Send ⌘↵"), h("span", { class: "hint" }, "⌘↵ sends. Type / for commands, @ for files, ! to run a shell command. ↑ recalls, Esc stops. Paste images.")),
       ),
     );
   }
@@ -73,6 +93,7 @@ export class LiveView {
     this.prompts = [];
     this.error = null;
     this.drawn = -1;
+    this.cardsKey = "";
     this.stick = true;
     this.screen.replaceChildren(h("p", { class: "term-empty" }, "Starting Claude…"));
     this.source = new EventSource(withKey(`/api/live/${liveId}/events`));
@@ -82,9 +103,10 @@ export class LiveView {
       // restarted), which the person should be told rather than left looking at nothing
       if (this.source?.readyState === EventSource.CLOSED) {
         this.status = "closed";
-        this.error = "This live session ended when Annex restarted. Its conversation is kept: open it again from Your desk.";
+        this.error = "Reconnecting: Annex restarted, and reopens the sessions that were open…";
         this.drawn = -1;
         this.draw();
+        this.onGone(this.sessionId);
       }
     };
     this.drawHead();
@@ -166,9 +188,16 @@ export class LiveView {
   }
 
   // A tool waiting for your yes: what it wants to do, in full, and the three answers.
+  private cardsKey = "";
+
   private drawCards() {
+    // redrawn only when the set of questions changes, so choices you are making survive the stream
+    const key = this.prompts.map((p) => p.id).join(",");
+    if (key === this.cardsKey) return;
+    this.cardsKey = key;
     this.cards.replaceChildren(
       ...this.prompts.map((p) => {
+        if (p.tool === "AskUserQuestion") return this.questionCard(p);
         const reason = h("input", { placeholder: "Why not (optional, Claude sees it)", "aria-label": "Reason for saying no" }) as HTMLInputElement;
         return h(
           "div",
@@ -188,19 +217,120 @@ export class LiveView {
     );
   }
 
-  private async answer(promptId: string, d: { allow: boolean; always?: boolean; message?: string }) {
+  // Claude asking you something: each question with its options as buttons (several when Claude
+  // allows several), an "Other" answer of your own, and Send. Skip tells Claude you did not answer.
+  private questionCard(p: LivePrompt): HTMLElement {
+    type Q = { question: string; header?: string; options?: { label: string; description?: string }[]; multiSelect?: boolean };
+    const questions = (Array.isArray(p.input.questions) ? p.input.questions : []) as Q[];
+    const chosen = new Map<string, Set<string>>();
+    const others = new Map<string, HTMLInputElement>();
+    const blocks = questions.map((q) => {
+      const picked = new Set<string>();
+      chosen.set(q.question, picked);
+      const buttons = (q.options ?? []).map((o) => {
+        const b = h("button", { type: "button", class: "choice", "aria-pressed": "false", title: o.description ?? "" }, h("b", {}, o.label), o.description ? h("span", {}, o.description) : null) as HTMLButtonElement;
+        b.onclick = () => {
+          if (!q.multiSelect) {
+            picked.clear();
+            for (const x of buttons) x.setAttribute("aria-pressed", "false");
+          }
+          if (picked.has(o.label)) picked.delete(o.label);
+          else picked.add(o.label);
+          b.setAttribute("aria-pressed", String(picked.has(o.label)));
+        };
+        return b;
+      });
+      const other = h("input", { placeholder: "Or answer in your own words", "aria-label": `Your own answer to: ${q.question}` }) as HTMLInputElement;
+      others.set(q.question, other);
+      return h(
+        "fieldset",
+        { class: "question" },
+        h("legend", {}, q.header ? `${q.header}: ` : "", q.question, q.multiSelect ? " (choose any)" : ""),
+        h("div", { class: "choices" }, ...buttons),
+        other,
+      );
+    });
+    const err = h("p", { class: "hint" });
+    const send = () => {
+      const answers: Record<string, string> = {};
+      for (const q of questions) {
+        const own = others.get(q.question)!.value.trim();
+        const picks = [...chosen.get(q.question)!];
+        const a = [...picks, ...(own ? [own] : [])].join(", ");
+        if (!a) {
+          err.textContent = `Answer "${q.question}" first, or press Skip.`;
+          return;
+        }
+        answers[q.question] = a;
+      }
+      void this.answer(p.id, { allow: true, answers });
+    };
+    return h(
+      "div",
+      { class: "prompt-card ask", role: "dialog", "aria-label": "Claude is asking you" },
+      h("div", { class: "label" }, "Claude is asking you"),
+      ...blocks,
+      err,
+      h(
+        "div",
+        { class: "row" },
+        h("button", { class: "btn primary", type: "button", onclick: send }, "Send answer"),
+        h("button", { class: "btn ghost", type: "button", onclick: () => void this.answer(p.id, { allow: false, message: "The person skipped the question; carry on with your best judgement and say what you assumed." }) }, "Skip"),
+      ),
+    );
+  }
+
+  private async answer(promptId: string, d: { allow: boolean; always?: boolean; message?: string; answers?: Record<string, string> }) {
     await this.post("answer", { promptId, ...d });
   }
 
+  // What you sent, newest last, for ↑ and ↓; and images waiting to go with the next message.
+  private history: string[] = [];
+  private historyAt = -1;
+  private images: { name: string; mediaType: string; data: string }[] = [];
+  private attachments = h("div", { class: "attachments" });
+
   private async send() {
     const text = this.input.value;
-    if (!text.trim() || !this.liveId) return;
+    if ((!text.trim() && !this.images.length) || !this.liveId) return;
     this.menu.hidden = true;
-    const ok = await this.post("message", { text });
+    // "!command": run it in the session's folder and give Claude the output, as the terminal does
+    const bang = /^!\s*(\S[\s\S]*)$/.exec(text.trim());
+    const ok = bang && !this.images.length
+      ? await this.post("shell", { command: bang[1] })
+      : await this.post("message", { text, images: this.images.map((i) => ({ mediaType: i.mediaType, data: i.data })) });
     if (ok) {
+      if (text.trim()) this.history.push(text);
+      this.historyAt = -1;
       this.input.value = "";
+      this.images = [];
+      this.drawAttachments();
       this.stick = true;
     }
+  }
+
+  private async addImage(file: File) {
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) return;
+    if (file.size > 5 * 1024 * 1024) {
+      this.error = `${file.name || "That image"} is larger than 5 MB.`;
+      return this.draw();
+    }
+    if (this.images.length >= 4) return;
+    const data = await new Promise<string>((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).replace(/^data:[^,]+,/, ""));
+      r.readAsDataURL(file);
+    });
+    this.images.push({ name: file.name || `pasted ${file.type.split("/")[1]}`, mediaType: file.type, data });
+    this.drawAttachments();
+  }
+
+  private drawAttachments() {
+    this.attachments.replaceChildren(
+      ...this.images.map((img, i) =>
+        h("span", { class: "chip" }, h("img", { src: `data:${img.mediaType};base64,${img.data}`, alt: "" }), img.name, h("button", { type: "button", "aria-label": `Remove ${img.name}`, onclick: () => { this.images.splice(i, 1); this.drawAttachments(); } }, "×")),
+      ),
+    );
   }
 
   private async post(action: string, body: unknown = {}): Promise<boolean> {
@@ -216,21 +346,47 @@ export class LiveView {
 
   // Slash commands: typing "/" at the start lists the session's commands; Tab or Enter on a
   // highlighted one completes it.
+  // Completion: "/" at the start lists the session's commands; "@" lists files in its folder.
+  private completeTimer: ReturnType<typeof setTimeout> | null = null;
+
   private complete() {
     const v = this.input.value;
-    const m = /^\/([\w:.-]*)$/.exec(v);
-    if (!m || !this.commands.length) {
-      this.menu.hidden = true;
+    const slash = /^\/([\w:.-]*)$/.exec(v);
+    if (slash && this.commands.length) {
+      const q = slash[1]!.toLowerCase();
+      const hits = this.commands.filter((c) => c.toLowerCase().includes(q)).sort((a, b) => Number(!a.toLowerCase().startsWith(q)) - Number(!b.toLowerCase().startsWith(q))).slice(0, 8);
+      return this.showMenu(hits.map((c) => ({ label: `/${c}`, insert: `/${c} `, replace: [0, v.length] })));
+    }
+    const caret = this.input.selectionStart ?? v.length;
+    const at = /(^|\s)@([\w./-]*)$/.exec(v.slice(0, caret));
+    if (at && this.liveId) {
+      const from = caret - at[2]!.length - 1;
+      if (this.completeTimer) clearTimeout(this.completeTimer);
+      this.completeTimer = setTimeout(async () => {
+        const r = await apiFetch(`/api/live/${this.liveId}/files?q=${encodeURIComponent(at[2]!)}`);
+        const files = r.ok ? ((await r.json()) as string[]) : [];
+        this.showMenu(files.map((f) => ({ label: `@${f}`, insert: `@${f} `, replace: [from, caret] })));
+      }, 120);
       return;
     }
-    const q = m[1]!.toLowerCase();
-    const hits = this.commands.filter((c) => c.toLowerCase().includes(q)).sort((a, b) => Number(!a.toLowerCase().startsWith(q)) - Number(!b.toLowerCase().startsWith(q))).slice(0, 8);
-    this.menu.replaceChildren(...hits.map((c, i) => h("li", { role: "option", "aria-selected": String(i === 0), onmousedown: (ev: Event) => { ev.preventDefault(); this.pick(c); } }, `/${c}`)));
-    this.menu.hidden = !hits.length;
+    this.menu.hidden = true;
   }
 
-  private pick(c: string) {
-    this.input.value = `/${c} `;
+  private menuItems: { label: string; insert: string; replace: [number, number] }[] = [];
+
+  private showMenu(items: { label: string; insert: string; replace: [number, number] }[]) {
+    this.menuItems = items;
+    this.menu.replaceChildren(...items.map((it, i) => h("li", { role: "option", "aria-selected": String(i === 0), onmousedown: (ev: Event) => { ev.preventDefault(); this.pick(i); } }, it.label)));
+    this.menu.hidden = !items.length;
+  }
+
+  private pick(i: number) {
+    const it = this.menuItems[i];
+    if (!it) return;
+    const v = this.input.value;
+    this.input.value = v.slice(0, it.replace[0]) + it.insert + v.slice(it.replace[1]);
+    const caret = it.replace[0] + it.insert.length;
+    this.input.setSelectionRange(caret, caret);
     this.menu.hidden = true;
     this.input.focus();
   }
@@ -241,18 +397,38 @@ export class LiveView {
       void this.send();
       return;
     }
-    if (this.menu.hidden) return;
-    const items = [...this.menu.children] as HTMLElement[];
-    const at = items.findIndex((li) => li.getAttribute("aria-selected") === "true");
-    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+    if (!this.menu.hidden) {
+      const items = [...this.menu.children] as HTMLElement[];
+      const at = items.findIndex((li) => li.getAttribute("aria-selected") === "true");
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        ev.preventDefault();
+        const next = (at + (ev.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items.forEach((li, i) => li.setAttribute("aria-selected", String(i === next)));
+      } else if (ev.key === "Tab" || (ev.key === "Enter" && !ev.shiftKey)) {
+        ev.preventDefault();
+        this.pick(Math.max(0, at));
+      } else if (ev.key === "Escape") {
+        this.menu.hidden = true;
+      }
+      return;
+    }
+    // Esc stops Claude, as in the terminal
+    if (ev.key === "Escape" && this.status === "working") {
       ev.preventDefault();
-      const next = (at + (ev.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-      items.forEach((li, i) => li.setAttribute("aria-selected", String(i === next)));
-    } else if (ev.key === "Tab" || (ev.key === "Enter" && !ev.shiftKey)) {
+      void this.post("interrupt");
+      return;
+    }
+    // ↑ and ↓ step through what you sent, when the caret is on the first or last line
+    const v = this.input.value;
+    const caret = this.input.selectionStart ?? 0;
+    if (ev.key === "ArrowUp" && !v.slice(0, caret).includes("\n") && this.history.length) {
       ev.preventDefault();
-      this.pick(items[Math.max(0, at)]!.textContent!.slice(1));
-    } else if (ev.key === "Escape") {
-      this.menu.hidden = true;
+      this.historyAt = this.historyAt < 0 ? this.history.length - 1 : Math.max(0, this.historyAt - 1);
+      this.input.value = this.history[this.historyAt]!;
+    } else if (ev.key === "ArrowDown" && this.historyAt >= 0 && !v.slice(caret).includes("\n")) {
+      ev.preventDefault();
+      this.historyAt = this.historyAt + 1 < this.history.length ? this.historyAt + 1 : -1;
+      this.input.value = this.historyAt < 0 ? "" : this.history[this.historyAt]!;
     }
   }
 }

@@ -98,7 +98,7 @@ export interface NewWing {
   newRepo?: boolean;
 }
 
-export type Entry =
+export type Entry = (
   | { kind: "start"; at: string; model: string; cwd: string }
   | { kind: "text"; at: string; text: string }
   // what you typed, in your own sessions
@@ -106,7 +106,10 @@ export type Entry =
   | { kind: "tool"; at: string; id: string; name: string; summary: string; detail: string }
   | { kind: "result"; at: string; toolId: string; text: string; isError: boolean; lines: number }
   | { kind: "done"; at: string; text: string; isError: boolean; durationMs: number | null; turns: number | null }
-  | { kind: "error"; at: string; text: string };
+  | { kind: "error"; at: string; text: string }) & {
+  // said or done inside a subagent (Claude's Task/Agent tool), shown nested under it
+  sub?: boolean;
+};
 
 // One of your own Claude Code sessions (Your desk).
 export interface SessionView {

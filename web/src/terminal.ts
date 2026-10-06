@@ -285,6 +285,13 @@ export class Terminal {
 
 // One entry the way Claude Code prints it; shared by agents' runs, your sessions and live ones.
 export function renderEntry(e: Entry, results: Map<string, Extract<Entry, { kind: "result" }>>, k: string): (HTMLElement | null)[] {
+  const out = renderOne(e, results, k);
+  // work done inside a subagent sits indented under the call that started it
+  if (e.sub) for (const el of out) el?.classList.add("sub");
+  return out;
+}
+
+function renderOne(e: Entry, results: Map<string, Extract<Entry, { kind: "result" }>>, k: string): (HTMLElement | null)[] {
   switch (e.kind) {
     case "start":
       return [line("sys", "✻", `${e.model} in ${shortPath(e.cwd)}`)];
@@ -297,7 +304,7 @@ export function renderEntry(e: Entry, results: Map<string, Extract<Entry, { kind
       const state = !res ? "" : res.isError ? "err" : "ok";
       const el = h("div", { class: `ln tool ${state}` }, h("span", { class: "mk" }, "⏺"), h("span", { class: "body" }, h("b", {}, e.name), "(", h("span", { class: "arg" }, e.summary), ")"));
       const out: (HTMLElement | null)[] = [el];
-      if (e.detail) out.push(diff(e.detail));
+      if (e.detail) out.push(e.name === "TodoWrite" ? h("pre", { class: "todos" }, e.detail) : diff(e.detail));
       if (res) out.push(result(res, k));
       return out;
     }

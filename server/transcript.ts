@@ -132,5 +132,9 @@ function detailOf(name: string, input: Record<string, unknown>): string {
     return [...minus, ...plus].join("\n");
   }
   if (name === "Write") return s("content").split("\n").slice(0, 16).join("\n");
+  // a to-do list as a checklist: done, in progress, still to do
+  if (name === "TodoWrite" && Array.isArray(input.todos)) {
+    return (input.todos as { content?: unknown; status?: unknown }[]).map((t) => `${t.status === "completed" ? "✓" : t.status === "in_progress" ? "→" : "·"} ${String(t.content ?? "")}`).join("\n");
+  }
   return "";
 }
