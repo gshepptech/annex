@@ -25,7 +25,7 @@ export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now:
   ctx.fillStyle = PAL.GRID;
   for (let x = 1; x < layout.w; x++) ctx.fillRect(x * TILE, TILE, 0.5, H - TILE * 2);
   for (let y = 1; y < layout.h; y++) ctx.fillRect(TILE, y * TILE, W - TILE * 2, 0.5);
-  const WALL = 5;
+  const WALL = 3;
   ctx.fillStyle = PAL.WALL;
   ctx.fillRect(TILE - WALL, TILE - WALL, W - TILE * 2 + WALL * 2, WALL);
   ctx.fillRect(TILE - WALL, H - TILE, W - TILE * 2 + WALL * 2, WALL);
@@ -45,11 +45,11 @@ export function renderRoom(ctx: CanvasRenderingContext2D, scene: RoomScene, now:
     !scene.held && !!a && atSeat(a, seat) && (a.working || (a.role === "lead" && scene.mode === "autonomous"));
   for (const desk of layout.desks) {
     const sitter = workers.find((a) => a.desk === desk.desk);
-    if (lit(sitter, desk.seat)) glow(ctx, desk.at.x * TILE + TILE, desk.at.y * TILE + 10, 44, sitter!.role === "lead" ? "238,138,46" : "43,127,217", now);
+    if (lit(sitter, desk.seat)) glow(ctx, desk.at.x * TILE + TILE, desk.at.y * TILE + 10, 44, sitter!.role === "lead" ? "242,153,74" : "78,167,252", now);
   }
   const r = layout.review.at;
   if (scene.reviewLight !== "off") {
-    const rgb = scene.reviewLight === "green" ? "31,157,99" : scene.reviewLight === "red" ? "224,70,78" : "233,168,0";
+    const rgb = scene.reviewLight === "green" ? "76,183,130" : scene.reviewLight === "red" ? "235,87,87" : "242,201,76";
     glow(ctx, r.x * TILE + TILE, r.y * TILE + 8, 36, rgb, now);
   }
 

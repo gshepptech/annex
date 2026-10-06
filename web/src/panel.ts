@@ -351,7 +351,7 @@ export class Panel {
         "form",
         { onsubmit: (ev: Event) => { ev.preventDefault(); void this.act("Sending", `${base}/chat`, { text: text.value }, () => this.clear("message")); } },
         text,
-        h("button", { class: "btn", type: "submit", disabled: busy || !!w.offline || (!!w.held && !w.paused), title: w.held && !w.paused ? "Closed for the usage limit" : "" }, w.held && !w.paused ? "Closed" : "Send ⌘↵"),
+        h("button", { class: "btn primary", type: "submit", disabled: busy || !!w.offline || (!!w.held && !w.paused), title: w.held && !w.paused ? "Closed for the usage limit" : "" }, w.held && !w.paused ? "Closed" : "Send ⌘↵"),
       ),
     );
     requestAnimationFrame(() => (list.scrollTop = list.scrollHeight));

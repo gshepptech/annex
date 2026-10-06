@@ -1,44 +1,45 @@
 // The office drawn the way offices are drawn: as a floor plan, seen from above. Walls are solid
 // poché, doors are swing arcs, furniture is outlined, and people are the only filled colour.
-// Night is a cyanotype (the original blueprint print); day is ink on white. Coordinates are in
+// The palette follows Linear's: dark is charcoal on near-black with gray hairlines, light is gray
+// on white, and colour is left to the people and the lights. Coordinates are in
 // room units (TILE per tile); the renderer scales the canvas to the screen's real resolution.
 
 export const TILE = 16;
 
-export const ROLE = { lead: "#F2A541", worker: "#FF7F6B", reviewer: "#B79CFF" } as const;
-export const GOOD = "#3FB97F";
-export const BAD = "#F0605D";
-export const WARN = "#F2C14E";
+export const ROLE = { lead: "#F2994A", worker: "#4EA7FC", reviewer: "#BB87FC" } as const;
+export const GOOD = "#4CB782";
+export const BAD = "#EB5757";
+export const WARN = "#F2C94C";
 
 // The room's colours for each theme. `PAL` is the one in use; setRoomTheme swaps it in place.
 const LIGHT = {
   GROUND: "#FFFFFF",
-  GRID: "rgba(34,48,58,0.06)",
-  WALL: "#22303A",
-  LINE: "#22303A",
-  FAINT: "rgba(34,48,58,0.45)",
-  FILL: "#EEF1F2",
-  SCREEN_OFF: "#22303A",
-  FILE: "#F2C14E",
-  SHADE: "rgba(34,48,58,0.08)",
-  DIM: "rgba(255,255,255,0.55)",
-  GLOW: "0.18",
-  RING: "#22303A",
+  GRID: "rgba(31,32,35,0.045)",
+  WALL: "#C9CBD1",
+  LINE: "#A9ACB4",
+  FAINT: "rgba(31,32,35,0.22)",
+  FILL: "#F4F5F7",
+  SCREEN_OFF: "#D6D8DD",
+  FILE: "#F2C94C",
+  SHADE: "rgba(31,32,35,0.08)",
+  DIM: "rgba(255,255,255,0.6)",
+  GLOW: "0.16",
+  RING: "#FFFFFF",
 };
 
 const DARK: typeof LIGHT = {
-  GROUND: "#173B63",
-  GRID: "rgba(220,233,245,0.07)",
-  WALL: "#DCE9F5",
-  LINE: "#DCE9F5",
-  FAINT: "rgba(220,233,245,0.45)",
-  FILL: "#1E4673",
-  SCREEN_OFF: "#0F2C4C",
-  FILE: "#F2C14E",
-  SHADE: "rgba(5,20,38,0.35)",
-  DIM: "rgba(8,24,44,0.55)",
-  GLOW: "0.28",
-  RING: "#0F2C4C",
+  GROUND: "#131416",
+  GRID: "rgba(247,248,248,0.035)",
+  WALL: "#3E3E44",
+  LINE: "#4A4B52",
+  FAINT: "rgba(208,214,224,0.22)",
+  FILL: "#1A1B1E",
+  SCREEN_OFF: "#26272B",
+  FILE: "#F2C94C",
+  SHADE: "rgba(0,0,0,0.35)",
+  DIM: "rgba(8,9,10,0.6)",
+  GLOW: "0.22",
+  RING: "#0F1011",
 };
 
 export const PAL = { ...DARK };
