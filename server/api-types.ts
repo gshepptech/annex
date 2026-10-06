@@ -278,3 +278,23 @@ export interface AppRun {
   lines: number;
 }
 
+
+// Terminals (server/terminals.ts): a real terminal in a folder, your login shell or `claude --resume`.
+export interface TerminalView {
+  id: string;
+  cwd: string;
+  kind: "shell" | "claude";
+  // the conversation a "claude" terminal continues
+  sessionId: string | null;
+  // "zsh", "claude", or "claude --resume 1a2b3c4d"
+  title: string;
+  status: "running" | "exited";
+  exitCode: number | null;
+  startedAt: string;
+}
+
+export type TerminalUpdate =
+  // at: the offset of the end of data in everything the terminal has printed; reset: data is the
+  // whole kept screen history, so start the screen over
+  | { type: "output"; at: number; data: string; reset?: boolean }
+  | { type: "exit"; exitCode: number | null };

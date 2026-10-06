@@ -43,9 +43,11 @@ export class ProjectsDialog {
   private note = "";
   private run = new RunPanel();
   private startSession: (folder: string) => void;
+  private openTerminal: (folder: string) => void;
 
-  constructor(startSession: (folder: string) => void) {
+  constructor(startSession: (folder: string) => void, openTerminal: (folder: string) => void) {
     this.startSession = startSession;
+    this.openTerminal = openTerminal;
     const url = h("input", { placeholder: "https://github.com/you/app.git", "aria-label": "Repository address" }) as HTMLInputElement;
     const name = h("input", { placeholder: "folder name (optional)", "aria-label": "Folder name" }) as HTMLInputElement;
     this.el.append(
@@ -133,7 +135,7 @@ export class ProjectsDialog {
     }
     const parts: HTMLElement[] = [h("h3", {}, target.split("/").pop()!), h("p", { class: "where" }, target)];
     if (note) parts.push(note);
-    parts.push(h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => { this.close(); this.startSession(target); } }, "Start a session here")));
+    parts.push(h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => { this.close(); this.startSession(target); } }, "Start a session here"), h("button", { class: "btn", type: "button", onclick: () => { this.close(); this.openTerminal(target); } }, "Open a terminal here")));
     parts.push(await this.branchBlock(target));
     const runBox = h("details", { class: "run-box" }, h("summary", {}, "Run the app"), this.run.el);
     runBox.addEventListener("toggle", () => (runBox.open ? this.run.show({ folder: target }) : this.run.hide()));

@@ -16,6 +16,7 @@ import * as P from "./projects.ts";
 import { sameKey } from "./key.ts";
 import { LiveSessions, LiveError, MODES, defaultMode, type Mode } from "./live.ts";
 import { IDLE_MS, isReplying } from "./sessions.ts";
+import { Terminals, TerminalError } from "./terminals.ts";
 
 export interface Bureau {
   state(): Promise<StateView>;
@@ -83,7 +84,7 @@ export function refuseForeign(req: IncomingMessage): string | null {
   return null;
 }
 
-export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; key?: string; runner?: Runner; backupsDir?: string }): Promise<Server> {
+export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; key?: string; runner?: Runner; backupsDir?: string; terminals?: Terminals }): Promise<Server> {
   const { bureau, store, webDir, logger } = opts;
 
   const server = createServer(async (req, res) => {
@@ -154,10 +155,19 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       if (path.startsWith("/api/live")) {
         if (!opts.live) throw new UserError("Live sessions are not available", 404);
         try {
-          const handled = await liveRoutes(req, res, url, opts.live);
+          const handled = await liveRoutes(req, res, url, opts.live, opts.terminals);
           if (handled) return;
         } catch (err) {
           if (err instanceof LiveError) throw new UserError(err.message, 409);
+          throw err;
+        }
+      }
+      if (path.startsWith("/api/terminals")) {
+        if (!opts.terminals) throw new UserError("Terminals are not available", 404);
+        try {
+          if (await terminalRoutes(req, res, url, opts.terminals, opts.live)) return;
+        } catch (err) {
+          if (err instanceof TerminalError || err instanceof LiveError) throw new UserError(err.message, 409);
           throw err;
         }
       }
@@ -190,6 +200,7 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
         const body = await readJson(req);
         // one conversation, one claude: a session driven live takes no one-shot replies
         if (opts.live?.bySession(reply[1]!)) throw new UserError("This session is open live in Annex; reply there.", 409);
+        if (opts.terminals?.bySession(reply[1]!)) throw new UserError(IN_TERMINAL, 409);
         try {
           return json(res, 202, replyToSession(reply[1]!, str(body.text, "text"), { claude: opts.claudeCommand ?? "claude" }));
         } catch (err) {
@@ -210,7 +221,7 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
         const wingId = decodeURIComponent(merge[1]!);
         const repo = (await bureau.state()).wings.find((w) => w.id === wingId)?.repo;
         // the checkout must not be in use by something running in it right now
-        if (repo && opts.live?.list().some((l) => l.status !== "closed" && (l.cwd === repo || l.cwd.startsWith(`${repo}/`)))) {
+        if (repo && (opts.live?.list().some((l) => l.status !== "closed" && under(l.cwd, repo)) || claudeTerminalIn(opts.terminals, repo))) {
           throw new UserError("A live session is open in that repo. Close it first, so the merge does not change files under it.", 409);
         }
         if (repo && opts.runner?.list().some((r) => r.status === "running" && (r.folder === repo || r.folder.startsWith(`${repo}/`)))) {
@@ -297,7 +308,7 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
 
 // Live sessions. Starting one runs Claude in a folder you name, as you; resuming one waits until
 // the session has been quiet long enough that it is not open in a terminal.
-async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, live: LiveSessions): Promise<boolean> {
+async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, live: LiveSessions, terminals?: Terminals): Promise<boolean> {
   const path = url.pathname;
   if (req.method === "GET" && path === "/api/live") {
     json(res, 200, { lives: live.list().map((l) => ({ id: l.id, sessionId: l.sessionId, cwd: l.cwd, status: l.status, mode: l.mode })), defaultMode: defaultMode(), modes: MODES });
@@ -313,12 +324,13 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
     if (resume) {
       const already = live.bySession(resume);
       if (already) return (json(res, 200, already), true);
+      if (terminals?.bySession(resume)) throw new UserError(IN_TERMINAL, 409);
       if (isReplying(resume)) throw new UserError("A reply from Annex is still running in this session; open it live when it finishes.", 409);
       const t = sessionTranscript(resume);
       if (!t) throw new UserError("No session with that id", 404);
       const quiet = Date.now() - new Date(t.session.updatedAt).getTime();
       // force: the person says the terminal is closed; still refused while Annex itself is replying
-      if (quiet < IDLE_MS && body.force !== true && !live.lastDrivenByBourne(resume)) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
+      if (quiet < IDLE_MS && body.force !== true && !live.lastDrivenByBourne(resume) && !terminals?.ranSession(resume)) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
       cwd = t.session.cwd;
       history = t.entries;
       // a resumed session keeps the permission mode it had, unless one was chosen just now
@@ -422,7 +434,8 @@ async function projectRoutes(req: IncomingMessage, res: ServerResponse, url: URL
   };
   // a checkout something is running in, or a live session is open in, is not switched under it
   const inUse = (r: string) =>
-    opts.live?.list().some((l) => l.status !== "closed" && (l.cwd === r || l.cwd.startsWith(`${r}/`))) ||
+    opts.live?.list().some((l) => l.status !== "closed" && under(l.cwd, r)) ||
+    claudeTerminalIn(opts.terminals, r) ||
     opts.runner?.list().some((x) => x.status === "running" && (x.folder === r || x.folder.startsWith(`${r}/`)));
   const q = (k: string) => url.searchParams.get(k);
   if (req.method === "GET" && path === "/api/projects") return (json(res, 200, known), true);
@@ -502,6 +515,88 @@ async function runRoutes(req: IncomingMessage, res: ServerResponse, url: URL, ru
     return true;
   }
   return false;
+}
+
+const IN_TERMINAL = "This conversation is open in a terminal in Annex. Close that terminal first.";
+
+// Terminals: your login shell in a folder, or a conversation moved out of a live session into
+// `claude --resume`. Output streams as events whose id is an offset into what the terminal printed,
+// so a browser that reconnects (it sends Last-Event-ID by itself) gets only what it missed.
+async function terminalRoutes(req: IncomingMessage, res: ServerResponse, url: URL, terms: Terminals, live?: LiveSessions): Promise<boolean> {
+  const path = url.pathname;
+  if (req.method === "GET" && path === "/api/terminals") return (json(res, 200, { terminals: terms.list() }), true);
+  if (req.method === "POST" && path === "/api/terminals") {
+    const body = await readJson(req);
+    if (typeof body.live === "string") {
+      // Open in terminal: the live session's child must be gone before claude --resume starts
+      const l = live?.get(body.live);
+      if (!l) throw new UserError("No live session with that id", 404);
+      if (l.sessionId && isReplying(l.sessionId)) throw new UserError("A reply from Annex is still running in this session; try again when it finishes.", 409);
+      const already = l.sessionId ? terms.bySession(l.sessionId) : null;
+      if (already) return (json(res, 200, already), true);
+      await live!.closeAndWait(l.id);
+      // a second click that waited alongside this one finds the terminal the first one opened
+      const opened = l.sessionId ? terms.bySession(l.sessionId) : null;
+      if (opened) return (json(res, 200, opened), true);
+      return (json(res, 201, terms.open({ cwd: l.cwd, claude: { resume: l.sessionId } })), true);
+    }
+    const cwd = typeof body.cwd === "string" ? expandHome(body.cwd.trim()) : "";
+    if (!cwd.startsWith("/")) throw new UserError("Name the folder by its full path (or start it with ~/)", 400);
+    return (json(res, 201, terms.open({ cwd })), true);
+  }
+  const m = /^\/api\/terminals\/([0-9a-f-]{36})\/(events|input|resize|close)$/.exec(path);
+  if (!m) return false;
+  const id = m[1]!;
+  if (req.method === "GET" && m[2] === "events") {
+    // a terminal from before Annex restarted is gone: say so before the stream starts
+    if (!terms.get(id)) throw new UserError("No terminal with that id", 404);
+    const raw = req.headers["last-event-id"] ?? url.searchParams.get("after");
+    const after = raw === null || raw === undefined || raw === "" ? null : Number(raw);
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+    let ended = false;
+    const off = terms.subscribe(id, Number.isFinite(after) ? after : null, (u) => {
+      if (ended) return;
+      res.write(u.type === "output" ? `id: ${u.at}\ndata: ${JSON.stringify(u)}\n\n` : `data: ${JSON.stringify(u)}\n\n`);
+      // a reader that cannot keep up is cut off; it reconnects and replays from what is kept
+      if (res.writableLength > 4_000_000) {
+        ended = true;
+        res.end();
+      }
+    });
+    const ping = setInterval(() => !ended && res.write(": ping\n\n"), 25_000);
+    const stop = () => {
+      ended = true;
+      off();
+      clearInterval(ping);
+    };
+    if (ended) stop();
+    req.on("close", stop);
+    res.on("close", stop);
+    return true;
+  }
+  if (req.method !== "POST") return false;
+  const body = await readJson(req);
+  if (m[2] === "input") {
+    // one keystroke is a valid body, spaces included, so this is not trimmed
+    if (typeof body.data !== "string") throw new UserError("data is required");
+    terms.input(id, body.data);
+  } else if (m[2] === "resize") {
+    terms.resize(id, Number(body.cols), Number(body.rows));
+  } else {
+    terms.close(id);
+  }
+  json(res, 200, { ok: true });
+  return true;
+}
+
+function under(folder: string, root: string): boolean {
+  return folder === root || folder.startsWith(`${root}/`);
+}
+
+// Claude running in a Annex terminal in that checkout; a plain shell does not count, as a
+// terminal app's would not.
+function claudeTerminalIn(terms: Terminals | undefined, root: string): boolean {
+  return !!terms?.list().some((t) => t.kind === "claude" && t.status === "running" && under(t.cwd, root));
 }
 
 function expandHome(p: string): string {

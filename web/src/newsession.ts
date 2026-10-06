@@ -1,5 +1,6 @@
 // "New session": a live Claude Code session in any folder, the way `claude` starts in a terminal.
 
+import type { TerminalView } from "../../server/api-types.ts";
 import { apiFetch, post } from "./api.ts";
 import { h } from "./dom.ts";
 
@@ -8,8 +9,7 @@ const MODES: [string, string][] = [["default", "Ask before acting"], ["acceptEdi
 
 export function newSessionDialog(started: (id: string, cwd: string) => void): { el: HTMLDialogElement; open: () => void } {
   const error = h("p", { class: "notice bad", hidden: true, role: "alert" });
-  const folder = h("input", { name: "cwd", required: true, list: "project-folders", placeholder: "~/Projects/my-app", autocomplete: "off" }) as HTMLInputElement;
-  const folders = h("datalist", { id: "project-folders" });
+  const { folder, folders, fill } = folderField("project-folders");
   const mode = h("select", { name: "mode", "aria-label": "Permission mode" }, ...MODES.map(([v, l]) => h("option", { value: v }, l))) as HTMLSelectElement;
   const model = h("select", { name: "model", "aria-label": "Model" }, ...MODELS.map(([v, l]) => h("option", { value: v }, l))) as HTMLSelectElement;
   const el = h("dialog", { "aria-label": "New session" }) as HTMLDialogElement;
@@ -43,14 +43,69 @@ export function newSessionDialog(started: (id: string, cwd: string) => void): { 
     async open() {
       el.showModal();
       folder.focus();
+      void fill();
       try {
-        const [projects, live] = await Promise.all([apiFetch("/api/projects").then((r) => r.json()), apiFetch("/api/live").then((r) => r.json())]);
-        const home = (projects as string[])[0]?.match(/^\/Users\/[^/]+/)?.[0] ?? "";
-        folders.replaceChildren(...(projects as string[]).map((p) => h("option", { value: home && p.startsWith(home) ? `~${p.slice(home.length)}` : p })));
-        mode.value = (live as { defaultMode: string }).defaultMode;
+        mode.value = ((await apiFetch("/api/live").then((r) => r.json())) as { defaultMode: string }).defaultMode;
       } catch {
-        // suggestions are a convenience; typing a folder still works
+        // the mode stays at asking first
       }
+    },
+  };
+}
+
+// A folder input that suggests your projects (written with ~ for your home folder).
+function folderField(listId: string) {
+  const folder = h("input", { name: "cwd", required: true, list: listId, placeholder: "~/Projects/my-app", autocomplete: "off" }) as HTMLInputElement;
+  const folders = h("datalist", { id: listId });
+  const fill = async () => {
+    try {
+      const projects = (await apiFetch("/api/projects").then((r) => r.json())) as string[];
+      const home = projects[0]?.match(/^\/Users\/[^/]+/)?.[0] ?? "";
+      folders.replaceChildren(...projects.map((p) => h("option", { value: home && p.startsWith(home) ? `~${p.slice(home.length)}` : p })));
+    } catch {
+      // suggestions are a convenience; typing a folder still works
+    }
+  };
+  return { folder, folders, fill };
+}
+
+// "Terminal": your login shell in a folder, in a terminal pane.
+export function newTerminalDialog(opened: (v: TerminalView) => void): { el: HTMLDialogElement; open: () => void } {
+  const error = h("p", { class: "notice bad", hidden: true, role: "alert" });
+  const { folder, folders, fill } = folderField("terminal-folders");
+  const el = h("dialog", { "aria-label": "Terminal" }) as HTMLDialogElement;
+  el.append(
+    h(
+      "form",
+      {
+        onsubmit: async (ev: Event) => {
+          ev.preventDefault();
+          try {
+            const v = (await post("/api/terminals", { cwd: folder.value })) as TerminalView;
+            el.close();
+            error.hidden = true;
+            opened(v);
+          } catch (err) {
+            error.textContent = (err as Error).message;
+            error.hidden = false;
+          }
+        },
+      },
+      h("h2", {}, "Terminal"),
+      h("p", {}, "Your login shell in a folder, the way a terminal window opens."),
+      error,
+      h("div", { class: "field" }, h("label", {}, "Folder", folder), folders),
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "Open the terminal"), h("button", { class: "btn ghost", type: "button", onclick: () => el.close() }, "Cancel")),
+    ),
+  );
+  return {
+    el,
+    open() {
+      if (!folder.value) folder.value = "~";
+      el.showModal();
+      folder.focus();
+      folder.select();
+      void fill();
     },
   };
 }

@@ -9,6 +9,7 @@ import { h } from "./dom.ts";
 import { renderEntry } from "./terminal.ts";
 import { RunPanel } from "./runpanel.ts";
 import { MODELS } from "./newsession.ts";
+import { TERMINAL_ONLY, needsTerminal } from "./slash.ts";
 
 const MODE_LABEL: Record<Mode, string> = { default: "Ask before acting", acceptEdits: "Accept edits", plan: "Plan only", bypassPermissions: "Don't ask" };
 
@@ -43,6 +44,8 @@ export class LiveView {
   private onPrompt: (tool: string) => void;
   // the stream went away (Annex restarted): the page looks for the same conversation reopened
   onGone: (sessionId: string | null) => void = () => {};
+  // move this conversation to a terminal pane (`claude --resume`), with the command to type there
+  onTerminal: (command: string | null) => void = () => {};
 
   constructor(onBack: () => void, onChange: () => void, onPrompt: (tool: string) => void = () => {}) {
     this.onBack = onBack;
@@ -167,7 +170,7 @@ export class LiveView {
 
   private drawHead() {
     // only when something in it changed, so an open dropdown is not rebuilt under your pointer
-    const key = `${this.liveId}|${this.status}|${this.mode}|${this.model}|${this.cwd}`;
+    const key = `${this.liveId}|${this.status}|${this.mode}|${this.model}|${this.cwd}|${this.sessionId}`;
     if (key === this.headKey) return;
     this.headKey = key;
     const name = this.cwd.split("/").filter(Boolean).pop() ?? this.cwd;
@@ -194,6 +197,7 @@ export class LiveView {
         modeSel,
         modelSel,
         h("button", { class: "btn", type: "button", disabled: !working, onclick: () => void this.post("interrupt") }, "Stop"),
+        h("button", { class: "btn ghost", type: "button", disabled: this.status === "closed" && !this.sessionId, onclick: () => this.toTerminal(null) }, "Open in terminal"),
         h("button", { class: "btn ghost", type: "button", disabled: this.status === "closed", onclick: () => void this.post("close") }, "Close session"),
       ),
     );
@@ -306,6 +310,9 @@ export class LiveView {
     const text = this.input.value;
     if ((!text.trim() && !this.images.length) || !this.liveId) return;
     this.menu.hidden = true;
+    // a command with only an interactive screen cannot run under `claude -p`; offer the terminal
+    const t = needsTerminal(text, this.commands);
+    if (t && !this.images.length) return this.toTerminal(t);
     // "!command": run it in the session's folder and give Claude the output, as the terminal does
     const bang = /^!\s*(\S[\s\S]*)$/.exec(text.trim());
     const ok = bang && !this.images.length
@@ -319,6 +326,16 @@ export class LiveView {
       this.drawAttachments();
       this.stick = true;
     }
+  }
+
+  // Closes this live session (one conversation never runs in two processes) and continues it in a
+  // terminal pane, where `command` can be typed.
+  private toTerminal(command: string | null) {
+    const what = command ? `${command} works only in Claude Code's terminal screen. ` : "";
+    if (!confirm(`${what}Close this live session and continue the conversation in a terminal?`)) return;
+    this.menu.hidden = true;
+    if (command) this.input.value = "";
+    this.onTerminal(command);
   }
 
   private async addImage(file: File) {
@@ -364,10 +381,18 @@ export class LiveView {
   private complete() {
     const v = this.input.value;
     const slash = /^\/([\w:.-]*)$/.exec(v);
-    if (slash && this.commands.length) {
+    if (slash) {
       const q = slash[1]!.toLowerCase();
-      const hits = this.commands.filter((c) => c.toLowerCase().includes(q)).sort((a, b) => Number(!a.toLowerCase().startsWith(q)) - Number(!b.toLowerCase().startsWith(q))).slice(0, 8);
-      return this.showMenu(hits.map((c) => ({ label: `/${c}`, insert: `/${c} `, replace: [0, v.length] })));
+      const first = (a: string, b: string) => Number(!a.toLowerCase().startsWith(q)) - Number(!b.toLowerCase().startsWith(q));
+      const hits = this.commands.filter((c) => c.toLowerCase().includes(q)).sort(first).slice(0, 8);
+      // commands this session cannot run (and the bare /config screen) open in a terminal
+      const elsewhere = TERMINAL_ONLY.filter((c) => c.includes(q) && (c === "config" || !this.commands.includes(c))).sort(first).slice(0, 4);
+      const items = [
+        ...hits.map((c): MenuItem => ({ label: `/${c}`, insert: `/${c} `, replace: [0, v.length] })),
+        ...elsewhere.map((c): MenuItem => ({ label: `/${c}`, note: "opens in a terminal", insert: "", replace: [0, 0], run: () => this.toTerminal(`/${c}`) })),
+      ];
+      // what starts with what you typed comes first, from either list
+      return this.showMenu(items.sort((a, b) => first(a.label.slice(1), b.label.slice(1))));
     }
     const caret = this.input.selectionStart ?? v.length;
     const at = /(^|\s)@([\w./-]*)$/.exec(v.slice(0, caret));
@@ -384,17 +409,18 @@ export class LiveView {
     this.menu.hidden = true;
   }
 
-  private menuItems: { label: string; insert: string; replace: [number, number] }[] = [];
+  private menuItems: MenuItem[] = [];
 
-  private showMenu(items: { label: string; insert: string; replace: [number, number] }[]) {
+  private showMenu(items: MenuItem[]) {
     this.menuItems = items;
-    this.menu.replaceChildren(...items.map((it, i) => h("li", { role: "option", "aria-selected": String(i === 0), onmousedown: (ev: Event) => { ev.preventDefault(); this.pick(i); } }, it.label)));
+    this.menu.replaceChildren(...items.map((it, i) => h("li", { role: "option", "aria-selected": String(i === 0), onmousedown: (ev: Event) => { ev.preventDefault(); this.pick(i); } }, it.label, it.note ? h("span", { class: "note" }, it.note) : null)));
     this.menu.hidden = !items.length;
   }
 
   private pick(i: number) {
     const it = this.menuItems[i];
     if (!it) return;
+    if (it.run) return it.run();
     const v = this.input.value;
     this.input.value = v.slice(0, it.replace[0]) + it.insert + v.slice(it.replace[1]);
     const caret = it.replace[0] + it.insert.length;
@@ -444,6 +470,8 @@ export class LiveView {
     }
   }
 }
+
+type MenuItem = { label: string; insert: string; replace: [number, number]; note?: string; run?: () => void };
 
 function describeInput(p: LivePrompt): HTMLElement {
   const s = (k: string) => (typeof p.input[k] === "string" ? (p.input[k] as string) : "");

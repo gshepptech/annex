@@ -146,3 +146,20 @@ test("!command runs in the session's folder and Claude gets the output; @ finds 
   assert.match(sent, /\(exit 0\)/);
   assert.deepEqual(await lives.files(id, "cart"), ["src/cart.ts"]);
 });
+
+test("closeAndWait resolves only after the child has exited", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "annex-live-"));
+  const lives = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  // a child that takes its time: kill does nothing until the test says it exited
+  const f = fakeClaude();
+  f.child.kill = () => {};
+  const v = lives.start({ cwd: dir, mode: "default", run: f.run });
+  let done = false;
+  const p = lives.closeAndWait(v.id).then(() => (done = true));
+  await tick();
+  assert.equal(done, false, "still running");
+  f.child.emit("exit", 0);
+  await p;
+  assert.equal(lives.get(v.id)!.status, "closed");
+  await lives.closeAndWait(v.id);
+});

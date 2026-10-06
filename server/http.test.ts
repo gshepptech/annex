@@ -7,6 +7,10 @@ import { join } from "node:path";
 import { Store } from "./db.ts";
 import { startHttp, UserError, type Bureau } from "./http.ts";
 import { refuseForeign } from "./http.ts";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
+import { LiveSessions } from "./live.ts";
+import { Terminals, type SpawnPty } from "./terminals.ts";
 
 function fakeBureau(store: Store): Bureau & { calls: string[] } {
   const calls: string[] = [];
@@ -33,12 +37,12 @@ function fakeBureau(store: Store): Bureau & { calls: string[] } {
   };
 }
 
-async function boot() {
+async function boot(o: { key?: string; live?: LiveSessions; terminals?: Terminals } = {}) {
   const store = new Store(":memory:");
   const bureau = fakeBureau(store);
   const web = mkdtempSync(join(tmpdir(), "annex-web-"));
   writeFileSync(join(web, "index.html"), "<p>office</p>");
-  const server = await startHttp({ bureau, store, port: 0, webDir: web });
+  const server = await startHttp({ bureau, store, port: 0, webDir: web, ...o });
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return { store, bureau, server, base };
 }
@@ -142,6 +146,105 @@ test("an event stream for a session that does not exist is refused cleanly, and 
   try {
     const r = await fetch(`${base}/api/live/00000000-0000-4000-8000-000000000000/events`);
     assert.equal(r.status, 404);
+    assert.equal((await fetch(`${base}/api/health`)).status, 200, "still up");
+  } finally {
+    server.close();
+  }
+});
+
+// A stand-in for `claude -p`: says which conversation it is, and exits when its input ends.
+function fakeClaude(sessionId: string) {
+  const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null as number | null, kill() { child.emit("exit", null); } });
+  child.stdin.on("finish", () => setTimeout(() => {
+    child.exitCode = 0;
+    child.emit("exit", 0);
+  }, 20));
+  setTimeout(() => child.stdout.write(JSON.stringify({ type: "system", subtype: "init", session_id: sessionId, model: "m", slash_commands: [] }) + "\n"), 5);
+  return (() => child) as never;
+}
+
+function fakeSpawn(onSpawn: (args: string[]) => void = () => {}) {
+  const written: string[] = [];
+  const resizes: number[][] = [];
+  const spawn: SpawnPty = (_file, args) => {
+    onSpawn(args);
+    return { pid: 1, onData() {}, onExit() {}, write: (d) => void written.push(d), resize: (c, r) => void resizes.push([c, r]), kill() {} };
+  };
+  return { spawn, written, resizes };
+}
+
+const SID = "22222222-2222-4222-8222-222222222222";
+const tick = (ms = 10) => new Promise((r) => setTimeout(r, ms));
+const send = (base: string, p: string, body: unknown) => fetch(base + p, { method: "POST", body: JSON.stringify(body) });
+
+test("terminals need the key", async () => {
+  const terminals = new Terminals({ claude: "claude", spawn: fakeSpawn().spawn });
+  const { server, base } = await boot({ key: "k".repeat(32), terminals });
+  try {
+    assert.equal((await fetch(`${base}/api/terminals`)).status, 401);
+    assert.equal((await send(base, "/api/terminals", { cwd: "/" })).status, 401);
+    assert.equal((await fetch(`${base}/api/terminals`, { headers: { "x-annex-key": "k".repeat(32) } })).status, 200);
+  } finally {
+    server.close();
+  }
+});
+
+test("Open in terminal closes the live session before claude --resume starts", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "annex-move-"));
+  const lives = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  const l = lives.start({ cwd: dir, mode: "default", run: fakeClaude(SID) });
+  await tick(30);
+  const seen: { status: string | undefined; args: string[] }[] = [];
+  const terminals = new Terminals({ claude: "/x/claude", shell: "/bin/zsh", spawn: fakeSpawn((args) => seen.push({ status: lives.get(l.id)?.status, args })).spawn });
+  const { server, base } = await boot({ live: lives, terminals });
+  try {
+    const r = await send(base, "/api/terminals", { live: l.id });
+    assert.equal(r.status, 201);
+    const v = await r.json();
+    assert.equal(v.kind, "claude");
+    assert.equal(v.sessionId, SID);
+    assert.deepEqual(seen, [{ status: "closed", args: ["-l", "-c", 'exec "$0" --resume "$1"', "/x/claude", SID] }], "the live child had exited first");
+    assert.equal((await send(base, "/api/terminals", { live: l.id })).status, 200, "asking again finds the same terminal");
+    assert.equal(terminals.list().length, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test("a conversation open in a terminal is not opened live or replied to", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "annex-one-"));
+  const lives = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  const terminals = new Terminals({ claude: "claude", spawn: fakeSpawn().spawn });
+  terminals.open({ cwd: dir, claude: { resume: SID } });
+  const { server, base } = await boot({ live: lives, terminals });
+  try {
+    const a = await send(base, "/api/live", { resume: SID });
+    assert.equal(a.status, 409);
+    assert.match((await a.json()).error, /terminal/);
+    const b = await send(base, `/api/sessions/${SID}/reply`, { text: "hi" });
+    assert.equal(b.status, 409);
+    assert.match((await b.json()).error, /terminal/);
+  } finally {
+    server.close();
+  }
+});
+
+test("input and resize reach the terminal; an unknown terminal is 404 before any stream starts", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "annex-io-"));
+  const f = fakeSpawn();
+  const terminals = new Terminals({ claude: "claude", spawn: f.spawn });
+  const { server, base } = await boot({ terminals });
+  try {
+    const opened = await send(base, "/api/terminals", { cwd: dir });
+    assert.equal(opened.status, 201);
+    const { id } = await opened.json();
+    assert.equal((await send(base, `/api/terminals/${id}/input`, { data: " " })).status, 200);
+    assert.equal((await send(base, `/api/terminals/${id}/resize`, { cols: 120, rows: 40 })).status, 200);
+    assert.deepEqual(f.written, [" "]);
+    assert.deepEqual(f.resizes, [[120, 40]]);
+    assert.equal((await send(base, `/api/terminals/${id}/input`, {})).status, 400);
+    assert.equal((await send(base, "/api/terminals", { cwd: "relative/path" })).status, 400);
+    assert.equal((await fetch(`${base}/api/terminals/00000000-0000-4000-8000-000000000000/events`)).status, 404);
     assert.equal((await fetch(`${base}/api/health`)).status, 200, "still up");
   } finally {
     server.close();

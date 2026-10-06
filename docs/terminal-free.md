@@ -2,7 +2,7 @@
 
 What it takes for someone to build apps with Claude and run agent workflows from Annex alone:
 start projects, work in live sessions, read and merge changes, run the app, launch plugins and
-workflows, configure Claude, watch usage, and leave it running. Eight gaps, each with what exists,
+workflows, configure Claude, watch usage, and leave it running. Nine gaps, each with what exists,
 the design, what "done" means, and the risks. Written 5 October 2026.
 
 ## What was proven before planning (spike, 5 October)
@@ -150,6 +150,46 @@ the page.
 
 ---
 
+## 9. Terminal
+
+**Today.** `!` in a live session runs one command at a time; some Claude Code commands do not run
+in a live session at all.
+
+**Design.**
+- `server/terminals.ts` runs a pseudo-terminal per terminal with `node-pty` 1.1.0: your login
+  shell in a folder, or `claude --resume <id>` started through it (`exec "$0" --resume "$1"`, so
+  neither the path nor the id is pasted into the command). Output streams as events whose id is an
+  offset into what it printed; the browser's own Last-Event-ID replays only what it missed, from
+  512 KB kept per terminal, or starts the screen over when that is gone. Keystrokes and sizes go
+  back as requests, one at a time per terminal so they stay in order. Behind the key, like every
+  other route; no WebSocket, because node:http has none and SSE already carries the key.
+- Close sends SIGHUP (an interactive zsh ignores SIGTERM), then SIGKILL to the group after 3 s.
+  Annex stopping hangs every terminal up; if Annex dies, the kernel does the same when the pty
+  closes. Terminals do not survive a restart; the pane says so.
+- The page draws them with xterm.js (loaded only when a terminal is first shown). The drawer
+  widens while one is shown.
+- **Commands that need the terminal.** `claude -p` keeps only `prompt` commands and `local`
+  commands marked `supportsNonInteractive` (read from the 2.1.280 binary; nothing state-changing
+  was run to find out). Interactive-only: config (the bare settings screen), login, logout,
+  doctor, permissions, resume, memory, hooks, plugin, status, help, export, theme, ide,
+  terminal-setup, privacy-settings, install-github-app, keybindings, workflows. One is offered as
+  "opens in a terminal" only when the session's own command list lacks it, so a Claude Code
+  release that adds a non-interactive twin needs no change here.
+- **One conversation, one process.** Open in terminal closes the live session and waits until its
+  child has exited before `claude --resume` starts. While that terminal runs, the conversation
+  cannot be opened live or replied to; after it exits, "Open live again" reopens it with no wait.
+  A claude terminal in a checkout blocks a branch switch or merge there, as a live session does; a
+  plain shell does not, as a terminal app's would not.
+- The command is not typed for you: "Type /config" puts it at the prompt without Enter, so
+  nothing (least of all /login) runs without your keypress.
+
+**Spike.** node-pty 1.1.0's darwin prebuild ships `spawn-helper` without its execute bit, so every
+spawn failed with `posix_spawnp failed`; approving its install script does not fix it. Annex
+sets the bit when it first loads node-pty. A test opens a real pty, so a regression shows.
+
+**Open question.** Gap 4 says `/workflows` runs in live sessions, but the binary marks it
+interactive-only. Either way works: Annex offers the terminal only when the session does not list it.
+
 ## Plan review, 5 October (senior reviewer), and what changed
 
 Verdict: revise. Accepted in full:
@@ -243,6 +283,9 @@ proven by tests, not clicked on a real repo), 4, 5 and 7. Fixed after it:
 Still open, by choice or for later:
 
 - Getting the key into a new browser needs `npm run open` once (a terminal, once).
+- Closed since: a terminal pane in the page (your login shell, or the conversation continued in
+  `claude --resume`), and live sessions offer it for the commands `claude -p` cannot run (gap 9).
+  Terminals end when Annex restarts; live sessions reopen, terminals do not.
 - Closed since: agents run in Claude Code's OS sandbox (key folder unreadable even from node or
   npm, writes limited to the worktree, git and caches, network allowlist plus localhost; verified
   with a real `claude -p` run: reckon's 120 tests passed and the commit landed). The live session

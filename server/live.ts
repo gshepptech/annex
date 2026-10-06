@@ -270,6 +270,27 @@ export class LiveSessions {
     setTimeout(() => child?.kill("SIGTERM"), 3000).unref();
   }
 
+  // Close and wait until the claude child has exited, so the same conversation is never driven by
+  // two processes (Open in terminal starts `claude --resume` only after this).
+  closeAndWait(id: string): Promise<void> {
+    const l = this.lives.get(id);
+    const child = l?.child;
+    if (!l || l.status === "closed" || !child || (child.exitCode ?? null) !== null || (child.signalCode ?? null) !== null) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      // close() asks it to stop at 3 s; one that still runs is killed, and then we give up
+      const kill = setTimeout(() => child.kill("SIGKILL"), 8000);
+      const fail = setTimeout(() => reject(new LiveError("Claude did not stop; try again")), 10_000);
+      kill.unref();
+      fail.unref();
+      child.once("exit", () => {
+        clearTimeout(kill);
+        clearTimeout(fail);
+        resolve();
+      });
+      this.close(id);
+    });
+  }
+
   closeAll() {
     // what is open now is what reopens next time; the children dying below must not change that
     this.persist();

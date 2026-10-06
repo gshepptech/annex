@@ -49,6 +49,14 @@ use `npm run service:remove`. While working on the page, `npm run web:dev` serve
   open a pull request; the commands are shown first, never a force-push), edit CLAUDE.md, the
   project's and your own Claude settings and `.mcp.json` (validated, backed up, refused if the
   file changed meanwhile), add or remove MCP servers, and turn plugins on for yourself.
+- **Terminal** (top bar, "Open a terminal here" in Projects): a real terminal in the page, your
+  login shell in a folder, with colours, full-screen programs and resizing. Several can be open;
+  each is listed under Your desk, keeps its recent output for when you come back, and ends when
+  you close it or Annex stops. Commands that only work in Claude Code's own screen (`/config`,
+  `/login`, `/status`, `/resume` and the like) show "opens in a terminal" in a live session's `/`
+  menu; choosing one, or **Open in terminal**, closes the live session and continues the same
+  conversation in `claude --resume` there. Terminals use `node-pty`: `npm install` warns that its
+  install script is not approved, which is fine; Annex needs only its prebuilt binary.
 - **Usage and alerts**: the top bar shows your plan's five-hour and weekly use as Claude last
   reported it; each office shows its runs and minutes in the last five hours; **Turn on alerts**
   for desktop notifications when something needs you while the tab is in the background.

@@ -2,7 +2,7 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
-import type { StateView, WingView, SessionView } from "../../server/api-types.ts";
+import type { StateView, WingView, SessionView, TerminalView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
 import { getState, getSessions, stream, apiFetch, whenKeyMissing, post } from "./api.ts";
 import { Room } from "./room.ts";
@@ -13,7 +13,8 @@ import { newWingDialog } from "./newwing.ts";
 import { logDialog } from "./syslog.ts";
 import { DirectorDesk } from "./directorview.ts";
 import { LiveView } from "./live.ts";
-import { newSessionDialog } from "./newsession.ts";
+import { newSessionDialog, newTerminalDialog } from "./newsession.ts";
+import type { TermPane } from "./termpane.ts";
 import { ProjectsDialog } from "./projects.ts";
 import { h } from "./dom.ts";
 import { setRoomTheme } from "./office/sprites.ts";
@@ -48,6 +49,10 @@ let sessions: SessionView[] = [];
 // live sessions Annex is driving, by the Claude session they continue once it has an id
 let lives: { id: string; sessionId: string | null; cwd: string; status: string }[] = [];
 let selectedLive: string | null = null;
+// terminals open on this machine, and the one shown
+let terms: TerminalView[] = [];
+let selectedTerm: string | null = null;
+let termPane: TermPane | null = null;
 let deskRoom: Room | null = null;
 const DESK = "your-desk";
 let recent: BourneEvent[] = [];
@@ -97,15 +102,69 @@ terminal.onOpenLive = async (sessionId, force) => {
     toast((err as Error).message, "var(--bad)");
   }
 };
-const projects = new ProjectsDialog(async (folder) => {
+const projects = new ProjectsDialog(
+  async (folder) => {
+    try {
+      const v = (await post("/api/live", { cwd: folder })) as { id: string; cwd: string };
+      selectLive(v.id, v.cwd);
+      void pollSessions();
+    } catch (err) {
+      toast((err as Error).message, "var(--bad)");
+    }
+  },
+  (folder) => void openTerminal({ cwd: folder }),
+);
+// "Open in terminal" in a live session: Annex closes it, then continues it in `claude --resume`
+liveView.onTerminal = (command) => {
+  if (liveView.liveId) void openTerminal({ live: liveView.liveId }, command);
+};
+const newTerminal = newTerminalDialog((v) => {
+  void selectTerm(v);
+  void pollSessions();
+});
+
+// xterm.js is loaded the first time a terminal is shown, so it stays out of the first page load.
+async function pane(): Promise<TermPane> {
+  if (!termPane) {
+    const { TermPane } = await import("./termpane.ts");
+    termPane ??= new TermPane(
+      () => selectWing(selectedWing && selectedWing !== DESK ? selectedWing : state?.wings[0]?.id ?? ""),
+      (sessionId) => terminal.onOpenLive(sessionId),
+      () => void pollSessions(),
+    );
+  }
+  return termPane;
+}
+
+async function openTerminal(body: { cwd: string } | { live: string }, hint: string | null = null) {
   try {
-    const v = (await post("/api/live", { cwd: folder })) as { id: string; cwd: string };
-    selectLive(v.id, v.cwd);
+    const v = (await post("/api/terminals", body)) as TerminalView;
+    await selectTerm(v, hint);
     void pollSessions();
   } catch (err) {
     toast((err as Error).message, "var(--bad)");
   }
-});
+}
+
+async function selectTerm(v: TerminalView, hint: string | null = null) {
+  const p = await pane();
+  selectedWing = DESK;
+  selectedLive = null;
+  selectedAgent = null;
+  showDirector = false;
+  liveView.close();
+  terminal.close();
+  selectedTerm = v.id;
+  draw();
+  await p.show(v, hint);
+  reveal(true);
+}
+
+// leaving a terminal keeps it running; it is listed under Your desk
+function leaveTerm() {
+  selectedTerm = null;
+  termPane?.hide();
+}
 const newSession = newSessionDialog((id, cwd) => {
   selectLive(id, cwd);
   void pollSessions();
@@ -160,13 +219,15 @@ const hud = h(
   plan,
   alertBtn,
   h("button", { class: "hud-btn new-session", type: "button", onclick: () => void newSession.open() }, "New session"),
+  h("button", { class: "hud-btn", type: "button", onclick: () => newTerminal.open() }, "Terminal"),
   h("button", { class: "hud-btn", type: "button", onclick: () => void projects.open() }, "Projects"),
   h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, "Director"),
   h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "System log"),
   themeBtn,
 );
 
-app.append(h("div", { class: "shell" }, hud, sidebar.el, world, drawer), toasts, newOffice, syslog.el, newSession.el, projects.el);
+const shellEl = h("div", { class: "shell" }, hud, sidebar.el, world, drawer);
+app.append(shellEl, toasts, newOffice, syslog.el, newSession.el, newTerminal.el, projects.el);
 
 function toast(text: string, colour: string) {
   const t = h("div", { class: "toast", style: `--c: ${colour}` }, text);
@@ -185,6 +246,7 @@ function reveal(fromTap: boolean) {
 }
 
 function openDirector() {
+  leaveTerm();
   selectedLive = null;
   liveView.close();
   showDirector = true;
@@ -195,6 +257,7 @@ function openDirector() {
 }
 
 function selectWing(id: string, fromTap = false) {
+  leaveTerm();
   selectedLive = null;
   liveView.close();
   selectedWing = id;
@@ -206,6 +269,7 @@ function selectWing(id: string, fromTap = false) {
 }
 
 function selectLive(id: string, cwd: string, fromTap = true) {
+  leaveTerm();
   selectedWing = DESK;
   selectedAgent = null;
   selectedLive = id;
@@ -220,6 +284,7 @@ function selectSession(id: string, fromTap = false) {
   // a session Annex is driving live opens live
   const l = lives.find((x) => x.sessionId === id && x.status !== "closed");
   if (l) return selectLive(l.id, l.cwd, fromTap);
+  leaveTerm();
   selectedLive = null;
   liveView.close();
   selectedWing = DESK;
@@ -278,8 +343,13 @@ async function pollHealth() {
 
 async function pollSessions() {
   try {
-    const [list, live] = await Promise.all([getSessions(), apiFetch("/api/live").then((r) => r.json()) as Promise<{ lives: typeof lives }>]);
+    const [list, live, tt] = await Promise.all([
+      getSessions(),
+      apiFetch("/api/live").then((r) => r.json()) as Promise<{ lives: typeof lives }>,
+      apiFetch("/api/terminals").then((r) => r.json()) as Promise<{ terminals?: TerminalView[] }>,
+    ]);
     lives = live.lives;
+    terms = tt.terminals ?? [];
     applySessions(list);
   } catch {
     // the offices still work without it; try again next time
@@ -288,6 +358,7 @@ async function pollSessions() {
 
 function selectAgent(id: string, fromTap = false) {
   if (sessions.some((s) => s.id === id)) return selectSession(id, fromTap);
+  leaveTerm();
   selectedLive = null;
   liveView.close();
   const wing = state?.wings.find((w) => w.agents.some((a) => a.id === id));
@@ -304,8 +375,15 @@ function draw() {
   if (!state) return;
   for (const [wid, r] of rooms) r.el.classList.toggle("selected", !showDirector && wid === selectedWing);
   deskRoom?.el.classList.toggle("selected", !showDirector && selectedWing === DESK);
-  sidebar.render(state, showDirector ? null : selectedWing, selectedLive ? lives.find((l) => l.id === selectedLive)?.sessionId ?? null : selectedAgent, sessions, lives.filter((l) => l.status !== "closed"), (id, cwd) => selectLive(id, cwd));
-  if (selectedLive) {
+  sidebar.render(state, showDirector ? null : selectedWing, selectedLive ? lives.find((l) => l.id === selectedLive)?.sessionId ?? null : selectedAgent, sessions, lives.filter((l) => l.status !== "closed"), (id, cwd) => selectLive(id, cwd), terms, (id) => {
+    const v = terms.find((t) => t.id === id);
+    if (v) void selectTerm(v);
+  }, selectedTerm);
+  // a terminal wants width: the drawer widens while one is shown
+  shellEl.classList.toggle("wide", !!selectedTerm);
+  if (selectedTerm && termPane) {
+    if (drawer.firstChild !== termPane.el) drawer.replaceChildren(termPane.el);
+  } else if (selectedLive) {
     if (drawer.firstChild !== liveView.el) drawer.replaceChildren(liveView.el);
   } else if (showDirector) {
     director.show(state.director);

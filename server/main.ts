@@ -18,6 +18,7 @@ import { Director } from "./director.ts";
 import { backupIfDue } from "./upkeep.ts";
 import { LiveSessions } from "./live.ts";
 import { Runner } from "./runner.ts";
+import { Terminals } from "./terminals.ts";
 import { sessionTranscript } from "./sessions.ts";
 import { recordUsage } from "./usage.ts";
 import { loadOrCreateKey } from "./key.ts";
@@ -67,7 +68,8 @@ const startedAt = new Date();
 const live = new LiveSessions({ claude: claudeCommand, bourneUrl: `http://127.0.0.1:${port}`, dir: join(stateDir, "live"), onUsage: recordUsage });
 const key = loadOrCreateKey();
 const runner = new Runner(stateDir);
-await startHttp({ backupsDir: join(stateDir, "backups", "config"), runner, key, live, bureau, store, logger, port, webDir: join(root, "web", "dist"), claudeCommand, engineUrl: process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100", startedAt });
+const terminals = new Terminals({ claude: claudeCommand });
+await startHttp({ terminals, backupsDir: join(stateDir, "backups", "config"), runner, key, live, bureau, store, logger, port, webDir: join(root, "web", "dist"), claudeCommand, engineUrl: process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100", startedAt });
 
 // a copy of the database a day, seven kept
 const backup = () => {
@@ -101,6 +103,7 @@ watch(join(root, "wings"), { recursive: true }, (_e, file) => {
 
 const shutdown = () => {
   runner.stopAll();
+  terminals.closeAll();
   live.closeAll();
   bureau.stopAll();
   process.exit(0);

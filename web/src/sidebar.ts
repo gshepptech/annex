@@ -1,7 +1,7 @@
 // The party: every office and everyone in it. Choosing an office opens its file; choosing a member
 // opens their terminal.
 
-import type { StateView, WingView, SessionView } from "../../server/api-types.ts";
+import type { StateView, WingView, SessionView, TerminalView } from "../../server/api-types.ts";
 import { h } from "./dom.ts";
 import { portrait, faceIndex } from "./portrait.ts";
 
@@ -28,11 +28,11 @@ export class Sidebar {
     );
   }
 
-  render(state: StateView, selectedWing: string | null, selectedAgent: string | null, sessions: SessionView[] = [], lives: { id: string; sessionId: string | null; cwd: string; status: string }[] = [], openLive: (id: string, cwd: string) => void = () => {}) {
+  render(state: StateView, selectedWing: string | null, selectedAgent: string | null, sessions: SessionView[] = [], lives: { id: string; sessionId: string | null; cwd: string; status: string }[] = [], openLive: (id: string, cwd: string) => void = () => {}, terms: TerminalView[] = [], openTerm: (id: string) => void = () => {}, selectedTerm: string | null = null) {
     // a live session not yet in Claude's logs (nothing sent yet) still shows, at the top
     const fresh = lives.filter((l) => !l.sessionId || !sessions.some((s) => s.id === l.sessionId));
     const liveIds = new Set(lives.map((l) => l.sessionId));
-    const desk = sessions.length || fresh.length
+    const desk = sessions.length || fresh.length || terms.length
       ? h(
           "div",
           { class: "office" },
@@ -40,6 +40,18 @@ export class Sidebar {
           h(
             "ul",
             { class: "members" },
+            ...terms.map((t) =>
+              h(
+                "li",
+                {},
+                h(
+                  "button",
+                  { class: `member who-you${t.status === "running" ? " working" : ""}${t.id === selectedTerm ? " selected" : ""}`, type: "button", onclick: () => openTerm(t.id), "aria-label": `Open the terminal in ${t.cwd}` },
+                  h("span", { class: "term-mark", "aria-hidden": "true" }),
+                  h("span", { class: "info" }, h("b", {}, t.cwd.split("/").pop() || t.cwd), h("span", { class: "cls" }, t.title), h("span", { class: "line" }, h("span", { class: "st" }, t.status === "running" ? "running" : "exited"))),
+                ),
+              ),
+            ),
             ...fresh.map((l, i) =>
               h(
                 "li",
