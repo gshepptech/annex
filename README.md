@@ -24,7 +24,9 @@ time), waits for it, builds the page if it is missing or out of date, and runs A
 
 **Open it with `npm run open`** the first time in a browser. Annex answers only a browser that
 has its key (kept in `~/.config/annex/key`); the link gives the page the key once and the
-browser keeps it. Without it the page says so.
+browser keeps it. Without it the page says so. A second browser on this computer can also be
+paired from one that has Annex open: **Pair a browser** in the top bar makes a link that works
+once, for five minutes.
 
 **Keep it running:** `npm run service:install` makes Annex a login service (macOS LaunchAgent):
 it starts at login and comes back by itself if it exits. `npm run service:status` and

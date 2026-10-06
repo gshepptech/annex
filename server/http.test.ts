@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { Store } from "./db.ts";
 import { startHttp, UserError, type Bureau } from "./http.ts";
 import { refuseForeign } from "./http.ts";
+import { Pairing } from "./pair.ts";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { LiveSessions } from "./live.ts";
@@ -38,7 +39,7 @@ function fakeBureau(store: Store): Bureau & { calls: string[] } {
   };
 }
 
-async function boot(o: { key?: string; live?: LiveSessions; terminals?: Terminals } = {}) {
+async function boot(o: { key?: string; live?: LiveSessions; terminals?: Terminals; pairing?: Pairing } = {}) {
   const store = new Store(":memory:");
   const bureau = fakeBureau(store);
   const web = mkdtempSync(join(tmpdir(), "annex-web-"));
@@ -131,6 +132,39 @@ test("with a key set, every API call must carry it; the page and the health chec
     assert.equal((await fetch(`${base}/api/state`, { headers: { "x-annex-key": "k".repeat(31) + "x" } })).status, 401);
     assert.equal((await fetch(`${base}/api/state`, { headers: { "x-annex-key": "k".repeat(32) } })).status, 200);
     assert.equal((await fetch(`${base}/api/sessions?key=${"k".repeat(32)}`)).status, 200, "event streams pass it in the query");
+  } finally {
+    server.close();
+  }
+});
+
+test("pairing: only a browser with the key can make a code; another browser trades it once for the key", async () => {
+  let t = 0;
+  const key = "k".repeat(32);
+  const { server, base } = await boot({ key, pairing: new Pairing(() => t) });
+  const make = (headers: Record<string, string> = {}) => fetch(`${base}/api/pair`, { method: "POST", headers });
+  const claim = (code: string, headers: Record<string, string> = {}) =>
+    fetch(`${base}/api/pair/claim`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify({ code }) });
+  try {
+    assert.equal((await make()).status, 401, "a program without the key cannot make a code");
+    const r = await make({ "x-annex-key": key });
+    assert.equal(r.status, 201);
+    const { code, expiresAt } = (await r.json()) as { code: string; expiresAt: string };
+    assert.ok(code && expiresAt);
+
+    assert.equal((await claim(code, { origin: "https://evil.example" })).status, 403, "another site is refused before the code is looked at");
+    assert.equal((await claim("guess")).status, 410);
+    const ok = await claim(code);
+    assert.equal(ok.status, 200);
+    assert.equal(ok.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await ok.json(), { key });
+    const again = await claim(code);
+    assert.equal(again.status, 410);
+    assert.match(((await again.json()) as { error: string }).error, /expired or was already used/);
+    assert.equal((await fetch(`${base}/api/pair/claim`)).status, 401, "only a POST skips the key");
+
+    const late = ((await (await make({ "x-annex-key": key })).json()) as { code: string }).code;
+    t += 5 * 60_000;
+    assert.equal((await claim(late)).status, 410, "an expired code is refused");
   } finally {
     server.close();
   }

@@ -1,6 +1,6 @@
 // Annex's own HTTP surface: the state snapshot, a resumable event stream, and the handful of
-// things a person can do to a wing. Bound to loopback; there is no login because nothing here is
-// reachable from another machine.
+// things a person can do to a wing. Bound to loopback; every API call carries Annex's key, which a
+// browser gets from `npm run open` or by pairing with one that already has it.
 
 import { createServer, type IncomingMessage, type ServerResponse, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -15,6 +15,7 @@ import { Runner, RunError } from "./runner.ts";
 import * as P from "./projects.ts";
 import * as F from "./files.ts";
 import { sameKey } from "./key.ts";
+import { Pairing } from "./pair.ts";
 import { LiveSessions, LiveError, MODES, defaultMode, type Mode } from "./live.ts";
 import { IDLE_MS, isReplying } from "./sessions.ts";
 import { Terminals, TerminalError } from "./terminals.ts";
@@ -85,8 +86,9 @@ export function refuseForeign(req: IncomingMessage): string | null {
   return null;
 }
 
-export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; key?: string; runner?: Runner; backupsDir?: string; terminals?: Terminals }): Promise<Server> {
+export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; key?: string; runner?: Runner; backupsDir?: string; terminals?: Terminals; pairing?: Pairing }): Promise<Server> {
   const { bureau, store, webDir, logger } = opts;
+  const pairing = opts.pairing ?? new Pairing();
 
   const server = createServer(async (req, res) => {
     try {
@@ -95,14 +97,30 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       const refused = refuseForeign(req);
       if (refused) return json(res, 403, { error: refused });
       // every API call carries the key, except the health check and the live sessions' own
-      // permission channel, which has its own token; an event stream passes it in the query
-      // because EventSource cannot send headers
-      if (opts.key && path.startsWith("/api/") && path !== "/api/health" && !/^\/api\/live\/[0-9a-f-]{36}\/permission$/.test(path)) {
+      // permission channel, which has its own token, and a pairing claim, which carries a one-time
+      // code instead; an event stream passes it in the query because EventSource cannot send headers
+      if (opts.key && path.startsWith("/api/") && path !== "/api/health" && !/^\/api\/live\/[0-9a-f-]{36}\/permission$/.test(path) && !(req.method === "POST" && path === "/api/pair/claim")) {
         const given = (req.headers["x-annex-key"] as string | undefined) ?? url.searchParams.get("key");
-        if (!sameKey(given, opts.key)) return json(res, 401, { error: "Annex needs its key. Open it with `npm run open`, which gives this browser the key once." });
+        if (!sameKey(given, opts.key)) return json(res, 401, { error: "Annex needs its key. Run `npm run open`, or pair this browser from one that has Annex open (Pair a browser in the top bar)." });
       }
 
       if (req.method === "GET" && path === "/api/state") return json(res, 200, await bureau.state());
+      // a pairing link for another browser on this machine; the code and the key are never logged
+      if (req.method === "POST" && path === "/api/pair") {
+        if (!opts.key) throw new UserError("Annex has no key, so there is nothing to pair", 404);
+        logger?.info(null, "made a pairing link (works once, for five minutes)");
+        return json(res, 201, pairing.mint());
+      }
+      if (req.method === "POST" && path === "/api/pair/claim") {
+        const body = await readJson(req, 4096);
+        // expired, used, wrong or absent all get the same answer, so it cannot test guesses
+        if (!opts.key || !pairing.claim(body.code)) {
+          logger?.warn(null, "a pairing link was refused (expired, used or wrong)");
+          throw new UserError("This pairing link has expired or was already used. Make a new one in a browser that has Annex open (Pair a browser in the top bar).", 410);
+        }
+        logger?.info(null, "paired a browser");
+        return json(res, 200, { key: opts.key }, { "cache-control": "no-store" });
+      }
       if (req.method === "GET" && path === "/api/logs") {
         return json(res, 200, { file: logger?.file ?? null, lines: logger?.since(Number(url.searchParams.get("after") ?? 0), url.searchParams.get("wing") ?? undefined) ?? [] });
       }
@@ -654,8 +672,8 @@ async function serveStatic(res: ServerResponse, webDir: string, path: string) {
   res.end(await readFile(file));
 }
 
-function json(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+function json(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...headers });
   res.end(JSON.stringify(body));
 }
 

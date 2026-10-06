@@ -1,8 +1,8 @@
 import type { StateView, SessionView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
 
-// Annex's API key: handed over once in the link Annex opens (#key=...), then kept in this
-// browser. Every API call carries it; agents on this machine do not have it.
+// Annex's API key: handed over once in the link Annex opens (#key=...) or by a pairing link
+// (#pair=...), then kept in this browser. Every API call carries it; agents on this machine do not have it.
 const KEY_STORE = "annex-key";
 function readKey(): string | null {
   const m = /[#&]key=([\w-]+)/.exec(location.hash);
@@ -21,14 +21,40 @@ function readKey(): string | null {
     return null;
   }
 }
-export const key = readKey();
+export let key = readKey();
 // the link opened in a tab that already shows Annex only changes the #; take the key and reload
 addEventListener("hashchange", () => {
   if (/[#&]key=/.test(location.hash)) {
     readKey();
     location.reload();
+  } else if (/[#&]pair=/.test(location.hash)) {
+    void claimPairing().then(() => location.reload());
   }
 });
+
+// A pairing link (#pair=...) made in a browser that has the key: trade the one-time code for the
+// key and keep it the way #key= does. The code leaves the address bar before anything else. Plain
+// fetch, so a refused code does not read as a refused key.
+export async function claimPairing(): Promise<"paired" | "failed" | null> {
+  const m = /[#&]pair=([\w-]+)/.exec(location.hash);
+  if (!m) return null;
+  history.replaceState(null, "", location.pathname + location.search);
+  const r = await fetch("/api/pair/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: m[1] }) }).catch(() => null);
+  if (!r?.ok) return "failed";
+  const { key: k } = (await r.json()) as { key: string };
+  try {
+    localStorage.setItem(KEY_STORE, k);
+  } catch {
+    // storage refused: the key still works for this visit
+  }
+  key = k;
+  return "paired";
+}
+
+// a one-time link for another browser; making a new one cancels the last
+export async function makePairing(): Promise<{ code: string; expiresAt: string }> {
+  return (await post("/api/pair")) as { code: string; expiresAt: string };
+}
 
 // Called when Annex refuses the key, so the page can say how to fix it.
 let onMissingKey: () => void = () => {};

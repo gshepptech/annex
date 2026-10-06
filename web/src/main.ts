@@ -4,13 +4,14 @@ import "./styles.css";
 
 import type { StateView, WingView, SessionView, TerminalView } from "../../server/api-types.ts";
 import type { BourneEvent } from "../../server/events.ts";
-import { getState, getSessions, stream, apiFetch, whenKeyMissing, post } from "./api.ts";
+import { getState, getSessions, stream, apiFetch, whenKeyMissing, post, claimPairing } from "./api.ts";
 import { Room } from "./room.ts";
 import { Panel } from "./panel.ts";
 import { Sidebar } from "./sidebar.ts";
 import { Terminal, whenPathClicked } from "./terminal.ts";
 import { newWingDialog } from "./newwing.ts";
 import { logDialog } from "./syslog.ts";
+import { pairDialog } from "./pair.ts";
 import { DirectorDesk } from "./directorview.ts";
 import { LiveView } from "./live.ts";
 import { newSessionDialog, newTerminalDialog } from "./newsession.ts";
@@ -22,6 +23,8 @@ import { setRoomTheme } from "./office/sprites.ts";
 
 const app = document.getElementById("app")!;
 
+// a pairing link this page was opened with that Annex refused (expired, used or wrong)
+let pairFailed = false;
 // Without Annex's key nothing loads; say how to get it instead of showing an empty office.
 whenKeyMissing(() => {
   if (document.querySelector(".no-key")) return;
@@ -30,9 +33,14 @@ whenKeyMissing(() => {
       "div",
       { class: "no-key", role: "alertdialog", "aria-label": "Annex needs its key" },
       h("h2", {}, "Annex needs its key"),
-      h("p", {}, "Annex only answers this browser once it has been given its key, so programs on this machine (Annex's own agents included) cannot drive it. In the annex folder, run:"),
+      pairFailed && h("p", { class: "bad" }, "That pairing link has expired or was already used."),
+      h("p", {}, "Annex only answers a browser that has its key, so programs on this machine (Annex's own agents included) cannot drive it. Two ways to give it one:"),
+      h("h3", {}, "From a browser that has Annex open"),
+      h("p", {}, "Choose Pair a browser in the top bar and open the link here. It works once, for five minutes."),
+      h("h3", {}, "From a terminal"),
+      h("p", {}, "In the annex folder, run:"),
       h("pre", {}, "npm run open"),
-      h("p", {}, "It opens this page with the key; the browser keeps it from then on."),
+      h("p", {}, "The browser keeps the key from then on."),
     ),
   );
 });
@@ -77,6 +85,7 @@ const newOffice = newWingDialog((id) => {
   scheduleRefresh(0);
 });
 const syslog = logDialog();
+const pair = pairDialog();
 const liveView = new LiveView(
   () => selectWing(selectedWing && selectedWing !== DESK ? selectedWing : state?.wings[0]?.id ?? ""),
   () => void pollSessions(),
@@ -229,11 +238,12 @@ const hud = h(
   h("button", { class: "hud-btn", type: "button", onclick: () => void projects.open() }, "Projects"),
   h("button", { class: "hud-btn director-btn", type: "button", onclick: () => openDirector() }, "Director"),
   h("button", { class: "hud-btn", type: "button", onclick: () => syslog.open() }, "System log"),
+  h("button", { class: "hud-btn", type: "button", onclick: () => pair.open() }, "Pair a browser"),
   themeBtn,
 );
 
 const shellEl = h("div", { class: "shell" }, hud, sidebar.el, world, drawer);
-app.append(shellEl, toasts, newOffice, syslog.el, newSession.el, newTerminal.el, projects.el, files.el);
+app.append(shellEl, toasts, newOffice, syslog.el, pair.el, newSession.el, newTerminal.el, projects.el, files.el);
 
 function toast(text: string, colour: string) {
   const t = h("div", { class: "toast", style: `--c: ${colour}` }, text);
@@ -506,6 +516,9 @@ function announce(e: BourneEvent) {
 const REFRESH_ON = new Set(["task.created", "task.started", "task.done", "task.stopped", "wing.mode_changed", "wing.held", "wing.resumed", "chat.message", "approval.requested", "approval.decided", "lead.woke", "lead.idle", "agent.said", "agent.hired"]);
 
 async function boot() {
+  // a pairing link trades its code for the key before anything asks for it; once the # is gone
+  // this does nothing, so a retry below does not claim twice
+  if ((await claimPairing()) === "failed") pairFailed = true;
   try {
     const first = await getState();
     recent = first.recent;

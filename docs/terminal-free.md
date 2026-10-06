@@ -312,7 +312,11 @@ Still open, by choice or for later:
 - Closed since: a code editor (gap 2b). Files in Projects, file paths in sessions and Open in your
   checkout in Ready to merge open a project's file; Cmd/Ctrl+S saves, never over a change on disk.
   New files cannot be created there yet.
-- Getting the key into a new browser needs `npm run open` once (a terminal, once).
+- Closed since: getting the key into a new browser no longer needs a terminal (gap 4). **Pair a
+  browser** in the top bar makes a link (`#pair=`, so the code never reaches a request line or a
+  log) that works once, for five minutes; only a page with the key can make one. Annex listens on
+  127.0.0.1 only, so pairing is for browsers on this computer and there is no QR code for a phone.
+  `npm run open` still works.
 - Closed since: a terminal pane in the page (your login shell, or the conversation continued in
   `claude --resume`), and live sessions offer it for the commands `claude -p` cannot run (gap 9).
   Terminals end when Annex restarts; live sessions reopen, terminals do not.

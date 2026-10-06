@@ -627,6 +627,9 @@ dialog p { margin: 0; color: var(--muted); }
 .no-key h2 { margin: 0; font-size: 1.4rem; }
 .no-key p { margin: 0; color: var(--muted); }
 .no-key pre { margin: 0; padding: 10px 12px; font: 0.9rem var(--term); background: var(--sunk); border-radius: var(--r); }
+.no-key h3 { margin: 6px 0 0; font: 600 0.95rem var(--ui); }
+.no-key .bad, dialog p.bad { color: var(--bad); }
+.pair-link { font: 0.84rem var(--term); }
 
 /* ---------- live sessions ---------- */
 
