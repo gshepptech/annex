@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./db.ts";
@@ -246,6 +247,49 @@ test("input and resize reach the terminal; an unknown terminal is 404 before any
     assert.equal((await send(base, "/api/terminals", { cwd: "relative/path" })).status, 400);
     assert.equal((await fetch(`${base}/api/terminals/00000000-0000-4000-8000-000000000000/events`)).status, 404);
     assert.equal((await fetch(`${base}/api/health`)).status, 200, "still up");
+  } finally {
+    server.close();
+  }
+});
+
+test("file routes take only your projects and say when a save would overwrite a change", async () => {
+  // reads (never writes) ~/Projects and ~/.claude/projects, as every project route does
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "annex-edit-")));
+  execFileSync("git", ["init", "-q"], { cwd: repo });
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  const store = new Store(":memory:");
+  const bureau = fakeBureau(store);
+  bureau.state = async () => ({ wings: [{ repo, edit: { plugins: [] } } as never], director: null, lastEventId: 0, recent: [], usage: null });
+  const web = mkdtempSync(join(tmpdir(), "annex-web-"));
+  const backupsDir = mkdtempSync(join(tmpdir(), "annex-bk-"));
+  const server = await startHttp({ bureau, store, port: 0, webDir: web, backupsDir });
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const root = encodeURIComponent(repo);
+  const put = (body: unknown) => fetch(`${base}/api/files`, { method: "PUT", body: JSON.stringify(body) });
+  try {
+    const list = await fetch(`${base}/api/files?root=${root}`);
+    assert.equal(list.status, 200);
+    assert.deepEqual((await list.json()).files, ["a.txt"]);
+    assert.equal((await fetch(`${base}/api/files/read?root=${root}&path=..%2F..%2Fetc%2Fpasswd`)).status, 409);
+    const etc = await fetch(`${base}/api/files?root=%2Fetc`);
+    assert.equal(etc.status, 409);
+    assert.match((await etc.json()).error, /not one of your projects/);
+    const f = await (await fetch(`${base}/api/files/read?root=${root}&path=a.txt`)).json();
+    assert.equal(f.text, "one\n");
+    const stale = await put({ root: repo, path: "a.txt", text: "two\n", hash: "0".repeat(64) });
+    assert.equal(stale.status, 409);
+    assert.equal((await stale.json()).conflict, true);
+    const ok = await put({ root: repo, path: "a.txt", text: "two\n", hash: f.hash });
+    assert.equal(ok.status, 200);
+    const saved = await ok.json();
+    assert.ok(saved.backup, "the old version is kept");
+    // larger than the usual 1 MB body once written as JSON, and not ASCII, so chunks split characters
+    const big = "é\"\n".repeat(220_000);
+    const large = await put({ root: repo, path: "a.txt", text: big, hash: saved.hash });
+    assert.equal(large.status, 200);
+    assert.equal(readFileSync(join(repo, "a.txt"), "utf8"), big, "every character arrives whole");
+    const located = await (await fetch(`${base}/api/files/locate?path=${encodeURIComponent(join(repo, "a.txt"))}`)).json();
+    assert.deepEqual(located, { root: repo, path: "a.txt" });
   } finally {
     server.close();
   }

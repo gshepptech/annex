@@ -8,7 +8,7 @@
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -31,7 +31,7 @@ export function knownProjects(extra: string[] = [], home = homedir()): string[] 
   return [...found].filter((p) => existsSync(p)).sort();
 }
 
-function mustKnow(root: string, known: string[]): string {
+export function mustKnow(root: string, known: string[]): string {
   if (!known.includes(root)) throw new ProjectError("That folder is not one of your projects");
   return root;
 }
@@ -195,13 +195,14 @@ function configPath(kind: string, root: string | null, known: string[], home: st
   return { path: k.file(k.project ? mustKnow(root!, known) : "", home), json: k.json };
 }
 
-const hashOf = (text: string) => createHash("sha256").update(text).digest("hex");
+export const hashOf = (data: string | Buffer) => createHash("sha256").update(data).digest("hex");
 
 export function readConfig(kind: string, root: string | null, known: string[], home = homedir()): { path: string; text: string; hash: string; exists: boolean } {
   const { path } = configPath(kind, root, known, home);
   const exists = existsSync(path);
-  const text = exists ? readFileSync(path, "utf8") : "";
-  return { path, text, hash: hashOf(text), exists };
+  // the hash is over the bytes, as saveChecked compares them
+  const bytes = exists ? readFileSync(path) : Buffer.alloc(0);
+  return { path, text: bytes.toString("utf8"), hash: hashOf(bytes), exists };
 }
 
 // Saves a config file: valid JSON where it must be, only if nobody changed it since it was read
@@ -219,19 +220,42 @@ export function writeConfig(o: { kind: string; root: string | null; text: string
       throw new ProjectError(`That is not valid JSON${line ? ` (line ${line})` : ""}: ${msg.replace(/ in JSON at position \d+ \(line \d+ column \d+\)/, "")}`);
     }
   }
-  const now = existsSync(path) ? readFileSync(path, "utf8") : "";
-  if (hashOf(now) !== o.hash) throw new ProjectError("The file changed since you opened it; open it again to see the change, then edit");
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const saved = saveChecked({ path, text: o.text, hash: o.hash, backups: o.backups, backupName: `${o.kind}-${basename(o.root ?? "you")}-${ts}${json ? ".json" : ".md"}` });
+  return { path, ...saved };
+}
+
+const STAMP = /^\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z/;
+
+// A save refused because the file is no longer what the person opened.
+export class FileChanged extends ProjectError {}
+
+// Writes text over a file only if it is still what the person opened (the hash, over its bytes),
+// copying the old version to the backups first and replacing it atomically. With `keep`, only the
+// newest `keep` backups of this file stay: those whose names share backupName up to its last "--".
+export function saveChecked(o: { path: string; text: string; hash: string; backups: string; backupName: string; keep?: number }): { hash: string; backup: string | null } {
+  const { path } = o;
+  // a file deleted since it was opened counts as changed
+  const now = existsSync(path) ? readFileSync(path) : "";
+  if (hashOf(now) !== o.hash) throw new FileChanged("The file changed since you opened it; open it again to see the change, then edit");
   let backup: string | null = null;
   if (existsSync(path)) {
     mkdirSync(o.backups, { recursive: true });
-    backup = join(o.backups, `${o.kind}-${basename(o.root ?? "you")}-${new Date().toISOString().replace(/[:.]/g, "-")}${json ? ".json" : ".md"}`);
+    backup = join(o.backups, o.backupName);
     copyFileSync(path, backup);
+    if (o.keep) {
+      const prefix = o.backupName.slice(0, o.backupName.lastIndexOf("--") + 2);
+      // the rest must be the timestamp, so "a--b"'s backups are not taken for "a"'s; ISO
+      // timestamps sort oldest first
+      const mine = readdirSync(o.backups).filter((n) => prefix.length > 2 && n.startsWith(prefix) && STAMP.test(n.slice(prefix.length))).sort();
+      for (const old of mine.slice(0, -o.keep)) rmSync(join(o.backups, old), { force: true });
+    }
   }
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.annex-${process.pid}.tmp`;
   writeFileSync(tmp, o.text, { mode: existsSync(path) ? statSync(path).mode & 0o777 : 0o644 });
   renameSync(tmp, path);
-  return { path, hash: hashOf(o.text), backup };
+  return { hash: hashOf(o.text), backup };
 }
 
 // ---------- MCP servers, through Claude Code's own CLI ----------

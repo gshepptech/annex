@@ -303,6 +303,16 @@ export class Terminal {
 
 }
 
+// A file path the page shows (a Read, an Edit) opens in the editor; the page says how.
+let openPath: (abs: string) => void = () => {};
+export function whenPathClicked(fn: (abs: string) => void) {
+  openPath = fn;
+}
+
+export function fileLink(abs: string, label = abs): HTMLElement {
+  return h("button", { type: "button", class: "arg file-link", title: abs, onclick: () => openPath(abs) }, label);
+}
+
 // One entry the way Claude Code prints it; shared by agents' runs, your sessions and live ones.
 export function renderEntry(e: Entry, results: Map<string, Extract<Entry, { kind: "result" }>>, k: string): (HTMLElement | null)[] {
   const out = renderOne(e, results, k);
@@ -322,7 +332,7 @@ function renderOne(e: Entry, results: Map<string, Extract<Entry, { kind: "result
     case "tool": {
       const res = results.get(e.id);
       const state = !res ? "" : res.isError ? "err" : "ok";
-      const el = h("div", { class: `ln tool ${state}` }, h("span", { class: "mk" }, "⏺"), h("span", { class: "body" }, h("b", {}, e.name), "(", h("span", { class: "arg" }, e.summary), ")"));
+      const el = h("div", { class: `ln tool ${state}` }, h("span", { class: "mk" }, "⏺"), h("span", { class: "body" }, h("b", {}, e.name), "(", e.path ? fileLink(e.path, e.summary) : h("span", { class: "arg" }, e.summary), ")"));
       const out: (HTMLElement | null)[] = [el];
       if (e.detail) out.push(e.name === "TodoWrite" ? h("pre", { class: "todos" }, e.detail) : diff(e.detail));
       if (res) out.push(result(res, k));

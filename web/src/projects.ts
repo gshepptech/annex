@@ -2,7 +2,7 @@
 // files and MCP servers, or "You" for your own Claude settings and plugins. Every change says
 // exactly what it will do first.
 
-import { apiFetch, post } from "./api.ts";
+import { get, post, put } from "./api.ts";
 import { h } from "./dom.ts";
 import { RunPanel } from "./runpanel.ts";
 
@@ -20,20 +20,6 @@ interface Branches {
   defaultBranch: string | null;
 }
 
-async function get<T>(path: string): Promise<T> {
-  const r = await apiFetch(path);
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((d as { error?: string }).error ?? `Annex answered ${r.status}`);
-  return d as T;
-}
-
-async function put(path: string, body: unknown): Promise<unknown> {
-  const r = await apiFetch(path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((d as { error?: string }).error ?? `Annex answered ${r.status}`);
-  return d;
-}
-
 export class ProjectsDialog {
   readonly el = h("dialog", { class: "wide projects", "aria-label": "Projects" }) as HTMLDialogElement;
   private list = h("nav", { class: "project-list" });
@@ -44,9 +30,11 @@ export class ProjectsDialog {
   private run = new RunPanel();
   private startSession: (folder: string) => void;
   private openTerminal: (folder: string) => void;
+  private openFiles: (folder: string) => void;
 
-  constructor(startSession: (folder: string) => void, openTerminal: (folder: string) => void) {
+  constructor(startSession: (folder: string) => void, openFiles: (folder: string) => void, openTerminal: (folder: string) => void) {
     this.startSession = startSession;
+    this.openFiles = openFiles;
     this.openTerminal = openTerminal;
     const url = h("input", { placeholder: "https://github.com/you/app.git", "aria-label": "Repository address" }) as HTMLInputElement;
     const name = h("input", { placeholder: "folder name (optional)", "aria-label": "Folder name" }) as HTMLInputElement;
@@ -135,7 +123,7 @@ export class ProjectsDialog {
     }
     const parts: HTMLElement[] = [h("h3", {}, target.split("/").pop()!), h("p", { class: "where" }, target)];
     if (note) parts.push(note);
-    parts.push(h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => { this.close(); this.startSession(target); } }, "Start a session here"), h("button", { class: "btn", type: "button", onclick: () => { this.close(); this.openTerminal(target); } }, "Open a terminal here")));
+    parts.push(h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: () => { this.close(); this.startSession(target); } }, "Start a session here"), h("button", { class: "btn", type: "button", onclick: () => { this.close(); this.openFiles(target); } }, "Files"), h("button", { class: "btn", type: "button", onclick: () => { this.close(); this.openTerminal(target); } }, "Open a terminal here")));
     parts.push(await this.branchBlock(target));
     const runBox = h("details", { class: "run-box" }, h("summary", {}, "Run the app"), this.run.el);
     runBox.addEventListener("toggle", () => (runBox.open ? this.run.show({ folder: target }) : this.run.hide()));

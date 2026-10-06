@@ -67,6 +67,31 @@ export async function post(path: string, body: unknown = {}): Promise<unknown> {
   return data;
 }
 
+// a refusal Annex answers with extra fields (a save over a changed file says conflict: true)
+export class ApiError extends Error {
+  readonly status: number;
+  readonly data: Record<string, unknown>;
+  constructor(message: string, status: number, data: Record<string, unknown>) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
+}
+
+export async function get<T>(path: string): Promise<T> {
+  const r = await apiFetch(path);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new ApiError((d as { error?: string }).error ?? `Annex answered ${r.status}`, r.status, d as Record<string, unknown>);
+  return d as T;
+}
+
+export async function put(path: string, body: unknown): Promise<unknown> {
+  const r = await apiFetch(path, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new ApiError((d as { error?: string }).error ?? `Annex answered ${r.status}`, r.status, d as Record<string, unknown>);
+  return d;
+}
+
 // Server-sent events resume from the last id the browser saw, so a dropped connection loses nothing.
 export function stream(after: number, onEvent: (e: BourneEvent) => void, onStatus: (connected: boolean) => void): () => void {
   let source: EventSource | null = null;

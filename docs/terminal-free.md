@@ -148,6 +148,33 @@ needs them while the tab is in the background.
 **Done when.** After a reboot Annex is up by itself, backups exist, and a dead engine shows on
 the page.
 
+### 2b. Editing the code
+
+**Design.**
+- `server/files.ts`, behind the key like every route and only for folders Annex knows as
+  projects: `GET /api/files?root=` lists them (`git ls-files --cached --others --exclude-standard
+  -z`, minus deleted files; a non-git folder is walked, 8 levels deep; at most 20,000),
+  `GET /api/files/read` reads one, `PUT /api/files` saves one, and `GET /api/files/locate` turns a
+  full path from a session or a diff into a project and a path inside it (the deepest project).
+- A path is checked as typed (no `..`, no absolute path, no backslash or NUL, no `.git` in any
+  case) and again after symlinks resolve: it must stay inside the project, outside `.git` and
+  outside Annex's key folder, and be a regular file (a FIFO would hang the read).
+- Reading refuses files over 1 MB, binary (a NUL in the first 8000 bytes, git's rule) and
+  non-UTF-8; the BOM is kept in the text. Saving goes through `saveChecked`, the same code as the
+  config editor: a hash over the bytes on disk, a backup first (newest 20 per file), a temp file
+  renamed into place with the mode kept, and the link's target written so a symlink stays one.
+  Only files that exist can be saved. A changed file is a 409 with `conflict: true`.
+- The page: a Files dialog with a lazy tree and CodeMirror 6, loaded only when first opened, each
+  language in its own chunk. The editor's line separator is set from the file and saves use
+  `sliceDoc()`, so CRLF stays CRLF. Colours are the page's tokens plus `--syn-*`.
+
+**Done when.** A person can open any text file of a project, edit it and save it with Cmd+S, and a
+file Claude wrote meanwhile is never overwritten without their say.
+
+**Known gap.** Between the path checks and the write, a process on this machine could swap a
+folder on the path for a symlink. That needs something local racing your own save; agents have no
+key. Accepted.
+
 ---
 
 ## 9. Terminal
@@ -282,6 +309,9 @@ proven by tests, not clicked on a real repo), 4, 5 and 7. Fixed after it:
 
 Still open, by choice or for later:
 
+- Closed since: a code editor (gap 2b). Files in Projects, file paths in sessions and Open in your
+  checkout in Ready to merge open a project's file; Cmd/Ctrl+S saves, never over a change on disk.
+  New files cannot be created there yet.
 - Getting the key into a new browser needs `npm run open` once (a terminal, once).
 - Closed since: a terminal pane in the page (your login shell, or the conversation continued in
   `claude --resume`), and live sessions offer it for the commands `claude -p` cannot run (gap 9).

@@ -7,6 +7,8 @@ import type { Entry } from "./api-types.ts";
 export type { Entry };
 
 const RESULT_CHARS = 1600;
+// tools whose file_path the page can open in the editor
+const FILE_TOOLS = new Set(["Read", "Write", "Edit", "NotebookEdit"]);
 
 export function parseLog(ndjson: string): Entry[] {
   let stdout = "";
@@ -71,7 +73,9 @@ export function toEntries(msg: Record<string, unknown>, at: string): Entry[] {
         if (type === "assistant") out.push({ kind: "text", at, text: c.text.trim() });
       } else if (c.type === "tool_use") {
         const input = (c.input ?? {}) as Record<string, unknown>;
-        out.push({ kind: "tool", at, id: String(c.id ?? ""), name: String(c.name ?? "tool"), summary: summarize(String(c.name ?? ""), input), detail: detailOf(String(c.name ?? ""), input) });
+        const name = String(c.name ?? "");
+        const path = FILE_TOOLS.has(name) && typeof input.file_path === "string" && input.file_path ? input.file_path : undefined;
+        out.push({ kind: "tool", at, id: String(c.id ?? ""), name: name || "tool", summary: summarize(name, input), detail: detailOf(name, input), ...(path ? { path } : {}) });
       } else if (c.type === "tool_result") {
         const text = resultText(c.content);
         out.push({ kind: "result", at, toolId: String(c.tool_use_id ?? ""), text: text.length > RESULT_CHARS ? text.slice(0, RESULT_CHARS) + "\n…" : text, isError: c.is_error === true, lines: text.split("\n").length });

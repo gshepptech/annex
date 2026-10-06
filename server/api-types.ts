@@ -103,7 +103,8 @@ export type Entry = (
   | { kind: "text"; at: string; text: string }
   // what you typed, in your own sessions
   | { kind: "prompt"; at: string; text: string }
-  | { kind: "tool"; at: string; id: string; name: string; summary: string; detail: string }
+  // path: the full file path a Read, Write or Edit named, so the page can open it in the editor
+  | { kind: "tool"; at: string; id: string; name: string; summary: string; detail: string; path?: string }
   | { kind: "result"; at: string; toolId: string; text: string; isError: boolean; lines: number }
   | { kind: "done"; at: string; text: string; isError: boolean; durationMs: number | null; turns: number | null }
   | { kind: "error"; at: string; text: string }) & {

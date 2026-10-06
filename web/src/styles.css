@@ -47,6 +47,15 @@
 
   --r: 6px;
   --r-lg: 12px;
+
+  /* the editor's syntax colours: the label palette above, never the accent */
+  --syn-keyword: var(--reviewer);
+  --syn-string: var(--ok);
+  --syn-number: var(--lead);
+  --syn-comment: var(--dim);
+  --syn-type: var(--worker);
+  --syn-fn: var(--text);
+  --syn-prop: var(--muted);
   color-scheme: light;
 }
 
@@ -77,6 +86,14 @@
 
   --inverse-bg: #f7f8f8;
   --inverse-text: #08090a;
+
+  --syn-keyword: var(--reviewer);
+  --syn-string: var(--ok);
+  --syn-number: var(--lead);
+  --syn-comment: var(--dim);
+  --syn-type: var(--worker);
+  --syn-fn: var(--text);
+  --syn-prop: var(--muted);
 
   color-scheme: dark;
 }
@@ -756,3 +773,38 @@ form.row { flex-direction: row; }
 /* below that the drawer grows with its content, and a terminal fitted to its box would grow it
    without end: give the screen a height of its own */
 @media (max-width: 1300px) { .tty-host { flex: none; height: 65vh; } }
+
+/* ---------- files: the editor ---------- */
+
+.files-dialog { width: min(1400px, calc(100vw - 32px)); height: calc(100vh - 32px); max-height: none; }
+.files-dialog .pad { height: 100%; }
+.files-title { display: grid; gap: 2px; min-width: 0; }
+.files-title .where { font: 0.78rem var(--term); color: var(--muted); overflow-wrap: anywhere; }
+.files-status { min-height: 1.5em; }
+.files-status .file-path { font: 0.8rem var(--term); color: var(--text); overflow-wrap: anywhere; }
+.files-status .hint { font-size: 0.8rem; color: var(--dim); overflow-wrap: anywhere; }
+.files-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; }
+.tree-box { min-height: 0; display: flex; flex-direction: column; }
+.tree-box > summary { display: none; }
+.file-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.file-tree .row { flex-wrap: nowrap; }
+.file-tree input { flex: 1; min-width: 0; }
+.file-tree .tree { flex: 1; min-height: 0; overflow: auto; display: grid; align-content: start; }
+.file-tree .hint { font-size: 0.78rem; color: var(--dim); margin: 0 0 6px; }
+.tree-dir, .tree-file { display: block; width: 100%; padding: 3px 8px; text-align: left; font: 0.8rem/1.5 var(--term); color: var(--text); background: none; border: 0; border-radius: var(--r); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tree-dir { color: var(--muted); }
+.tree-dir:hover, .tree-file:hover, .tree-file.open { background: var(--raised); }
+.editor-col { min-height: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.editor-col .notice { margin: 0; }
+.editor-col .notice .row { margin-top: 8px; }
+.editor-host { flex: 1; min-height: 0; border: 1px solid var(--rule); border-radius: var(--r); overflow: hidden; }
+.editor-host .cm-editor { height: 100%; }
+.editor-host > .empty, .editor-host > .notice { padding: 16px; margin: 0; }
+.file-link { all: unset; cursor: pointer; overflow-wrap: anywhere; text-decoration: underline dotted var(--rule-strong); text-underline-offset: 3px; }
+.file-link:hover { text-decoration-color: currentColor; }
+.file-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-radius: 2px; }
+@media (max-width: 860px) {
+  .files-grid { grid-template-columns: 1fr; grid-template-rows: auto minmax(320px, 1fr); }
+  .tree-box > summary { display: list-item; cursor: pointer; font-weight: 500; padding: 4px 0; }
+  .tree-box[open] .file-tree { max-height: 40vh; }
+}

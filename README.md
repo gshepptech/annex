@@ -49,6 +49,14 @@ use `npm run service:remove`. While working on the page, `npm run web:dev` serve
   open a pull request; the commands are shown first, never a force-push), edit CLAUDE.md, the
   project's and your own Claude settings and `.mcp.json` (validated, backed up, refused if the
   file changed meanwhile), add or remove MCP servers, and turn plugins on for yourself.
+- **Files** (in Projects, or click a file path in a session, or **Open in your checkout** on a
+  file in Ready to merge): the project's files as a tree, with Find, and an editor (CodeMirror,
+  highlighting for TypeScript, JavaScript, JSON, Markdown, CSS, HTML, Python and Go, in both
+  themes). Cmd/Ctrl+S saves. The list is git's (tracked and untracked, not ignored). A save keeps
+  the file's line endings and BOM, backs up the old version (the newest 20 per file) and is
+  refused if the file changed on disk since you opened it, with Reload or Overwrite to choose
+  from. Binary, non-UTF-8 and files over 1 MB are not opened; paths never leave the project, and
+  `.git` and Annex's key folder are never opened.
 - **Terminal** (top bar, "Open a terminal here" in Projects): a real terminal in the page, your
   login shell in a folder, with colours, full-screen programs and resizing. Several can be open;
   each is listed under Your desk, keeps its recent output for when you come back, and ends when

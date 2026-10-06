@@ -15,6 +15,8 @@ const MODELS = ["claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1", "claud
 
 export class Panel {
   readonly el = h("section", { class: "panel", "aria-label": "Selected office" });
+  // set by the page: open a file of the repo in the editor
+  onOpenFile: (root: string, rel: string) => void = () => {};
   private wing: WingView | null = null;
   private tab: Tab = "log";
   private events: BourneEvent[] = [];
@@ -428,6 +430,10 @@ export class Panel {
               h("span", { class: "n" }, h("span", { class: "add" }, `+${f.added}`), " ", h("span", { class: "del" }, `−${f.removed}`)),
             ),
             c.file === f.path ? patchView(c.patch) : null,
+            // the diff is on the office's branch, which is usually not the one checked out
+            c.file === f.path && f.status !== "D" && w.repo
+              ? h("div", { class: "row" }, h("button", { class: "btn ghost", type: "button", onclick: () => this.onOpenFile(w.repo!, f.path) }, "Open in your checkout"), h("span", { class: "hint" }, "Your checkout's copy (the branch you have out), not this office's version"))
+              : null,
           ),
         ),
       ),

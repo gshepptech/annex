@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { LIVE_MODES as MODES, type Entry, type LiveMode as Mode, type LivePrompt, type LiveView, type LiveUpdate } from "./api-types.ts";
 import { toEntries } from "./transcript.ts";
+import { walk } from "./files.ts";
 
 export { MODES };
 export type { Mode, LivePrompt, LiveView, LiveUpdate };
@@ -478,24 +479,6 @@ export function defaultMode(home = homedir()): Mode {
 }
 
 const exec = promisify(execFile);
-
-function walk(root: string, rel: string, depth: number, limit: number, out: string[] = []): string[] {
-  if (depth < 0 || out.length >= limit) return out;
-  let names: import("node:fs").Dirent[] = [];
-  try {
-    names = readdirSync(join(root, rel), { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const d of names) {
-    if (d.name.startsWith(".") || d.name === "node_modules") continue;
-    const p = rel ? `${rel}/${d.name}` : d.name;
-    if (d.isDirectory()) walk(root, p, depth - 1, limit, out);
-    else out.push(p);
-    if (out.length >= limit) break;
-  }
-  return out;
-}
 
 // History read from the log came before this child started; only a prompt sent since means busy.
 function startedAt(l: { startedAt: string }): string {

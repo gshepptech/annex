@@ -8,7 +8,7 @@ import { getState, getSessions, stream, apiFetch, whenKeyMissing, post } from ".
 import { Room } from "./room.ts";
 import { Panel } from "./panel.ts";
 import { Sidebar } from "./sidebar.ts";
-import { Terminal } from "./terminal.ts";
+import { Terminal, whenPathClicked } from "./terminal.ts";
 import { newWingDialog } from "./newwing.ts";
 import { logDialog } from "./syslog.ts";
 import { DirectorDesk } from "./directorview.ts";
@@ -16,6 +16,7 @@ import { LiveView } from "./live.ts";
 import { newSessionDialog, newTerminalDialog } from "./newsession.ts";
 import type { TermPane } from "./termpane.ts";
 import { ProjectsDialog } from "./projects.ts";
+import { FilesDialog } from "./editor.ts";
 import { h } from "./dom.ts";
 import { setRoomTheme } from "./office/sprites.ts";
 
@@ -102,6 +103,10 @@ terminal.onOpenLive = async (sessionId, force) => {
     toast((err as Error).message, "var(--bad)");
   }
 };
+// the editor: from Projects, a file path in a session, or a file in Ready to merge
+const files = new FilesDialog();
+whenPathClicked((abs) => void files.openPath(abs));
+panel.onOpenFile = (root, rel) => void files.open(root, rel);
 const projects = new ProjectsDialog(
   async (folder) => {
     try {
@@ -112,6 +117,7 @@ const projects = new ProjectsDialog(
       toast((err as Error).message, "var(--bad)");
     }
   },
+  (folder) => void files.open(folder),
   (folder) => void openTerminal({ cwd: folder }),
 );
 // "Open in terminal" in a live session: Annex closes it, then continues it in `claude --resume`
@@ -227,7 +233,7 @@ const hud = h(
 );
 
 const shellEl = h("div", { class: "shell" }, hud, sidebar.el, world, drawer);
-app.append(shellEl, toasts, newOffice, syslog.el, newSession.el, newTerminal.el, projects.el);
+app.append(shellEl, toasts, newOffice, syslog.el, newSession.el, newTerminal.el, projects.el, files.el);
 
 function toast(text: string, colour: string) {
   const t = h("div", { class: "toast", style: `--c: ${colour}` }, text);

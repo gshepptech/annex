@@ -13,6 +13,7 @@ import { listSessions, sessionTranscript, replyToSession, SessionBusy } from "./
 import { health } from "./upkeep.ts";
 import { Runner, RunError } from "./runner.ts";
 import * as P from "./projects.ts";
+import * as F from "./files.ts";
 import { sameKey } from "./key.ts";
 import { LiveSessions, LiveError, MODES, defaultMode, type Mode } from "./live.ts";
 import { IDLE_MS, isReplying } from "./sessions.ts";
@@ -181,7 +182,7 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
         }
       }
       if (req.method === "GET" && path === "/api/sessions") return json(res, 200, listSessions());
-      if (path.startsWith("/api/projects") || path.startsWith("/api/config") || path.startsWith("/api/mcp") || path.startsWith("/api/plugins")) {
+      if (path.startsWith("/api/projects") || path.startsWith("/api/config") || path.startsWith("/api/mcp") || path.startsWith("/api/plugins") || path.startsWith("/api/files")) {
         try {
           if (await projectRoutes(req, res, url, opts, bureau)) return;
         } catch (err) {
@@ -451,6 +452,21 @@ async function projectRoutes(req: IncomingMessage, res: ServerResponse, url: URL
     const b = await readJson(req);
     return (json(res, 200, P.writeConfig({ kind: str(b.kind, "kind"), root: b.root ? root(b.root) : null, text: typeof b.text === "string" ? b.text : "", hash: str(b.hash, "hash"), known, backups })), true);
   }
+  // the editor: a project's files, one file read, and a save that never goes over a change on disk
+  if (req.method === "GET" && path === "/api/files") return (json(res, 200, await F.listProjectFiles(root(q("root")), known)), true);
+  if (req.method === "GET" && path === "/api/files/read") return (json(res, 200, F.readProjectFile(root(q("root")), str(q("path"), "path"), known)), true);
+  if (req.method === "GET" && path === "/api/files/locate") return (json(res, 200, F.locateFile(str(q("path"), "path"), known)), true);
+  if (req.method === "PUT" && path === "/api/files") {
+    // a 1 MB file grows when written as JSON; the size of the text itself is checked in files.ts
+    const b = await readJson(req, 8_000_000);
+    try {
+      // the text is not trimmed: str() would change the file
+      return (json(res, 200, F.writeProjectFile({ root: root(b.root), path: str(b.path, "path"), text: typeof b.text === "string" ? b.text : "", hash: str(b.hash, "hash"), known, backups })), true);
+    } catch (err) {
+      if (err instanceof P.FileChanged) return (json(res, 409, { error: err.message, conflict: true }), true);
+      throw err;
+    }
+  }
   if (req.method !== "POST") return false;
   const b = await readJson(req);
   switch (path) {
@@ -644,11 +660,15 @@ function json(res: ServerResponse, status: number, body: unknown) {
 }
 
 async function readJson(req: IncomingMessage, limit = 1_000_000): Promise<Record<string, unknown>> {
-  let raw = "";
-  for await (const chunk of req) {
-    raw += chunk;
-    if (raw.length > limit) throw new UserError("Request body is too large", 413);
+  // joined as bytes and decoded once: a character split across two chunks stays whole
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    chunks.push(chunk);
+    size += chunk.length;
+    if (size > limit) throw new UserError("Request body is too large", 413);
   }
+  const raw = Buffer.concat(chunks).toString("utf8");
   if (!raw) return {};
   try {
     const v = JSON.parse(raw);

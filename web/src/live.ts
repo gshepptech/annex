@@ -6,7 +6,7 @@
 import type { Entry, LiveUpdate, LivePrompt, LiveMode as Mode } from "../../server/api-types.ts";
 import { apiFetch, withKey } from "./api.ts";
 import { h } from "./dom.ts";
-import { renderEntry } from "./terminal.ts";
+import { fileLink, renderEntry } from "./terminal.ts";
 import { RunPanel } from "./runpanel.ts";
 import { MODELS } from "./newsession.ts";
 import { TERMINAL_ONLY, needsTerminal } from "./slash.ts";
@@ -479,10 +479,10 @@ function describeInput(p: LivePrompt): HTMLElement {
   if (p.tool === "ExitPlanMode") return h("pre", { class: "prompt-detail plan-text" }, s("plan") || "Claude wants to stop planning and start making changes.");
   if (p.tool === "Bash") return h("pre", { class: "prompt-detail" }, s("command"));
   // everything you are approving is shown; long input scrolls rather than being cut
-  if (p.tool === "Write") return h("div", {}, h("p", { class: "prompt-path" }, s("file_path")), h("pre", { class: "prompt-detail" }, s("content")));
+  if (p.tool === "Write") return h("div", {}, h("p", { class: "prompt-path" }, s("file_path") ? fileLink(s("file_path")) : ""), h("pre", { class: "prompt-detail" }, s("content")));
   if (p.tool === "Edit") {
     const diff = [...s("old_string").split("\n").map((l) => `- ${l}`), ...s("new_string").split("\n").map((l) => `+ ${l}`)];
-    return h("div", {}, h("p", { class: "prompt-path" }, s("file_path")), h("pre", { class: "prompt-detail" }, ...diff.map((l) => h("div", { class: l.startsWith("+") ? "add" : "del" }, l))));
+    return h("div", {}, h("p", { class: "prompt-path" }, s("file_path") ? fileLink(s("file_path")) : ""), h("pre", { class: "prompt-detail" }, ...diff.map((l) => h("div", { class: l.startsWith("+") ? "add" : "del" }, l))));
   }
   return h("pre", { class: "prompt-detail" }, JSON.stringify(p.input, null, 2));
 }

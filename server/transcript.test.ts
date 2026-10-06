@@ -32,4 +32,6 @@ test("tool calls get Claude Code's one-line form and edits get a diff", () => {
   assert.ok(bash?.kind === "tool" && edit?.kind === "tool");
   assert.deepEqual([bash.summary, edit.summary], ["npm test", "src/x.ts"]);
   assert.equal(edit.detail, "- a\n+ b");
+  assert.equal(edit.path, "/a/b/src/x.ts", "the full path, so the page can open it");
+  assert.equal(bash.path, undefined);
 });
