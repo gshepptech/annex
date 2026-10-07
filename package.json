@@ -16,7 +16,9 @@
     "service:install": "node scripts/service.ts install",
     "service:remove": "node scripts/service.ts remove",
     "service:status": "node scripts/service.ts status",
-    "open": "node scripts/open.ts"
+    "open": "node scripts/open.ts",
+    "app": "node scripts/app.ts build",
+    "app:install": "node scripts/app.ts install"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

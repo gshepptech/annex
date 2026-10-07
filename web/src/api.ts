@@ -1,5 +1,5 @@
 import type { StateView, SessionView } from "../../server/api-types.ts";
-import type { BourneEvent } from "../../server/events.ts";
+import type { AnnexEvent } from "../../server/events.ts";
 
 // Annex's API key: handed over once in the link Annex opens (#key=...) or by a pairing link
 // (#pair=...), then kept in this browser. Every API call carries it; agents on this machine do not have it.
@@ -16,7 +16,10 @@ function readKey(): string | null {
     return m[1]!;
   }
   try {
-    return localStorage.getItem(KEY_STORE);
+    // a browser that had the key before the rename keeps it
+    const kept = localStorage.getItem(KEY_STORE) ?? localStorage.getItem("annex-key");
+    if (kept) localStorage.setItem(KEY_STORE, kept);
+    return kept;
   } catch {
     return null;
   }
@@ -125,7 +128,7 @@ export async function put(path: string, body: unknown): Promise<unknown> {
 }
 
 // Server-sent events resume from the last id the browser saw, so a dropped connection loses nothing.
-export function stream(after: number, onEvent: (e: BourneEvent) => void, onStatus: (connected: boolean) => void): () => void {
+export function stream(after: number, onEvent: (e: AnnexEvent) => void, onStatus: (connected: boolean) => void): () => void {
   let source: EventSource | null = null;
   let last = after;
   let closed = false;
@@ -133,7 +136,7 @@ export function stream(after: number, onEvent: (e: BourneEvent) => void, onStatu
     source = new EventSource(withKey(`/api/stream?after=${last}`));
     source.onopen = () => onStatus(true);
     source.onmessage = (m) => {
-      const e = JSON.parse(m.data) as BourneEvent;
+      const e = JSON.parse(m.data) as AnnexEvent;
       last = Math.max(last, e.id);
       onEvent(e);
     };

@@ -175,7 +175,7 @@ test("an event stream for a session that does not exist is refused cleanly, and 
   const dir = mkdtempSync(join(tmpdir(), "annex-sse-"));
   writeFileSync(join(dir, "index.html"), "<p>office</p>");
   const store = new Store(join(dir, "b.db"));
-  const live = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  const live = new LiveSessions({ claude: "claude", annexUrl: "http://127.0.0.1:1", dir });
   const server = await startHttp({ bureau: fakeBureau(store), store, port: 0, webDir: dir, live });
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   try {
@@ -226,7 +226,7 @@ test("terminals need the key", async () => {
 
 test("Open in terminal closes the live session before claude --resume starts", async () => {
   const dir = mkdtempSync(join(tmpdir(), "annex-move-"));
-  const lives = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  const lives = new LiveSessions({ claude: "claude", annexUrl: "http://127.0.0.1:1", dir });
   const l = lives.start({ cwd: dir, mode: "default", run: fakeClaude(SID) });
   await tick(30);
   const seen: { status: string | undefined; args: string[] }[] = [];
@@ -248,7 +248,7 @@ test("Open in terminal closes the live session before claude --resume starts", a
 
 test("a conversation open in a terminal is not opened live or replied to", async () => {
   const dir = mkdtempSync(join(tmpdir(), "annex-one-"));
-  const lives = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  const lives = new LiveSessions({ claude: "claude", annexUrl: "http://127.0.0.1:1", dir });
   const terminals = new Terminals({ claude: "claude", spawn: fakeSpawn().spawn });
   terminals.open({ cwd: dir, claude: { resume: SID } });
   const { server, base } = await boot({ live: lives, terminals });

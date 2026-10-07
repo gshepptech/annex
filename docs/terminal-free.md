@@ -13,7 +13,7 @@ All against the logged-in `claude` CLI (2.x), no API key:
 |---|---|
 | Multi-turn session driven from a program | `claude -p --input-format stream-json --output-format stream-json --verbose` takes one JSON user message per line and keeps one session across turns. `apiKeySource: none`, so it runs on the subscription. |
 | Answers as they are written | `--include-partial-messages` emits `stream_event` deltas. |
-| Permission prompts | `--permission-prompt-tool mcp__bourne__approve` with a small stdio MCP server: Claude asked before `Write`, the server said deny, Claude stopped and said so. |
+| Permission prompts | `--permission-prompt-tool mcp__annex__approve` with a small stdio MCP server: Claude asked before `Write`, the server said deny, Claude stopped and said so. |
 | Stop | `{"type":"control_request","request":{"subtype":"interrupt"}}` on stdin is acknowledged and ends the turn. |
 | Slash commands | `/smith:help` (plugin) and `/context` (built in) both run. `init.slash_commands` lists all 365 available. |
 | Plan mode | `--permission-mode plan` starts in it; `set_permission_mode` control request switches live. |

@@ -3,7 +3,7 @@ import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 
 import type { StateView, WingView, SessionView, TerminalView } from "../../server/api-types.ts";
-import type { BourneEvent } from "../../server/events.ts";
+import type { AnnexEvent } from "../../server/events.ts";
 import { getState, getSessions, stream, apiFetch, whenKeyMissing, post, claimPairing, pairFailed } from "./api.ts";
 import { Room } from "./room.ts";
 import { Panel } from "./panel.ts";
@@ -67,7 +67,7 @@ let selectedTerm: string | null = null;
 let termPane: TermPane | null = null;
 let deskRoom: Room | null = null;
 const DESK = "your-desk";
-let recent: BourneEvent[] = [];
+let recent: AnnexEvent[] = [];
 // agents hired since the last snapshot: their room is rebuilt and they walk in from the door
 const arriving = new Set<string>();
 
@@ -218,8 +218,11 @@ const plan = h("div", { class: "plan-use", title: "" });
 // Desktop alerts for things that need you, while this tab is in the background. Off until you
 // allow them in the browser.
 const canAlert = typeof Notification !== "undefined";
-const alertBtn = h("button", { class: "hud-btn", type: "button", hidden: !canAlert || Notification.permission !== "default", onclick: async () => { await Notification.requestPermission(); alertBtn.hidden = Notification.permission !== "default"; } }, "Turn on alerts");
+// Inside Annex.app the page hands alerts and the waiting count to macOS (app/main.swift).
+const native = (window as { webkit?: { messageHandlers?: { annex?: { postMessage(m: unknown): void } } } }).webkit?.messageHandlers?.annex;
+const alertBtn = h("button", { class: "hud-btn", type: "button", hidden: !!native || !canAlert || Notification.permission !== "default", onclick: async () => { await Notification.requestPermission(); alertBtn.hidden = Notification.permission !== "default"; } }, "Turn on alerts");
 function alertMe(title: string, body = "") {
+  if (native) return native.postMessage({ kind: "alert", title, body });
   if (!canAlert || Notification.permission !== "granted" || !document.hidden) return;
   const n = new Notification(title, { body, tag: title });
   n.onclick = () => {
@@ -442,6 +445,7 @@ function applyState(next: StateView) {
     h("b", {}, String(working)), ` of ${crew.length} at work in ${next.wings.length} offices, `,
     h("b", {}, String(filed)), " verified",
   );
+  native?.postMessage({ kind: "badge", count: quests });
   if (quests) stats.append(", ", h("span", { class: "asks" }, h("b", {}, String(quests)), ` waiting on you`));
   const u = next.usage;
   if (u?.fiveHour && new Date(u.fiveHour.resetsAt).getTime() < Date.now()) {
@@ -493,7 +497,7 @@ function scheduleRefresh(ms = 400) {
 }
 
 // Real events become game notifications; nothing is announced that did not happen.
-function announce(e: BourneEvent) {
+function announce(e: AnnexEvent) {
   if (e.wingId === "director") {
     if (e.kind === "chat.message" && e.payload.who === "lead" && !showDirector) {
       toast("The director replied", "var(--annex)");

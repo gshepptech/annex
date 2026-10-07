@@ -8,7 +8,7 @@ import type { Store } from "./db.ts";
 import type { Paperclip, Frame } from "./engine/paperclip.ts";
 import type { Logger } from "./logger.ts";
 import type { StateView, ChatView } from "./api-types.ts";
-import { findFence, parseLenient } from "./proposal.ts";
+import { fenceTag, findFence, parseLenient } from "./proposal.ts";
 import { REPORT_SCRIPT } from "./prompts.ts";
 import { UserError } from "./http.ts";
 
@@ -113,7 +113,7 @@ export function parseRoute(body: string): { actions: RouteAction[]; error: strin
 }
 
 export function stripRoute(body: string): string {
-  return body.replace(new RegExp("```" + ROUTE_FENCE + "[\\s\\S]*?```"), "").trim();
+  return body.replace(new RegExp("```" + fenceTag(ROUTE_FENCE) + "[\\s\\S]*?```"), "").trim();
 }
 
 export class Director {

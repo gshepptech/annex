@@ -48,9 +48,9 @@ export class LiveSessions {
   // the open sessions, written down so a restart of Annex reopens them
   private openFile: string;
   private shuttingDown = false;
-  private opts: { claude: string; bourneUrl: string; dir: string; onUsage?: (info: unknown) => void; approveScript: string };
+  private opts: { claude: string; annexUrl: string; dir: string; onUsage?: (info: unknown) => void; approveScript: string };
 
-  constructor(opts: { claude: string; bourneUrl: string; dir: string; onUsage?: (info: unknown) => void; approveScript?: string }) {
+  constructor(opts: { claude: string; annexUrl: string; dir: string; onUsage?: (info: unknown) => void; approveScript?: string }) {
     this.opts = { ...opts, approveScript: opts.approveScript ?? join(import.meta.dirname, "agent-tools", "approve-mcp.mjs") };
     this.openFile = join(opts.dir, "open.json");
   }
@@ -118,12 +118,12 @@ export class LiveSessions {
     const configFile = join(this.opts.dir, `${id}.mcp.json`);
     writeFileSync(
       configFile,
-      JSON.stringify({ mcpServers: { bourne_live: { command: process.execPath, args: [this.opts.approveScript], env: { BOURNE_URL: this.opts.bourneUrl, BOURNE_LIVE: id, BOURNE_TOKEN: token } } } }),
+      JSON.stringify({ mcpServers: { annex_live: { command: process.execPath, args: [this.opts.approveScript], env: { ANNEX_URL: this.opts.annexUrl, ANNEX_LIVE: id, ANNEX_TOKEN: token } } } }),
       { mode: 0o600 },
     );
     const args = [
       "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-      "--permission-mode", o.mode, "--mcp-config", configFile, "--permission-prompt-tool", "mcp__bourne_live__approve",
+      "--permission-mode", o.mode, "--mcp-config", configFile, "--permission-prompt-tool", "mcp__annex_live__approve",
       ...(o.resume ? ["--resume", o.resume] : []),
       ...(o.model ? ["--model", o.model] : []),
     ];
@@ -255,7 +255,7 @@ export class LiveSessions {
     return all.at(-1)?.mode ?? null;
   }
 
-  lastDrivenByBourne(sessionId: string): boolean {
+  lastDrivenByAnnex(sessionId: string): boolean {
     return [...this.lives.values()].some((l) => l.sessionId === sessionId);
   }
 

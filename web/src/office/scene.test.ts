@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { defaultLayout, findPath } from "./grid.ts";
 import { sceneFromSnapshot, applyEvent, tick, type RoomScene } from "./scene.ts";
 import type { WingView } from "../../../server/api-types.ts";
-import type { BourneEvent, EventKind } from "../../../server/events.ts";
+import type { AnnexEvent, EventKind } from "../../../server/events.ts";
 
 const wing = (over: Partial<WingView> = {}): WingView => ({
   id: "upkeep",
@@ -38,7 +38,7 @@ const wing = (over: Partial<WingView> = {}): WingView => ({
 });
 
 let id = 0;
-const ev = (kind: EventKind, actor: string, taskId: string | null, payload: Record<string, unknown> = {}): BourneEvent => ({
+const ev = (kind: EventKind, actor: string, taskId: string | null, payload: Record<string, unknown> = {}): AnnexEvent => ({
   id: ++id, wingId: "upkeep", at: new Date().toISOString(), kind, actor, taskId, payload,
 });
 

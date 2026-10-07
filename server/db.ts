@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Mode } from "./wing.ts";
-import type { BourneEvent, EventKind, NewEvent } from "./events.ts";
+import type { AnnexEvent, EventKind, NewEvent } from "./events.ts";
 
 const MIGRATIONS: string[] = [
   `
@@ -263,7 +263,7 @@ export interface ChatRow {
   text: string;
 }
 
-type Listener = (e: BourneEvent) => void;
+type Listener = (e: AnnexEvent) => void;
 
 export class Store {
   readonly db: DatabaseSync;
@@ -641,7 +641,7 @@ export class Store {
 
   // Events
 
-  record(e: NewEvent): BourneEvent {
+  record(e: NewEvent): AnnexEvent {
     const r = this.db
       .prepare("insert into event (wing_id, at, kind, actor, task_id, payload) values (?, ?, ?, ?, ?, ?) returning *")
       .get(e.wingId, e.at ?? now(), e.kind, e.actor, e.taskId, JSON.stringify(e.payload)) as Record<string, unknown>;
@@ -650,18 +650,18 @@ export class Store {
     return saved;
   }
 
-  eventsSince(afterId: number, wingId?: string, limit = 500): BourneEvent[] {
+  eventsSince(afterId: number, wingId?: string, limit = 500): AnnexEvent[] {
     const rows = wingId
       ? this.db.prepare("select * from event where id > ? and wing_id = ? order by id limit ?").all(afterId, wingId, limit)
       : this.db.prepare("select * from event where id > ? order by id limit ?").all(afterId, limit);
     return (rows as Record<string, unknown>[]).map(toEvent);
   }
 
-  recentEvents(limit: number): BourneEvent[] {
+  recentEvents(limit: number): AnnexEvent[] {
     return (this.db.prepare("select * from (select * from event order by id desc limit ?) order by id").all(limit) as Record<string, unknown>[]).map(toEvent);
   }
 
-  lastEvents(wingId: string, kinds: EventKind[], limit: number): BourneEvent[] {
+  lastEvents(wingId: string, kinds: EventKind[], limit: number): AnnexEvent[] {
     const placeholders = kinds.map(() => "?").join(",");
     return (
       this.db
@@ -779,7 +779,7 @@ function toCheck(r: Record<string, unknown>): CheckRunRow {
   };
 }
 
-function toEvent(r: Record<string, unknown>): BourneEvent {
+function toEvent(r: Record<string, unknown>): AnnexEvent {
   return {
     id: r.id as number,
     wingId: r.wing_id as string,

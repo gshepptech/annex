@@ -8,7 +8,7 @@ test("the shipped wing files load", () => {
   assert.deepEqual(wings.map((w) => w.id), ["colophon", "studio", "upkeep"]);
   const upkeep = wings.find((w) => w.id === "upkeep")!;
   assert.equal(upkeep.initialMode, "autonomous");
-  assert.equal(upkeep.repo?.integrationBranch, "annex/upkeep");
+  assert.equal(upkeep.repo?.integrationBranch, "annex/upkeep", "offices made before the rename keep their branch");
   assert.ok(upkeep.repo?.path.endsWith("/Projects/reckon"));
   assert.equal(upkeep.signals.length, 4);
   assert.equal(upkeep.settings.wakeEverySec, 900);

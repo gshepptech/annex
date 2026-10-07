@@ -122,7 +122,7 @@ export class TermPane {
     };
     t.source.onerror = () => {
       if (t.source.readyState !== EventSource.CLOSED || t.view.status !== "running") return;
-      xterm.write("\r\n\x1b[2mBourne restarted or the terminal was closed; this terminal ended.\x1b[0m\r\n");
+      xterm.write("\r\n\x1b[2mAnnex restarted or the terminal was closed; this terminal ended.\x1b[0m\r\n");
       t.view = { ...t.view, status: "exited" };
       this.ended(t);
     };

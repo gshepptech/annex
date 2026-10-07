@@ -6,7 +6,7 @@
 import { execFileSync } from "node:child_process";
 import { loadOrCreateKey, openLink } from "../server/key.ts";
 
-const port = Number(process.env.BOURNE_PORT ?? 4300);
+const port = Number(process.env.ANNEX_PORT ?? 4300);
 const link = openLink(port, loadOrCreateKey());
 execFileSync("open", [link]);
 console.log(`Opened Annex at http://127.0.0.1:${port} with its key.`);

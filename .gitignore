@@ -2,6 +2,7 @@ node_modules/
 references/
 .paperclip/
 .annex/
+.annex
 dist/
 *.log
 .playwright-mcp/

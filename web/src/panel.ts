@@ -2,7 +2,7 @@
 // brief, and every setting, which can be changed here and apply at once.
 
 import type { WingView, WingEdit, ChangesView } from "../../server/api-types.ts";
-import type { BourneEvent } from "../../server/events.ts";
+import type { AnnexEvent } from "../../server/events.ts";
 import { describe } from "./log.ts";
 import { post, apiFetch } from "./api.ts";
 import { h } from "./dom.ts";
@@ -19,7 +19,7 @@ export class Panel {
   onOpenFile: (root: string, rel: string) => void = () => {};
   private wing: WingView | null = null;
   private tab: Tab = "log";
-  private events: BourneEvent[] = [];
+  private events: AnnexEvent[] = [];
   private busy = "";
   private error = "";
   private saved = "";
@@ -73,7 +73,7 @@ export class Panel {
     this.refresh = refresh;
   }
 
-  show(wing: WingView, events: BourneEvent[]) {
+  show(wing: WingView, events: AnnexEvent[]) {
     const switched = this.wing?.id !== wing.id;
     this.wing = wing;
     // tool calls belong in each agent's terminal; the office log is for decisions
@@ -88,7 +88,7 @@ export class Panel {
     this.render();
   }
 
-  push(e: BourneEvent) {
+  push(e: AnnexEvent) {
     if (!this.wing || e.wingId !== this.wing.id || e.kind === "agent.tool") return;
     this.events.push(e);
     if (this.events.length > 400) this.events.splice(0, this.events.length - 400);
@@ -106,7 +106,7 @@ export class Panel {
   private roleOf = (id: string) => (id === "you" ? "who-you" : id === "annex" ? "who-annex" : `role-${this.wing?.agents.find((a) => a.id === id)?.role ?? "worker"}`);
   private titleOf = (id: string) => this.wing?.tasks.find((t) => t.id === id)?.title ?? "a task";
 
-  private logItem(e: BourneEvent) {
+  private logItem(e: AnnexEvent) {
     const l = describe(e, this.nameOf, this.titleOf);
     return h("li", { class: `tone-${l.tone} ${this.roleOf(e.actor)}` }, h("time", {}, l.time), h("b", {}, l.who), h("span", {}, l.text));
   }

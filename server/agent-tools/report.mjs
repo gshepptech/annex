@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The one way a Annex agent reports back to Paperclip. It reads Paperclip's run variables inside
+// The one way an Annex agent reports back to Paperclip. It reads Paperclip's run variables inside
 // Node, so the agent's shell command never needs `$VAR` expansion (which Claude Code will not run
 // without a person to approve it), and it confirms the write actually landed.
 //

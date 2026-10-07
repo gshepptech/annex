@@ -20,7 +20,7 @@ const tick = () => new Promise((r) => setTimeout(r, 10));
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), "annex-live-"));
-  const lives = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  const lives = new LiveSessions({ claude: "claude", annexUrl: "http://127.0.0.1:1", dir });
   const f = fakeClaude();
   const v = lives.start({ cwd: dir, mode: "default", run: f.run });
   return { lives, f, id: v.id, dir };
@@ -79,7 +79,7 @@ test("each session's approve server has its own token", () => {
   const b2 = fakeClaude();
   const other = a.lives.start({ cwd: a.dir, mode: "default", run: b2.run });
   const cfg = JSON.parse(readFileSync(join(a.dir, `${a.id}.mcp.json`), "utf8"));
-  const token = cfg.mcpServers.bourne_live.env.BOURNE_TOKEN as string;
+  const token = cfg.mcpServers.annex_live.env.ANNEX_TOKEN as string;
   assert.equal(a.lives.tokenOk(a.id, token), true);
   assert.equal(a.lives.tokenOk(other.id, token), false, "a token cannot speak for another session");
   assert.equal(a.lives.tokenOk(a.id, undefined), false);
@@ -115,7 +115,7 @@ test("open sessions are written down and reopened after a restart, with their mo
   await tick();
   lives.close(other.id);
   lives.closeAll();
-  const after = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  const after = new LiveSessions({ claude: "claude", annexUrl: "http://127.0.0.1:1", dir });
   const started: string[] = [];
   const orig = after.start.bind(after);
   after.start = ((o: Parameters<typeof orig>[0]) => { started.push(`${o.resume} ${o.mode}`); return orig({ ...o, run: fakeClaude().run }); }) as typeof after.start;
@@ -149,7 +149,7 @@ test("!command runs in the session's folder and Claude gets the output; @ finds 
 
 test("closeAndWait resolves only after the child has exited", async () => {
   const dir = mkdtempSync(join(tmpdir(), "annex-live-"));
-  const lives = new LiveSessions({ claude: "claude", bourneUrl: "http://127.0.0.1:1", dir });
+  const lives = new LiveSessions({ claude: "claude", annexUrl: "http://127.0.0.1:1", dir });
   // a child that takes its time: kill does nothing until the test says it exited
   const f = fakeClaude();
   f.child.kill = () => {};

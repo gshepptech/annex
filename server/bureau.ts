@@ -371,15 +371,15 @@ export class Bureau implements BureauApi {
     const task = this.store.task(cur.id);
     if (!task || task.state !== "open") return;
     const wingId = rt.wing.id;
-    const atBourne = isAtBourne(cur);
-    const escalated = cur.status === "in_review" && cur.executionState?.currentParticipant?.type === "user" && !atBourne;
+    const atAnnex = isAtAnnex(cur);
+    const escalated = cur.status === "in_review" && cur.executionState?.currentParticipant?.type === "user" && !atAnnex;
     if (escalated) {
       // after repeated rejections Paperclip hands the review to a person; Annex never signs that off
       this.stopAfterReview(rt, cur, task, "the reviewer rejected it repeatedly and Paperclip escalated it to the board");
       return;
     }
 
-    if (atBourne) {
+    if (atAnnex) {
       if (fresh && changed) {
         const worker = cur.executionState?.returnAssignee?.agentId ?? actor ?? "annex";
         this.emit({ wingId, kind: "task.in_review", actor: worker, taskId: cur.id, payload: { title: task.title } });
@@ -457,7 +457,7 @@ export class Bureau implements BureauApi {
     try {
       // the copy that triggered this may be old; only a current one at Annex's stage counts
       const issue = await this.pc.issue(seen.id);
-      if (!isAtBourne(issue)) return;
+      if (!isAtAnnex(issue)) return;
       const ws = await this.workspaceFor(rt, issue.id);
       const base = ws?.baseRef ?? rt.wing.repo?.integrationBranch ?? "HEAD";
       let result: RunResult;
@@ -485,7 +485,7 @@ export class Bureau implements BureauApi {
       const tail = lastLines(result.output, 40);
 
       // the check can take minutes; decide only if the issue is still waiting on Annex
-      if (!isAtBourne(await this.pc.issue(issue.id))) return;
+      if (!isAtAnnex(await this.pc.issue(issue.id))) return;
 
       if (result.exitCode === 0) {
         this.logger.info(wingId, `${issue.identifier} passed its done check (${Math.round(result.durationMs / 1000)}s); on to review`);
@@ -701,7 +701,7 @@ export class Bureau implements BureauApi {
     const lead = rt.prov!.lead;
     try {
       const comments = await this.pc.comments(issue.id);
-      const proposalComment = [...comments].reverse().find((c) => c.authorAgentId === lead.id && c.body.includes("```annex-proposal"));
+      const proposalComment = [...comments].reverse().find((c) => c.authorAgentId === lead.id && /```(?:annex|annex)-proposal/.test(c.body));
       if (!proposalComment) {
         // A status PATCH carrying the proposal as its comment announces the status before the
         // comment is listed, so "done without a proposal" is only believed after a grace period.
@@ -992,8 +992,8 @@ export class Bureau implements BureauApi {
       if (c.authorAgentId !== leadId || this.store.hasChatComment(c.id)) continue;
       const brief = parseBrief(c.body);
       const shown = brief ? c.body.replace(new RegExp("```" + BRIEF_FENCE + "[\\s\\S]*?```"), "(Brief drafted. See the Brief tab.)").trim() : c.body;
-      const agreed = c.body.includes("```annex-proposal") ? await this.tasksFromChat(rt as Runtime & { prov: Provisioned }, c.body) : null;
-      const text = agreed ? `${shown.replace(/```annex-proposal[\s\S]*?```/, "").trim()}\n${agreed}`.trim() : shown;
+      const agreed = /```(?:annex|annex)-proposal/.test(c.body) ? await this.tasksFromChat(rt as Runtime & { prov: Provisioned }, c.body) : null;
+      const text = agreed ? `${shown.replace(/```(?:annex|annex)-proposal[\s\S]*?```/, "").trim()}\n${agreed}`.trim() : shown;
       if (!this.store.addChat(rt.wing.id, "lead", text, c.id)) continue;
       this.emit({ wingId: rt.wing.id, kind: "chat.message", actor: leadId, taskId: null, payload: { who: "lead", text: text.slice(0, 500) } });
       if (brief) await this.draftBrief(rt as Runtime & { prov: Provisioned }, brief);
@@ -1434,7 +1434,7 @@ export class Bureau implements BureauApi {
 
 // Annex's own stage is the first one, held by the board user. A later user stage is an
 // escalation to a person, which Annex must not sign off.
-function isAtBourne(i: Issue): boolean {
+function isAtAnnex(i: Issue): boolean {
   const p = i.executionState?.currentParticipant;
   return i.status === "in_review" && p?.type === "user" && p.userId === BOARD_USER_ID && (i.executionState?.currentStageIndex ?? 0) === 0;
 }

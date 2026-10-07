@@ -1,6 +1,6 @@
 // One line per event for the log, in the bureau's voice: who did what to which file.
 
-import type { BourneEvent } from "../../server/events.ts";
+import type { AnnexEvent } from "../../server/events.ts";
 
 export interface LogLine {
   time: string;
@@ -9,7 +9,7 @@ export interface LogLine {
   tone: "plain" | "good" | "bad" | "ask";
 }
 
-export function describe(e: BourneEvent, nameOf: (agentId: string) => string, titleOf: (taskId: string) => string): LogLine {
+export function describe(e: AnnexEvent, nameOf: (agentId: string) => string, titleOf: (taskId: string) => string): LogLine {
   const who = e.actor === "you" ? "You" : e.actor === "annex" ? "Annex" : nameOf(e.actor);
   const p = e.payload;
   const title = e.taskId ? `"${(p.title as string | undefined) ?? titleOf(e.taskId)}"` : "";

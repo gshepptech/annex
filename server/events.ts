@@ -29,7 +29,7 @@ export const EVENT_KINDS = [
 
 export type EventKind = (typeof EVENT_KINDS)[number];
 
-export interface BourneEvent {
+export interface AnnexEvent {
   id: number;
   wingId: string;
   at: string;
@@ -41,7 +41,7 @@ export interface BourneEvent {
   payload: Record<string, unknown>;
 }
 
-export type NewEvent = Omit<BourneEvent, "id" | "at"> & { at?: string };
+export type NewEvent = Omit<AnnexEvent, "id" | "at"> & { at?: string };
 
 export function isEventKind(k: string): k is EventKind {
   return (EVENT_KINDS as readonly string[]).includes(k);

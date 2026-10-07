@@ -1,6 +1,6 @@
 // The shapes the browser reads. Shared by the server and web/ so the two cannot drift.
 
-import type { BourneEvent } from "./events.ts";
+import type { AnnexEvent } from "./events.ts";
 
 export type Mode = "with_you" | "autonomous";
 
@@ -218,7 +218,7 @@ export interface StateView {
   wings: WingView[];
   director: DirectorView | null;
   lastEventId: number;
-  recent: BourneEvent[];
+  recent: AnnexEvent[];
   // your plan's usage as Claude Code last reported it, and when
   usage: { fiveHour: { used: number; resetsAt: string } | null; sevenDay: { used: number; resetsAt: string } | null; status: string | null; seenAt: string } | null;
 }

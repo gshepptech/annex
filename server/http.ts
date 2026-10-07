@@ -349,7 +349,7 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
       if (!t) throw new UserError("No session with that id", 404);
       const quiet = Date.now() - new Date(t.session.updatedAt).getTime();
       // force: the person says the terminal is closed; still refused while Annex itself is replying
-      if (quiet < IDLE_MS && body.force !== true && !live.lastDrivenByBourne(resume) && !terminals?.ranSession(resume)) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
+      if (quiet < IDLE_MS && body.force !== true && !live.lastDrivenByAnnex(resume) && !terminals?.ranSession(resume)) throw new UserError("This session was active in the last few minutes and may be open in a terminal. Close it there, or wait a few minutes.", 409);
       cwd = t.session.cwd;
       history = t.entries;
       // a resumed session keeps the permission mode it had, unless one was chosen just now
@@ -627,7 +627,7 @@ function under(folder: string, root: string): boolean {
   return folder === root || folder.startsWith(`${root}/`);
 }
 
-// Claude running in a Annex terminal in that checkout; a plain shell does not count, as a
+// Claude running in an Annex terminal in that checkout; a plain shell does not count, as a
 // terminal app's would not.
 function claudeTerminalIn(terms: Terminals | undefined, root: string): boolean {
   return !!terms?.list().some((t) => t.kind === "claude" && t.status === "running" && under(t.cwd, root));

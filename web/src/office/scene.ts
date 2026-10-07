@@ -2,7 +2,7 @@
 // screen comes from applying one stored event (design D8). Nothing moves on a timer of its own:
 // an agent with nothing to do sits at its desk.
 
-import type { BourneEvent } from "../../../server/events.ts";
+import type { AnnexEvent } from "../../../server/events.ts";
 import type { WingView, AgentView, TaskView } from "../../../server/api-types.ts";
 import { defaultLayout, deskOf, findPath, type RoomLayout, type Spot } from "./grid.ts";
 
@@ -135,7 +135,7 @@ function reviewer(scene: RoomScene): Actor | undefined {
   return [...scene.actors.values()].find((a) => a.role === "reviewer");
 }
 
-export function applyEvent(scene: RoomScene, e: BourneEvent, now: number) {
+export function applyEvent(scene: RoomScene, e: AnnexEvent, now: number) {
   if (e.wingId !== scene.wingId || e.id <= scene.lastEventId) return;
   scene.lastEventId = e.id;
   const actor = scene.actors.get(e.actor);

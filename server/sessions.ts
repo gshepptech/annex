@@ -24,8 +24,8 @@ const LIST_BYTES = 192 * 1024;
 const TRANSCRIPT_BYTES = 1536 * 1024;
 
 // Annex's agents work in Paperclip's workspaces and Annex's own worktrees.
-export function isBourneAgent(cwd: string): boolean {
-  return cwd.includes("/.paperclip/") || cwd.includes("/.annex/");
+export function isAnnexAgent(cwd: string): boolean {
+  return cwd.includes("/.paperclip/") || cwd.includes("/.annex/") || cwd.includes("/.annex/");
 }
 
 function tail(file: string, bytes: number): string[] {
@@ -73,7 +73,7 @@ function describe(id: string, recs: Record<string, unknown>[], mtime: Date, now:
     const m = (r.message as { model?: unknown } | undefined)?.model;
     if (r.type === "assistant" && typeof m === "string" && !m.startsWith("<")) model = m;
   }
-  if (!cwd || isBourneAgent(cwd)) return null;
+  if (!cwd || isAnnexAgent(cwd)) return null;
   return {
     id,
     title: title ?? basename(cwd),

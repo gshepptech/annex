@@ -2,9 +2,9 @@
 // The permission prompt tool for Annex's live sessions: a minimal MCP server on stdio with one
 // tool, "approve". Claude Code calls it whenever a tool needs your yes; it asks Annex, which holds
 // the question until you answer in the browser, and passes the answer back. It knows only its own
-// live session (BOURNE_LIVE) and proves it was started by Annex with BOURNE_TOKEN.
+// live session (ANNEX_LIVE) and proves it was started by Annex with ANNEX_TOKEN.
 
-const { BOURNE_URL, BOURNE_LIVE, BOURNE_TOKEN } = process.env;
+const { ANNEX_URL, ANNEX_LIVE, ANNEX_TOKEN } = process.env;
 let buf = "";
 const out = (m) => process.stdout.write(JSON.stringify(m) + "\n");
 const reply = (id, text) => out({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
@@ -18,7 +18,7 @@ function ask(args) {
     const deny = (message) => resolve({ behavior: "deny", message });
     let req;
     try {
-      req = request(`${BOURNE_URL}/api/live/${BOURNE_LIVE}/permission`, { method: "POST", headers: { "content-type": "application/json", "x-annex-token": BOURNE_TOKEN } }, (res) => {
+      req = request(`${ANNEX_URL}/api/live/${ANNEX_LIVE}/permission`, { method: "POST", headers: { "content-type": "application/json", "x-annex-token": ANNEX_TOKEN } }, (res) => {
         let body = "";
         res.on("data", (d) => (body += d));
         res.on("end", () => {
@@ -55,7 +55,7 @@ process.stdin.on("data", (d) => {
       continue;
     }
     if (m.method === "initialize") {
-      out({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: m.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "bourne_live", version: "1" } } });
+      out({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: m.params?.protocolVersion ?? "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "annex_live", version: "1" } } });
     } else if (m.method === "tools/list") {
       out({ jsonrpc: "2.0", id: m.id, result: { tools: [{ name: "approve", description: "Asks the person in Annex whether a tool may run.", inputSchema: { type: "object", properties: { tool_name: { type: "string" }, input: { type: "object" }, tool_use_id: { type: "string" } }, required: ["tool_name", "input"] } }] } });
     } else if (m.method === "tools/call") {

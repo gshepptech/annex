@@ -1,7 +1,7 @@
 // One office on the page: its nameplate, the canvas, and the text laid over it.
 
 import type { WingView } from "../../server/api-types.ts";
-import type { BourneEvent } from "../../server/events.ts";
+import type { AnnexEvent } from "../../server/events.ts";
 import { sceneFromSnapshot, applyEvent, tick, type RoomScene } from "./office/scene.ts";
 import { renderRoom, actorAt } from "./office/render.ts";
 import { officeBadge } from "./sidebar.ts";
@@ -124,7 +124,7 @@ export class Room {
     this.next.classList.toggle("closed", closed);
   }
 
-  apply(e: BourneEvent, now: number) {
+  apply(e: AnnexEvent, now: number) {
     applyEvent(this.scene, e, now);
   }
 

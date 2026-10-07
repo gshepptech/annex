@@ -1,6 +1,6 @@
 // Starts Annex: reads the wing files, connects each wing to Paperclip, and serves the office.
 //
-//   BOURNE_PORT     where the office is served (default 4300)
+//   ANNEX_PORT     where the office is served (default 4300)
 //   PAPERCLIP_URL   the engine (default http://127.0.0.1:3100)
 //   CLAUDE_COMMAND  the claude binary agents run (default: the first real one on PATH)
 
@@ -22,10 +22,12 @@ import { Terminals } from "./terminals.ts";
 import { sessionTranscript } from "./sessions.ts";
 import { recordUsage } from "./usage.ts";
 import { loadOrCreateKey } from "./key.ts";
+import { moveFromOldName } from "./rename.ts";
 
 const root = join(import.meta.dirname, "..");
+for (const step of moveFromOldName(root)) console.log(`[annex] ${step}`);
 const stateDir = join(root, ".annex");
-const port = Number(process.env.BOURNE_PORT ?? 4300);
+const port = Number(process.env.ANNEX_PORT ?? 4300);
 
 // Prefer a real install over wrapper shims some terminals put first on PATH.
 function findClaude(): string {
@@ -65,7 +67,7 @@ const bureau = new Bureau({
 bureau.attachDirector(new Director({ store, pc, logger, offices: bureau, claudeCommand, settingsFile }));
 
 const startedAt = new Date();
-const live = new LiveSessions({ claude: claudeCommand, bourneUrl: `http://127.0.0.1:${port}`, dir: join(stateDir, "live"), onUsage: recordUsage });
+const live = new LiveSessions({ claude: claudeCommand, annexUrl: `http://127.0.0.1:${port}`, dir: join(stateDir, "live"), onUsage: recordUsage });
 const key = loadOrCreateKey();
 const runner = new Runner(stateDir);
 const terminals = new Terminals({ claude: claudeCommand });
