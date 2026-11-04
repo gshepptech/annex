@@ -64,7 +64,7 @@ function server(dest: string) {
     filter: (src) => !/^\/(prebuilds\/(?!darwin-arm64)|src|deps|third_party|scripts|binding\.gyp)/.test(src.slice(ptySrc.length)),
   });
   chmodSync(join(pty, "prebuilds", "darwin-arm64", "spawn-helper"), 0o755);
-  if (!existsSync(join(root, "runtime", "node_modules", "paperclipai"))) run("npm", ["install", "--no-fund", "--no-audit"], join(root, "runtime"));
+  if (!existsSync(join(root, "runtime", "node_modules", "paperclipai"))) run("npm", ["ci", "--no-fund", "--no-audit"], join(root, "runtime"));
   cpSync(join(root, "runtime"), join(dest, "runtime"), {
     recursive: true,
     verbatimSymlinks: true,

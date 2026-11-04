@@ -42,7 +42,7 @@ if (await healthy()) {
   const paperclip = join(root, "runtime", "node_modules", "paperclipai", "dist", "index.js");
   if (!existsSync(paperclip)) {
     console.log("[up] installing the pinned Paperclip engine (first run only)...");
-    await new Promise((resolve, reject) => run("npm", ["install", "--no-fund", "--no-audit"], join(root, "runtime")).on("exit", (code) => (code === 0 ? resolve(null) : reject(new Error(`npm install exited ${code}`)))));
+    await new Promise((resolve, reject) => run("npm", ["ci", "--no-fund", "--no-audit"], join(root, "runtime")).on("exit", (code) => (code === 0 ? resolve(null) : reject(new Error(`npm install exited ${code}`)))));
   }
   const log = join(HOME, ".annex", "logs", "paperclip.log");
   console.log(`[up] starting Paperclip; its log is ${log}`);
