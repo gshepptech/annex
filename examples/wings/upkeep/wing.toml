@@ -1,0 +1,56 @@
+# An example office. Copy this folder into your Annex data folder's wings/ (or use + New office),
+# then point [repo] at your own project. Annex applies edits without a restart.
+
+name = "Upkeep"
+mode = "autonomous"
+charter = """
+Keep shop healthy.
+1. `npm test` and `npm run typecheck` pass on the integration branch.
+2. Dependencies stay current, one package or one tightly coupled group per task, without breaking line 1.
+3. The README and docs describe what the code does today.
+"""
+done_check = "npm test && npm run typecheck"
+setup = "npm ci --no-audit --no-fund"
+
+[repo]
+path = "~/Projects/shop"
+base_branch = "main"
+
+[[signals]]
+name = "tests"
+run = "npm test"
+
+[[signals]]
+name = "typecheck"
+run = "npm run typecheck"
+
+[[signals]]
+name = "outdated"
+run = "npm outdated --long"
+
+[[signals]]
+name = "recent commits"
+run = "git log -15 --format='%h %cs %s'"
+
+[crew]
+workers = 3
+lead_model = "claude-sonnet-5"
+worker_model = "claude-sonnet-5"
+reviewer_model = "claude-sonnet-5"
+
+# Every limit is optional and off unless set.
+[settings]
+wake_every = "15m"
+# max_runs_per_hour = 6
+# quiet_hours = "00:00-07:00"
+# back_off_when_idle = true
+ask_before = ["any major version bump"]
+max_workers = 6
+max_tasks_per_wake = 3
+check_attempts = 3
+check_timeout = "15m"
+wake_timeout = "30m"
+max_backoff = "24h"
+
+[permissions]
+allow = ["npm", "npx", "node", "git"]

@@ -87,7 +87,7 @@ test("each session's approve server has its own token", () => {
 
 test("the stream becomes entries; the turn's closing summary does not repeat the answer", async () => {
   const { lives, id, f } = setup();
-  f.say({ type: "system", subtype: "init", session_id: "s-1", model: "claude-opus-5-5", slash_commands: ["help", "smith:start"] });
+  f.say({ type: "system", subtype: "init", session_id: "s-1", model: "claude-opus-5-5", slash_commands: ["help", "lint-kit:run"] });
   await tick();
   lives.send(id, "hi");
   f.say({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "Hel" } } });
@@ -98,7 +98,7 @@ test("the stream becomes entries; the turn's closing summary does not repeat the
   await tick();
   const v = lives.get(id)!;
   assert.equal(v.sessionId, "s-1");
-  assert.deepEqual(v.slashCommands, ["help", "smith:start"]);
+  assert.deepEqual(v.slashCommands, ["help", "lint-kit:run"]);
   assert.deepEqual(v.entries.map((e) => e.kind), ["prompt", "text", "done"]);
   assert.equal((v.entries[2] as { text: string }).text, "");
   assert.equal(v.status, "waiting");

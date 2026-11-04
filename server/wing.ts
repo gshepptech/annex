@@ -165,7 +165,7 @@ export function parseWing(id: string, source: string): Wing {
     settings,
     allow: strList(perms.allow, at("permissions.allow")),
     plugins: strList(raw.plugins, at("plugins")).map((p) => {
-      if (!PLUGIN_ID.test(p)) throw new WingFileError(`${at("plugins")} entries look like "smith@the-tavern", got "${p}"`);
+      if (!PLUGIN_ID.test(p)) throw new WingFileError(`${at("plugins")} entries look like "lint-kit@acme", got "${p}"`);
       return p;
     }),
     sandbox: (() => {

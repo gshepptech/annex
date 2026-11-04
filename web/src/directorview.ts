@@ -65,7 +65,7 @@ export class DirectorDesk {
     if (this.error) this.el.append(h("p", { class: "notice bad", role: "alert" }, this.error));
     const list = h("ol", { class: "chat" }, ...(v?.chat ?? []).map((m) => h("li", { class: m.who === "you" ? "you" : "lead director-line" }, h("b", {}, m.who === "you" ? "You" : "Director"), h("p", {}, m.text))));
     if (!v?.chat.length) {
-      list.append(h("li", { class: "empty" }, 'Ask how the offices are doing, or tell the director what you want done: "have Upkeep check the README", "open an office for ~/Projects/colophon", "hire one more for Upkeep".'));
+      list.append(h("li", { class: "empty" }, 'Ask how the offices are doing, or tell the director what you want done: "have Upkeep check the README", "open an office for ~/Projects/shop", "hire one more for Upkeep".'));
     }
     const box = h("textarea", { rows: 3, required: true, placeholder: "Tell the director", "aria-label": "Message the director" }) as HTMLTextAreaElement;
     box.value = kept;

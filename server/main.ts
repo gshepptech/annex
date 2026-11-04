@@ -21,11 +21,9 @@ import { Terminals } from "./terminals.ts";
 import { sessionTranscript } from "./sessions.ts";
 import { recordUsage } from "./usage.ts";
 import { loadOrCreateKey } from "./key.ts";
-import { moveFromOldName } from "./rename.ts";
 import { CODE_ROOT, HOME, WINGS_DIR, ensureHome } from "./paths.ts";
 import { findClaude } from "./setup.ts";
 
-for (const step of moveFromOldName(HOME)) console.log(`[annex] ${step}`);
 ensureHome();
 const stateDir = join(HOME, ".annex");
 const port = Number(process.env.ANNEX_PORT ?? 4300);

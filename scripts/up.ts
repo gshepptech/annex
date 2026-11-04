@@ -7,10 +7,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, openSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { moveFromOldName } from "../server/rename.ts";
 import { CODE_ROOT as root, HOME, ensureHome } from "../server/paths.ts";
 
-for (const step of moveFromOldName(HOME)) console.log(`[annex] ${step}`);
 const engine = process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100";
 const children: ChildProcess[] = [];
 

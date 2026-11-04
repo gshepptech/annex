@@ -65,7 +65,7 @@ export function toToml(w: Wing, settings: FileSettings): string {
   if (w.doneCheck) out.push(`done_check = ${q(w.doneCheck)}`);
   if (w.setup) out.push(`setup = ${q(w.setup)}`);
   // Claude Code plugins the crew may use; they must be installed for you already
-  out.push(w.plugins.length ? `plugins = [${w.plugins.map(q).join(", ")}]` : `# plugins = ["smith@the-tavern"]`);
+  out.push(w.plugins.length ? `plugins = [${w.plugins.map(q).join(", ")}]` : `# plugins = ["lint-kit@acme"]`);
   if (w.repo) {
     out.push("", "[repo]", `path = ${q(tilde(w.repo.path))}`, `base_branch = ${q(w.repo.baseBranch)}`, `integration_branch = ${q(w.repo.integrationBranch)}`);
   }

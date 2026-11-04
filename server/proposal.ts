@@ -51,14 +51,8 @@ export interface Verdict {
 
 export const MAX_TASKS_PER_WAKE = 3;
 
-// A block tagged with the app's old name ("annex-proposal") still counts: a lead or the director
-// may be partway through a conversation that started before the rename.
-export function fenceTag(tag: string): string {
-  return `(?:${tag}|${tag.replace(/^annex-/, "annex-")})`;
-}
-
 export function findFence(body: string, tag: string): string | null {
-  const re = new RegExp("```" + fenceTag(tag) + "\\s*\\n([\\s\\S]*?)```", "m");
+  const re = new RegExp("```" + tag + "\\s*\\n([\\s\\S]*?)```", "m");
   const m = re.exec(body);
   return m ? m[1]!.trim() : null;
 }

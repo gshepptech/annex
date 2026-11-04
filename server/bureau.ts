@@ -701,7 +701,7 @@ export class Bureau implements BureauApi {
     const lead = rt.prov!.lead;
     try {
       const comments = await this.pc.comments(issue.id);
-      const proposalComment = [...comments].reverse().find((c) => c.authorAgentId === lead.id && /```(?:annex|annex)-proposal/.test(c.body));
+      const proposalComment = [...comments].reverse().find((c) => c.authorAgentId === lead.id && /```annex-proposal/.test(c.body));
       if (!proposalComment) {
         // A status PATCH carrying the proposal as its comment announces the status before the
         // comment is listed, so "done without a proposal" is only believed after a grace period.
@@ -992,8 +992,8 @@ export class Bureau implements BureauApi {
       if (c.authorAgentId !== leadId || this.store.hasChatComment(c.id)) continue;
       const brief = parseBrief(c.body);
       const shown = brief ? c.body.replace(new RegExp("```" + BRIEF_FENCE + "[\\s\\S]*?```"), "(Brief drafted. See the Brief tab.)").trim() : c.body;
-      const agreed = /```(?:annex|annex)-proposal/.test(c.body) ? await this.tasksFromChat(rt as Runtime & { prov: Provisioned }, c.body) : null;
-      const text = agreed ? `${shown.replace(/```(?:annex|annex)-proposal[\s\S]*?```/, "").trim()}\n${agreed}`.trim() : shown;
+      const agreed = /```annex-proposal/.test(c.body) ? await this.tasksFromChat(rt as Runtime & { prov: Provisioned }, c.body) : null;
+      const text = agreed ? `${shown.replace(/```annex-proposal[\s\S]*?```/, "").trim()}\n${agreed}`.trim() : shown;
       if (!this.store.addChat(rt.wing.id, "lead", text, c.id)) continue;
       this.emit({ wingId: rt.wing.id, kind: "chat.message", actor: leadId, taskId: null, payload: { who: "lead", text: text.slice(0, 500) } });
       if (brief) await this.draftBrief(rt as Runtime & { prov: Provisioned }, brief);
@@ -1035,7 +1035,7 @@ export class Bureau implements BureauApi {
 
   private async draftBrief(rt: Runtime & { prov: Provisioned }, text: string) {
     // Approved in Annex, not as a Paperclip approval: approving one of those wakes the lead with
-    // no task (spike gotcha 5).
+    // no task.
     const draft = this.store.addBrief(rt.wing.id, text);
     this.emit({ wingId: rt.wing.id, kind: "approval.requested", actor: rt.prov.lead.id, taskId: null, payload: { title: `Approve the handoff brief (v${draft.version})`, briefId: draft.id } });
   }

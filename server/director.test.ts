@@ -15,10 +15,10 @@ test("a route block is read, and stripped from what the person sees", () => {
 });
 
 test("the director sees one line per office, never a repo", () => {
-  const state = { wings: [{ id: "upkeep", name: "Upkeep", mode: "autonomous", held: null, paused: false, offline: null, repo: "/Users/me/Projects/reckon", agents: [{ role: "worker", status: "running" }, { role: "lead", status: "idle" }], tasks: [{}], filedCount: 3, asks: [], charter: "Keep reckon healthy.\n1. tests pass" }], director: null, lastEventId: 0, recent: [] } as unknown as StateView;
+  const state = { wings: [{ id: "upkeep", name: "Upkeep", mode: "autonomous", held: null, paused: false, offline: null, repo: "/Users/me/Projects/shop", agents: [{ role: "worker", status: "running" }, { role: "lead", status: "idle" }], tasks: [{}], filedCount: 3, asks: [], charter: "Keep shop healthy.\n1. tests pass" }], director: null, lastEventId: 0, recent: [] } as unknown as StateView;
   const s = summarize(state);
   assert.equal(s.split("\n").length, 1);
-  assert.match(s, /upkeep "Upkeep": on its own; ~\/Projects\/reckon; crew 1, 1 working; 1 open, 3 verified/);
+  assert.match(s, /upkeep "Upkeep": on its own; ~\/Projects\/shop; crew 1, 1 working; 1 open, 3 verified/);
 });
 
 test("the director's reply is stored with what Annex did about it", async () => {

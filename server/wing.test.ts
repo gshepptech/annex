@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { loadWings, parseWing, parseDuration, inQuietHours, WingFileError } from "./wing.ts";
 
-test("the shipped wing files load", () => {
-  const wings = loadWings(join(import.meta.dirname, "..", "wings"));
-  assert.deepEqual(wings.map((w) => w.id), ["colophon", "studio", "upkeep"]);
-  const upkeep = wings.find((w) => w.id === "upkeep")!;
+test("the example office loads", () => {
+  const wings = loadWings(join(import.meta.dirname, "..", "examples", "wings"));
+  assert.deepEqual(wings.map((w) => w.id), ["upkeep"]);
+  const upkeep = wings[0]!;
   assert.equal(upkeep.initialMode, "autonomous");
-  assert.equal(upkeep.repo?.integrationBranch, "annex/upkeep", "offices made before the rename keep their branch");
-  assert.ok(upkeep.repo?.path.endsWith("/Projects/reckon"));
+  assert.equal(upkeep.repo?.integrationBranch, "annex/upkeep");
+  assert.ok(upkeep.repo?.path.endsWith("/Projects/shop"));
   assert.equal(upkeep.signals.length, 4);
   assert.equal(upkeep.settings.wakeEverySec, 900);
 });

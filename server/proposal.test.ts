@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseProposal, parseBrief, judge, lineInText, evidenceInSignals, similar, type ProposedTask, type Proposal } from "./proposal.ts";
 
-const charter = `Keep reckon healthy.
+const charter = `Keep shop healthy.
 1. \`npm test\` and \`npm run typecheck\` pass on the integration branch.
 2. Dependencies stay current, one package or one tightly coupled group per task, without breaking line 1.
 3. The README and docs describe what the code does today.`;
@@ -111,10 +111,10 @@ test("work the person dropped in needs no signal evidence, but must really be th
 });
 
 test("evidence can quote a real file in the repo", () => {
-  const files: Record<string, string> = { "README.md": "Run reckon --json to get machine output." };
+  const files: Record<string, string> = { "README.md": "Run shop --json to get machine output." };
   const read = (p: string) => files[p] ?? null;
   const ctx = { charter, signals, existingTitles: [], readRepoFile: read };
-  const [ok] = judge([task({ evidence: "README.md:3: Run reckon --json to get machine output" })], ctx);
+  const [ok] = judge([task({ evidence: "README.md:3: Run shop --json to get machine output" })], ctx);
   assert.equal(ok!.reason, null);
   const [made] = judge([task({ evidence: "README.md: the docs are confusing in places" })], ctx);
   assert.match(made!.reason!, /quotes neither/);

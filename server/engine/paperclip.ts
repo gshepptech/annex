@@ -1,5 +1,5 @@
 // Every call Annex makes to Paperclip lives in this file (design D1). Request bodies are the
-// ones proven by the spike (docs/spike-findings.md). Types cover only the fields Annex reads.
+// ones Annex was tested against. Types cover only the fields Annex reads.
 
 export const BOARD_USER_ID = "local-board";
 
@@ -243,7 +243,7 @@ export class Paperclip {
   }
 
   // A status change with a comment. Reviews are decided this way: `done` approves the current
-  // stage, any other status sends the issue back to the worker (spike, "Accept review").
+  // stage, any other status sends the issue back to the worker (found by testing "Accept review").
   setStatus(id: string, status: IssueStatus, comment: string) {
     return this.call<Issue>("PATCH", `/api/issues/${id}`, { status, comment });
   }

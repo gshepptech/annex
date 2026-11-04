@@ -9,5 +9,5 @@ test("commands with only an interactive screen go to a terminal; the rest stay i
   assert.equal(needsTerminal("/config theme=dark", ["config"]), null, "its -p twin takes key=value");
   assert.equal(needsTerminal("/workflows", ["workflows"]), null, "the session lists it, so it runs there");
   assert.equal(needsTerminal("hello /login", []), null);
-  assert.equal(needsTerminal("/smith:start", []), null);
+  assert.equal(needsTerminal("/lint-kit:run", []), null);
 });

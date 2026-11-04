@@ -68,12 +68,12 @@ test("switching branches refuses a dirty checkout; publishing shows its commands
 test("turning a plugin on for you changes only that key in your settings, with a backup", () => {
   const home = mkdtempSync(join(tmpdir(), "annex-plug-"));
   mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
-  writeFileSync(join(home, ".claude", "plugins", "installed_plugins.json"), JSON.stringify({ plugins: { "smith@the-tavern": [{ version: "4.8.0" }] } }));
+  writeFileSync(join(home, ".claude", "plugins", "installed_plugins.json"), JSON.stringify({ plugins: { "lint-kit@acme": [{ version: "4.8.0" }] } }));
   writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ model: "x", enabledPlugins: { "other@m": true } }));
-  P.setPluginForYou("smith@the-tavern", true, join(home, "b"), home);
+  P.setPluginForYou("lint-kit@acme", true, join(home, "b"), home);
   const s = JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8"));
-  assert.deepEqual(s, { model: "x", enabledPlugins: { "other@m": true, "smith@the-tavern": true } });
-  assert.deepEqual(P.pluginRows(home), [{ id: "smith@the-tavern", version: "4.8.0", enabledForYou: true }]);
+  assert.deepEqual(s, { model: "x", enabledPlugins: { "other@m": true, "lint-kit@acme": true } });
+  assert.deepEqual(P.pluginRows(home), [{ id: "lint-kit@acme", version: "4.8.0", enabledForYou: true }]);
   assert.throws(() => P.setPluginForYou("nope@x", true, join(home, "b"), home), /not installed/);
 });
 

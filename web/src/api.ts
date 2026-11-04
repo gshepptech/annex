@@ -16,10 +16,7 @@ function readKey(): string | null {
     return m[1]!;
   }
   try {
-    // a browser that had the key before the rename keeps it
-    const kept = localStorage.getItem(KEY_STORE) ?? localStorage.getItem("annex-key");
-    if (kept) localStorage.setItem(KEY_STORE, kept);
-    return kept;
+    return localStorage.getItem(KEY_STORE);
   } catch {
     return null;
   }

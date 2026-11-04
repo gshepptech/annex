@@ -14,12 +14,9 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import { loadOrCreateKey, openLink } from "../server/key.ts";
-import { moveFromOldName } from "../server/rename.ts";
 import { BUNDLED, CODE_ROOT as root, HOME } from "../server/paths.ts";
 
 const LABEL = "dev.annex.office";
-// the login service from before the rename to Annex
-const OLD_LABEL = "dev.annex.office";
 const plist = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 const domain = `gui/${userInfo().uid}`;
 const log = join(HOME, ".annex", "logs", "service.log");
@@ -45,15 +42,6 @@ function launchctl(...args: string[]): string {
 
 const cmd = process.argv[2];
 if (cmd === "install") {
-  // the old service must be gone before its data folder moves, or it writes to a database being renamed
-  const oldPlist = join(homedir(), "Library", "LaunchAgents", `${OLD_LABEL}.plist`);
-  if (existsSync(oldPlist) || launchctl("print", `${domain}/${OLD_LABEL}`).includes("state =")) {
-    launchctl("bootout", `${domain}/${OLD_LABEL}`);
-    for (let i = 0; i < 40 && launchctl("print", `${domain}/${OLD_LABEL}`).includes("state ="); i++) execFileSync("sleep", ["0.25"]);
-    if (existsSync(oldPlist)) rmSync(oldPlist);
-    console.log(`Removed the old login service ${OLD_LABEL}.`);
-  }
-  for (const step of moveFromOldName(HOME)) console.log(`[annex] ${step}`);
   mkdirSync(join(HOME, ".annex", "logs"), { recursive: true });
   mkdirSync(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
   // launchd starts with a bare PATH. Keep the PATH of the shell installing the service (where

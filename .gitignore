@@ -2,7 +2,10 @@ node_modules/
 references/
 .paperclip/
 .annex/
-.annex
 dist/
 *.log
 .playwright-mcp/
+
+# your own offices and local tooling; examples/wings has one to copy
+/wings/
+.claude/

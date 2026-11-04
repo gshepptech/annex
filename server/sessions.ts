@@ -3,7 +3,7 @@
 // Annex's own agents also run Claude Code, in its worktrees; those are left out, since they
 // already appear in their offices.
 
-import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -23,9 +23,16 @@ const WORKING_MS = 20_000;
 const LIST_BYTES = 192 * 1024;
 const TRANSCRIPT_BYTES = 1536 * 1024;
 
-// Annex's agents work in Paperclip's workspaces and Annex's own worktrees.
+// Annex's agents work in Paperclip's workspaces and Annex's own worktrees. A folder reached
+// through a link counts by where it really is.
 export function isAnnexAgent(cwd: string): boolean {
-  return cwd.includes("/.paperclip/") || cwd.includes("/.annex/") || cwd.includes("/.annex/");
+  let real = cwd;
+  try {
+    real = realpathSync(cwd);
+  } catch {
+    // a folder that is gone is judged by its name
+  }
+  return [cwd, real].some((p) => p.includes("/.paperclip/") || p.includes("/.annex/"));
 }
 
 function tail(file: string, bytes: number): string[] {

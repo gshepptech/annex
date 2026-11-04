@@ -105,8 +105,6 @@ use `npm run service:remove`. While working on the page, `npm run web:dev` serve
   reported it; each office shows its runs and minutes in the last five hours; **Turn on alerts**
   for desktop notifications when something needs you while the tab is in the background.
 
-The design, the senior reviews and what each changed are in `docs/terminal-free.md`.
-
 ## Playing it
 
 - **The HUD** shows offices, crew, who is working, how much is verified, and whether Annex is
@@ -132,11 +130,11 @@ The design, the senior reviews and what each changed are in `docs/terminal-free.
   lead, every task must quote the ones it touches, and the reviewer checks the diff against them.
 - **What an office is for** is its `charter`; each task cites a line of it.
 - **Ask me before** (Settings tab, or `ask_before` in the wing file) makes the lead wait for your yes.
-- **Plugins**: `plugins = ["smith@the-tavern"]` in a wing file (or the Plugins field in Settings)
+- **Plugins**: `plugins = ["lint-kit@acme"]` in a wing file (or the Plugins field in Settings)
   turns those Claude Code plugins on for that office's lead and crew only. Install them in Claude
   Code first. Annex enables them in the office's own agent settings, allows their MCP tools and
   subagents, and tells the lead and crew which commands they bring. Nobody answers a plugin's
-  questions mid-run, so plugins that interview you (Forge's planning) fit an office you work
+  questions mid-run, so plugins that interview you fit an office you work
   with rather than one on its own. Reviewers never get plugins.
 
 ## How the work is kept honest
@@ -151,7 +149,7 @@ The design, the senior reviews and what each changed are in `docs/terminal-free.
 
 ## Add work
 
-A wing is one file, `wings/<id>/wing.toml`. **+ New wing** and the Settings tab write it for you,
+A wing is one file, `wings/<id>/wing.toml` in your Annex data folder (`examples/wings/upkeep` is one to copy). **+ New wing** and the Settings tab write it for you,
 and edits made by hand are picked up without a restart. To hand an existing wing a task, use
 **Drop in a task** in its Log tab.
 
@@ -165,8 +163,8 @@ done_check = "npm test && npm run typecheck"
 setup = "npm ci --no-audit --no-fund"   # run in a fresh worktree before checks
 
 [repo]
-path = "~/Projects/reckon"
-base_branch = "master"
+path = "~/Projects/shop"
+base_branch = "main"
 integration_branch = "annex/upkeep"     # default: annex/<id>
 
 [[signals]]                              # commands whose output the lead reads on each wake
@@ -206,5 +204,4 @@ allow = ["npm", "npx", "node", "git"]    # shell commands the crew may run
 - When Claude reports your plan's usage limit, every wing holds and starts again by itself at
   the reset time.
 
-The design and every decision behind it are in `docs/design.md`; what the Paperclip spike found
-is in `docs/spike-findings.md`.
+How the pieces fit together is in `docs/architecture.md`.
