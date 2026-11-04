@@ -6,21 +6,6 @@
   "engines": {
     "node": ">=24.11.0"
   },
-  "scripts": {
-    "up": "node scripts/up.ts",
-    "start": "node server/main.ts",
-    "test": "node --test \"server/**/*.test.ts\" \"web/src/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
-    "web:dev": "vite web",
-    "web:build": "vite build web",
-    "service:install": "node scripts/service.ts install",
-    "service:remove": "node scripts/service.ts remove",
-    "service:status": "node scripts/service.ts status",
-    "open": "node scripts/open.ts",
-    "app": "node scripts/app.ts build",
-    "app:install": "node scripts/app.ts install",
-    "app:dmg": "node scripts/app.ts dmg"
-  },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
     "@codemirror/lang-css": "^6.3.1",
@@ -47,5 +32,21 @@
     "@xterm/xterm": "6.0.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.2"
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "up": "node scripts/up.ts",
+    "start": "node server/main.ts",
+    "test": "node --test \"server/**/*.test.ts\" \"web/src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json",
+    "web:dev": "vite web",
+    "web:build": "vite build web",
+    "service:install": "node scripts/service.ts install",
+    "service:remove": "node scripts/service.ts remove",
+    "service:status": "node scripts/service.ts status",
+    "open": "node scripts/open.ts",
+    "app": "node scripts/app.ts build",
+    "app:install": "node scripts/app.ts install",
+    "app:dmg": "node scripts/app.ts dmg"
   }
 }

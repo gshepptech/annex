@@ -205,3 +205,8 @@ allow = ["npm", "npx", "node", "git"]    # shell commands the crew may run
   the reset time.
 
 How the pieces fit together is in `docs/architecture.md`.
+
+## License
+
+Copyright 2026 gshepptech. Licensed under the Apache License, Version 2.0; see `LICENSE`. Annex.app
+also carries Node.js and the Paperclip engine, both under the MIT License.
