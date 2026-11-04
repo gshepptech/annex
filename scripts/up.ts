@@ -20,9 +20,9 @@ async function healthy(): Promise<boolean> {
   }
 }
 
-function run(cmd: string, args: string[], cwd: string, logTo?: string): ChildProcess {
+function run(cmd: string, args: string[], cwd: string, logTo?: string, env: NodeJS.ProcessEnv = process.env): ChildProcess {
   const out = logTo ? openSync(logTo, "a") : "inherit";
-  const child = spawn(cmd, args, { cwd, stdio: ["ignore", out, out] });
+  const child = spawn(cmd, args, { cwd, env, stdio: ["ignore", out, out] });
   children.push(child);
   return child;
 }
@@ -46,8 +46,15 @@ if (await healthy()) {
   }
   const log = join(HOME, ".annex", "logs", "paperclip.log");
   console.log(`[up] starting Paperclip; its log is ${log}`);
+  // A new data folder has no engine config, and the engine will not ask for one without a terminal:
+  // onboard it with its local defaults (loopback only), which also starts it. The engine's usage
+  // telemetry stays off; nobody using Annex chose it.
+  const data = join(HOME, ".paperclip");
+  const first = !existsSync(join(data, "instances", "default", "config.json"));
+  const args = first ? ["onboard", "--yes", "--bind", "loopback", "--no-install-service", "--data-dir", data] : ["run", "--data-dir", data];
+  if (first) console.log("[up] setting up the engine for the first time...");
   // the same node that runs this script, so the app's bundled node runs the engine too
-  run(process.execPath, [paperclip, "run", "--data-dir", join(HOME, ".paperclip")], join(root, "runtime"), log);
+  run(process.execPath, [paperclip, ...args], join(root, "runtime"), log, { ...process.env, PAPERCLIP_TELEMETRY_DISABLED: "1", DO_NOT_TRACK: "1" });
   const deadline = Date.now() + 180_000;
   while (!(await healthy())) {
     if (Date.now() > deadline) {
