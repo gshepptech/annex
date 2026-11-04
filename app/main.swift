@@ -3,7 +3,9 @@
 // Contents/Resources; on first launch it installs that login service itself, with the data in
 // ~/Library/Application Support/Annex (or the folder named in ~/.config/annex/home). It reads the key from
 // ~/.config/annex/key itself, so it never needs pairing, and it turns the page's alerts and its
-// "waiting on you" count into macOS notifications and a Dock badge.
+// "waiting on you" count into macOS notifications and a Dock badge. It needs nothing else on the
+// Mac first: the page's setup screen installs Claude Code and logs it in. When the page asks for a
+// folder, the app shows the Mac's own folder panel.
 
 import Cocoa
 import UserNotifications
@@ -29,6 +31,14 @@ func loginShell(_ command: String) -> (ok: Bool, out: String) {
   p.waitUntilExit()
   let out = String(data: data, encoding: .utf8) ?? ""
   return (p.terminationStatus == 0, out.trimmingCharacters(in: .whitespacesAndNewlines))
+}
+
+// A value as JavaScript source (JSON), or null.
+func jsonLiteral(_ value: Any?) -> String {
+  guard let value = value, let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed]),
+    let text = String(data: data, encoding: .utf8)
+  else { return "null" }
+  return text
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
@@ -90,18 +100,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
   func installService(confirm: Bool) {
     guard let node = bundledNode else { return }
-    if !loginShell("command -v claude").ok {
-      let a = NSAlert()
-      a.messageText = "Annex needs Claude Code"
-      a.informativeText =
-        "Annex runs your own Claude Code with your subscription. Install it, run claude once in a terminal to log in, then open Annex again."
-      a.addButton(withTitle: "Get Claude Code")
-      a.addButton(withTitle: "Later")
-      if a.runModal() == .alertFirstButtonReturn {
-        NSWorkspace.shared.open(URL(string: "https://claude.com/product/claude-code")!)
-      }
-      return
-    }
     if confirm {
       let a = NSAlert()
       a.messageText = "Run Annex from this app?"
@@ -232,11 +230,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     p.beginSheetModal(for: window) { r in completionHandler(r == .OK ? p.urls : nil) }
   }
 
-  // MARK: alerts and the Dock badge from the page
+  // MARK: alerts, the Dock badge and the folder panel, for the page
 
   func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
     guard let body = message.body as? [String: Any], let kind = body["kind"] as? String else { return }
-    if kind == "badge" {
+    if kind == "pickFolder" {
+      pickFolder(id: body["id"])
+    } else if kind == "badge" {
       let n = body["count"] as? Int ?? 0
       NSApp.dockTile.badgeLabel = n > 0 ? String(n) : nil
     } else if kind == "alert", !NSApp.isActive || !window.isVisible {
@@ -247,6 +247,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       UNUserNotificationCenter.current().add(
         UNNotificationRequest(identifier: content.title, content: content, trigger: nil))
       NSApp.requestUserAttention(.informationalRequest)
+    }
+  }
+
+  // The page's "Choose…": a folder panel over the window; the answer (the path, or null when
+  // cancelled) goes back to window.annexPicked with the id the page sent.
+  func pickFolder(id: Any?) {
+    window.makeKeyAndOrderFront(nil)
+    let p = NSOpenPanel()
+    p.canChooseDirectories = true
+    p.canChooseFiles = false
+    p.canCreateDirectories = true
+    p.allowsMultipleSelection = false
+    p.prompt = "Choose"
+    p.beginSheetModal(for: window) { r in
+      let path: Any? = r == .OK ? p.url?.path : nil
+      self.web.evaluateJavaScript("window.annexPicked(\(jsonLiteral(id)), \(jsonLiteral(path)))")
     }
   }
 

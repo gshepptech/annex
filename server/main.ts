@@ -2,11 +2,10 @@
 //
 //   ANNEX_PORT     where the office is served (default 4300)
 //   PAPERCLIP_URL   the engine (default http://127.0.0.1:3100)
-//   CLAUDE_COMMAND  the claude binary agents run (default: the first real one on PATH)
+//   CLAUDE_COMMAND  the claude binary agents run (default: the first real one found; see setup.ts)
 
 import { join } from "node:path";
 import { existsSync, watch, readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { Store } from "./db.ts";
 import { loadWings, WingFileError } from "./wing.ts";
 import { Paperclip } from "./engine/paperclip.ts";
@@ -24,20 +23,12 @@ import { recordUsage } from "./usage.ts";
 import { loadOrCreateKey } from "./key.ts";
 import { moveFromOldName } from "./rename.ts";
 import { CODE_ROOT, HOME, WINGS_DIR, ensureHome } from "./paths.ts";
+import { findClaude } from "./setup.ts";
 
 for (const step of moveFromOldName(HOME)) console.log(`[annex] ${step}`);
 ensureHome();
 const stateDir = join(HOME, ".annex");
 const port = Number(process.env.ANNEX_PORT ?? 4300);
-
-// Prefer a real install over wrapper shims some terminals put first on PATH.
-function findClaude(): string {
-  if (process.env.CLAUDE_COMMAND) return process.env.CLAUDE_COMMAND;
-  for (const c of ["/opt/homebrew/bin/claude", "/usr/local/bin/claude", join(process.env.HOME ?? "", ".local/bin/claude")]) {
-    if (existsSync(c)) return c;
-  }
-  return execFileSync("/bin/sh", ["-c", "command -v claude"]).toString().trim();
-}
 
 let wings;
 try {
@@ -53,7 +44,11 @@ try {
 const store = new Store(join(stateDir, "annex.db"));
 const logger = new Logger(join(stateDir, "logs"));
 const pc = new Paperclip(process.env.PAPERCLIP_URL);
-const claudeCommand = findClaude();
+// Annex starts without Claude Code, so the page can offer to install it; until then "claude" is
+// looked up on the PATH when something runs it (the login service's PATH has ~/.local/bin)
+const foundClaude = findClaude();
+const claudeCommand = foundClaude ?? "claude";
+if (!foundClaude) logger.warn(null, "Claude Code is not installed yet; the page's setup screen installs it");
 const settingsFile = writeAgentSettings(stateDir, [], { enabled: true, stateDir });
 const bureau = new Bureau({
   store,

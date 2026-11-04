@@ -12,8 +12,10 @@ the check again. On screen, that is when the red VERIFIED stamp lands.
 
 ## Install the app
 
-Annex.app carries everything it runs: its own Node, the server, and the Paperclip engine. The only
-thing the Mac needs is Claude Code, installed and logged in with your subscription.
+Annex.app carries everything it runs: its own Node, the server, and the Paperclip engine. Nothing
+else has to be on the Mac first: the first time it opens, its setup screen installs Claude Code,
+signs it in to your subscription and gets git, each step in a terminal inside Annex. The whole
+first run, for someone handed the dmg, is in [docs/getting-started.md](docs/getting-started.md).
 
 1. Open `Annex.dmg` and drag Annex to Applications.
 2. Open Annex. The first time, it installs its login service and starts the engine (a minute or
@@ -25,7 +27,8 @@ before the first launch. Annex › Run Annex From This App… switches a Mac tha
 checkout over to the app.
 
 The build is signed for the Mac that built it, not with an Apple Developer ID, so on another Mac
-macOS refuses it as downloaded from the internet. Right-click Annex and choose Open once, or run
+macOS refuses it as downloaded from the internet. Right-click Annex and choose Open once (on macOS
+15 and later: open it once, then Open Anyway in System Settings › Privacy & Security), or run
 `xattr -dr com.apple.quarantine /Applications/Annex.app`. A Developer ID and notarization remove
 that step.
 
@@ -74,7 +77,11 @@ use `npm run service:remove`. While working on the page, `npm run web:dev` serve
   as buttons or any command, the output as it comes, the address it serves on, Stop.
 - **Ready to merge**: every file an office changed, each file's diff, and **Merge**, which merges
   the exact commit you looked at, checks for conflicts first, and never touches a dirty checkout.
-- **Projects** (top bar): clone a repository, switch or create branches, **Publish** (push and
+- **Projects** (top bar): any folder can be a project. **Add a folder…**, **New project…** (a
+  new git repo wherever you choose) and **Clone…** (into `~/Projects` or a folder you choose); in
+  Annex.app folders are chosen in the Mac's own folder panel. Git repos directly in `~/Projects`, your offices'
+  repos and folders your recent sessions ran in are listed too; **Forget** takes one off the list
+  and never touches its files. Then: switch or create branches, **Publish** (push and
   open a pull request; the commands are shown first, never a force-push), edit CLAUDE.md, the
   project's and your own Claude settings and `.mcp.json` (validated, backed up, refused if the
   file changed meanwhile), add or remove MCP servers, and turn plugins on for yourself.

@@ -17,6 +17,7 @@ import { LiveView } from "./live.ts";
 import { newSessionDialog, newTerminalDialog } from "./newsession.ts";
 import type { TermPane } from "./termpane.ts";
 import { ProjectsDialog } from "./projects.ts";
+import { SetupDialog } from "./setup.ts";
 import { FilesDialog } from "./editor.ts";
 import { h } from "./dom.ts";
 import { setRoomTheme } from "./office/sprites.ts";
@@ -136,6 +137,10 @@ const projects = new ProjectsDialog(
 liveView.onTerminal = (command) => {
   if (liveView.liveId) void openTerminal({ live: liveView.liveId }, command);
 };
+// First-run setup: each fix runs in a terminal pane; a session that finds Claude Code signed out
+// offers the same login
+const setup = new SetupDialog((id) => void openTerminal({ setup: id }));
+liveView.onLogin = () => void openTerminal({ setup: "claude-login" });
 const newTerminal = newTerminalDialog((v) => {
   void selectTerm(v);
   void pollSessions();
@@ -154,7 +159,7 @@ async function pane(): Promise<TermPane> {
   return termPane;
 }
 
-async function openTerminal(body: { cwd: string } | { live: string }, hint: string | null = null) {
+async function openTerminal(body: { cwd: string } | { live: string } | { setup: string }, hint: string | null = null) {
   try {
     const v = (await post("/api/terminals", body)) as TerminalView;
     await selectTerm(v, hint);
@@ -231,6 +236,9 @@ function alertMe(title: string, body = "") {
   };
 }
 const openState = h("span", { class: "state", role: "status" }, "Connecting…");
+// shown while something Annex needs (Claude Code, its login, git) is missing
+const finishSetup = h("button", { class: "hud-btn setup-btn", type: "button", hidden: true, onclick: () => void setup.open() }, "Finish setup");
+setup.onChecked = (missing) => (finishSetup.hidden = !missing);
 const hud = h(
   "header",
   { class: "hud box" },
@@ -239,6 +247,7 @@ const hud = h(
   openState,
   plan,
   alertBtn,
+  finishSetup,
   h("button", { class: "hud-btn new-session", type: "button", onclick: () => void newSession.open() }, "New session"),
   h("button", { class: "hud-btn", type: "button", onclick: () => newTerminal.open() }, "Terminal"),
   h("button", { class: "hud-btn", type: "button", onclick: () => void projects.open() }, "Projects"),
@@ -249,7 +258,7 @@ const hud = h(
 );
 
 const shellEl = h("div", { class: "shell" }, hud, sidebar.el, world, drawer);
-app.append(shellEl, toasts, newOffice, syslog.el, pair.el, newSession.el, newTerminal.el, projects.el, files.el);
+app.append(shellEl, toasts, newOffice, syslog.el, pair.el, newSession.el, newTerminal.el, projects.el, files.el, setup.el);
 
 function toast(text: string, colour: string) {
   const t = h("div", { class: "toast", style: `--c: ${colour}` }, text);
@@ -563,6 +572,14 @@ async function boot() {
   setInterval(() => void pollSessions(), 5_000);
   void pollHealth();
   setInterval(() => void pollHealth(), 30_000);
+  // a new Mac: the setup screen opens by itself while something required is missing, and is
+  // checked again now and then until it is all there (a fix finishes in a terminal pane)
+  void setup.check().then(() => {
+    if (setup.missing) void setup.open();
+  });
+  setInterval(() => {
+    if (setup.missing && !setup.el.open) void setup.check();
+  }, 30_000);
   let last = performance.now();
   const frame = (now: number) => {
     const dt = Math.min(100, now - last);

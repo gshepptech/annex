@@ -82,3 +82,52 @@ test("claude mcp list is read into rows; servers from plugins and claude.ai are 
   assert.deepEqual(rows.map((r) => [r.name, r.ok, r.yours]), [["claude.ai Docs", true, false], ["plugin:pw:pw", true, false], ["github", false, true], ["linear", false, true]]);
   assert.equal(rows[3]!.status, "Needs authentication");
 });
+
+test("the projects list: added folders, office repos and sessions' folders, with ~/Projects repos, less forgotten ones", () => {
+  const home = mkdtempSync(join(tmpdir(), "annex-known-"));
+  const repo = (p: string) => (mkdirSync(join(p, ".git"), { recursive: true }), p);
+  const inProjects = repo(join(home, "Projects", "app"));
+  const otherInProjects = repo(join(home, "Projects", "old"));
+  mkdirSync(join(home, "Projects", "not-a-repo"));
+  const added = repo(join(home, "Work", "client"));
+  const office = repo(join(home, "Code", "office-repo"));
+  const seen = join(home, "scratch");
+  mkdirSync(seen);
+  const gone = join(home, "deleted");
+  assert.deepEqual(
+    P.knownProjects({ added: [added, gone], offices: [office], seen: [seen, gone], forgotten: [otherInProjects, office] }, home),
+    [inProjects, office, added, seen].sort(),
+    "a forgotten ~/Projects repo goes; an office's repo stays even when forgotten; deleted folders never show",
+  );
+  assert.deepEqual(P.knownProjects({ forgotten: [seen], seen: [seen] }, home), [inProjects, otherInProjects], "a forgotten session folder goes");
+});
+
+test("a new project is a fresh repo in the folder you chose; bad names and non-empty folders are refused", async () => {
+  const parent = mkdtempSync(join(tmpdir(), "annex-new-"));
+  const made = await P.createProject(parent, "  shop ");
+  assert.equal(made, join(parent, "shop"));
+  assert.equal(g(made, "log", "--format=%s"), "Start the project");
+  assert.equal(readFileSync(join(made, "README.md"), "utf8"), "# shop\n");
+  for (const bad of ["", " ", ".", "..", "a/b", "../x", "a\\b"]) await assert.rejects(P.createProject(parent, bad), P.ProjectError, JSON.stringify(bad));
+  await assert.rejects(P.createProject(parent, "shop"), /already exists and is not empty/);
+  writeFileSync(join(parent, "file"), "x");
+  await assert.rejects(P.createProject(parent, "file"), /already exists/);
+  await assert.rejects(P.createProject(join(parent, "missing"), "x"), /is not a folder/);
+  await assert.rejects(P.createProject("relative/dir", "x"), /full path/);
+  mkdirSync(join(parent, "empty"));
+  assert.equal(await P.createProject(parent, "empty"), join(parent, "empty"), "an empty folder of that name is used");
+  assert.deepEqual(readdirSync(parent).sort(), ["empty", "file", "shop"], "nothing else was made");
+  // a new Mac has no ~/Projects yet; that one folder is made, any other must exist
+  const home = mkdtempSync(join(tmpdir(), "annex-newmac-"));
+  assert.equal(await P.createProject(join(home, "Projects"), "first", home), join(home, "Projects", "first"));
+  await assert.rejects(P.createProject(join(home, "Elsewhere"), "x", home), /is not a folder/);
+});
+
+test("a folder you add must exist and be a folder; it is kept without a trailing slash", () => {
+  const dir = mkdtempSync(join(tmpdir(), "annex-add-"));
+  writeFileSync(join(dir, "f"), "x");
+  assert.equal(P.existingFolder(`${dir}/`), dir);
+  assert.throws(() => P.existingFolder(join(dir, "f")), /not a folder/);
+  assert.throws(() => P.existingFolder(join(dir, "nope")), /not a folder/);
+  assert.throws(() => P.existingFolder("~/x"), /full path/);
+});

@@ -163,3 +163,12 @@ test("closeAndWait resolves only after the child has exited", async () => {
   assert.equal(lives.get(v.id)!.status, "closed");
   await lives.closeAndWait(v.id);
 });
+
+test("with no claude installed a session closes with what to do, and Annex keeps running", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "annex-noclaude-"));
+  const lives = new LiveSessions({ claude: join(dir, "no-such-claude"), annexUrl: "http://127.0.0.1:1", dir });
+  const v = lives.start({ cwd: dir, mode: "default" });
+  for (let i = 0; i < 100 && lives.get(v.id)!.status !== "closed"; i++) await tick();
+  assert.equal(lives.get(v.id)!.status, "closed");
+  assert.match(lives.get(v.id)!.error ?? "", /Claude Code is not installed.*Finish setup/);
+});

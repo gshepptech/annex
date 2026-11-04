@@ -151,7 +151,8 @@ export class LiveSessions {
     });
     // a child that died or never started: writes to it fail quietly and the session closes
     child.stdin?.on("error", () => {});
-    child.on("error", (e) => this.closed(live, e.message));
+    // no claude to run: say what to do rather than "spawn claude ENOENT"
+    child.on("error", (e) => this.closed(live, (e as { code?: string }).code === "ENOENT" ? "Claude Code is not installed. Choose Finish setup in the top bar to install it, then start the session again." : e.message));
     child.on("exit", (code) => this.closed(live, code ? err.trim().split("\n").slice(-3).join("\n") || `claude exited ${code}` : null));
     return view(live);
   }

@@ -54,3 +54,14 @@ test("recorded events reach listeners and can be replayed", () => {
   assert.deepEqual(seen, ["lead.woke", "task.created"]);
   assert.deepEqual(s.eventsSince(first.id).map((e) => e.payload), [{ title: "x" }]);
 });
+
+test("project folders: added and forgotten are kept, and adding again undoes forgetting", () => {
+  const s = store();
+  s.addProjectFolder("/w/a");
+  s.addProjectFolder("/w/b");
+  s.forgetProjectFolder("/w/b");
+  s.forgetProjectFolder("/Users/me/Projects/old");
+  assert.deepEqual(s.projectFolders(), { added: ["/w/a"], forgotten: ["/Users/me/Projects/old", "/w/b"] });
+  s.addProjectFolder("/w/b");
+  assert.deepEqual(s.projectFolders(), { added: ["/w/a", "/w/b"], forgotten: ["/Users/me/Projects/old"] });
+});

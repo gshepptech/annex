@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./db.ts";
 import { startHttp, UserError, type Bureau } from "./http.ts";
@@ -13,6 +13,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { LiveSessions } from "./live.ts";
 import { Terminals, type SpawnPty } from "./terminals.ts";
+import type { SetupCheck } from "./setup.ts";
 
 function fakeBureau(store: Store): Bureau & { calls: string[] } {
   const calls: string[] = [];
@@ -39,7 +40,7 @@ function fakeBureau(store: Store): Bureau & { calls: string[] } {
   };
 }
 
-async function boot(o: { key?: string; live?: LiveSessions; terminals?: Terminals; pairing?: Pairing } = {}) {
+async function boot(o: { key?: string; live?: LiveSessions; terminals?: Terminals; pairing?: Pairing; setup?: () => Promise<SetupCheck[]> } = {}) {
   const store = new Store(":memory:");
   const bureau = fakeBureau(store);
   const web = mkdtempSync(join(tmpdir(), "annex-web-"));
@@ -324,6 +325,74 @@ test("file routes take only your projects and say when a save would overwrite a 
     assert.equal(readFileSync(join(repo, "a.txt"), "utf8"), big, "every character arrives whole");
     const located = await (await fetch(`${base}/api/files/locate?path=${encodeURIComponent(join(repo, "a.txt"))}`)).json();
     assert.deepEqual(located, { root: repo, path: "a.txt" });
+  } finally {
+    server.close();
+  }
+});
+
+test("setup: the checks need the key; a fix opens a terminal by its id only, in your home folder", async () => {
+  const k = "k".repeat(32);
+  const asked: boolean[] = [];
+  const setup = async (fresh?: boolean): Promise<SetupCheck[]> => (asked.push(!!fresh), [{ id: "claude", label: "Claude Code installed", ok: false, detail: "Not installed", required: true, fix: { id: "claude-install", label: "Install" } }]);
+  const spawned: string[][] = [];
+  const terminals = new Terminals({ claude: "claude", shell: "/bin/zsh", spawn: fakeSpawn((a) => spawned.push(a)).spawn });
+  const { server, base } = await boot({ key: k, terminals, setup });
+  const h = { "x-annex-key": k };
+  try {
+    assert.equal((await fetch(`${base}/api/setup`)).status, 401);
+    assert.equal((await (await fetch(`${base}/api/setup`, { headers: h })).json())[0].fix.id, "claude-install");
+    await fetch(`${base}/api/setup?fresh=1`, { headers: h });
+    assert.deepEqual(asked, [false, true], "Check again asks for fresh results");
+    const open = (body: unknown) => fetch(`${base}/api/terminals`, { method: "POST", headers: h, body: JSON.stringify(body) });
+    const r = await open({ setup: "claude-install" });
+    assert.equal(r.status, 201);
+    const v = await r.json();
+    assert.equal(v.cwd, homedir());
+    assert.equal(v.title, "Install Claude Code");
+    assert.match(spawned[0]![2]!, /^curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash; /);
+    const bad = await open({ setup: "rm -rf ~" });
+    assert.equal(bad.status, 409);
+    assert.match((await bad.json()).error, /no such setup step/);
+    assert.equal(spawned.length, 1);
+  } finally {
+    terminals.closeAll();
+    server.close();
+  }
+});
+
+test("projects in any folder: add, forget and create change the list; refusals say why", async () => {
+  const { server, base, store } = await boot();
+  const list = async () => (await (await fetch(`${base}/api/projects`)).json()) as string[];
+  try {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "annex-anywhere-")));
+    const added = await send(base, "/api/projects/add", { path: `${dir}/` });
+    assert.equal(added.status, 201);
+    assert.deepEqual(await added.json(), { folder: dir });
+    assert.ok((await list()).includes(dir));
+    assert.deepEqual(store.projectFolders().added, [dir], "kept in the database, not the browser");
+
+    assert.equal((await send(base, "/api/projects/add", { path: join(dir, "nope") })).status, 409);
+    assert.equal((await send(base, "/api/projects/add", { path: "relative" })).status, 409);
+    assert.equal((await send(base, "/api/projects/add", {})).status, 400);
+
+    // a folder made here is a repo, and it is one of your projects at once
+    const made = await send(base, "/api/projects/create", { parent: dir, name: "shop" });
+    assert.equal(made.status, 201);
+    const shop = (await made.json()).folder as string;
+    assert.equal(shop, join(dir, "shop"));
+    assert.ok((await list()).includes(shop));
+    assert.equal(execFileSync("git", ["log", "--format=%s"], { cwd: shop, encoding: "utf8" }).trim(), "Start the project");
+    for (const name of ["..", ".", "a/b"]) assert.equal((await send(base, "/api/projects/create", { parent: dir, name })).status, 409, name);
+    assert.match((await (await send(base, "/api/projects/create", { parent: dir, name: "shop" })).json()).error, /not empty/);
+
+    // forgetting takes it off the list and leaves the files alone
+    assert.equal((await send(base, "/api/projects/forget", { path: shop })).status, 200);
+    assert.ok(!(await list()).includes(shop));
+    assert.ok(readFileSync(join(shop, "README.md"), "utf8").startsWith("# shop"));
+    // and a project action on it is refused, as for any folder Annex does not know
+    assert.equal((await fetch(`${base}/api/projects/branches?root=${encodeURIComponent(shop)}`)).status, 409);
+    assert.equal((await send(base, "/api/projects/add", { path: shop })).status, 201, "adding it again brings it back");
+    assert.ok((await list()).includes(shop));
   } finally {
     server.close();
   }

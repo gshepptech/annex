@@ -154,6 +154,15 @@ const MIGRATIONS: string[] = [
   );
   alter table task add column goal_id integer references goal(id);
   `,
+  `
+  -- folders the person added to their projects, wherever they are, and ones they asked Annex to
+  -- stop listing (a ~/Projects repo or a folder a session ran in); the files are never touched
+  create table project_folder (
+    path text primary key,
+    state text not null check (state in ('added', 'forgotten')),
+    at text not null
+  );
+  `,
 ];
 
 export interface GoalRow {
@@ -626,6 +635,25 @@ export class Store {
 
   decideAsk(id: number, status: "approved" | "declined") {
     this.db.prepare("update ask set status = ?, decided_at = ? where id = ?").run(status, now(), id);
+  }
+
+  // Project folders
+
+  addProjectFolder(path: string) {
+    this.setProjectFolder(path, "added");
+  }
+
+  forgetProjectFolder(path: string) {
+    this.setProjectFolder(path, "forgotten");
+  }
+
+  projectFolders(): { added: string[]; forgotten: string[] } {
+    const rows = this.db.prepare("select path, state from project_folder order by path").all() as { path: string; state: string }[];
+    return { added: rows.filter((r) => r.state === "added").map((r) => r.path), forgotten: rows.filter((r) => r.state === "forgotten").map((r) => r.path) };
+  }
+
+  private setProjectFolder(path: string, state: "added" | "forgotten") {
+    this.db.prepare("insert into project_folder (path, state, at) values (?, ?, ?) on conflict (path) do update set state = excluded.state, at = excluded.at").run(path, state, now());
   }
 
   // Layouts

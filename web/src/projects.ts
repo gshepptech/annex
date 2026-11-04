@@ -1,10 +1,12 @@
 // Projects: your repos and your Claude setup. Pick a project for its branch, publishing, config
 // files and MCP servers, or "You" for your own Claude settings and plugins. Every change says
-// exactly what it will do first.
+// exactly what it will do first. A project can be any folder: add one you have, make a new one,
+// or clone one, wherever you like; Forget only takes it off this list.
 
 import { get, post, put } from "./api.ts";
 import { h } from "./dom.ts";
 import { RunPanel } from "./runpanel.ts";
+import { canPickFolder, pickFolder } from "./pickfolder.ts";
 
 const KINDS: [string, string][] = [["claude-md", "CLAUDE.md"], ["project-settings", "Settings (shared)"], ["project-local", "Settings (just you)"], ["mcp-json", ".mcp.json"]];
 const YOU = "you";
@@ -36,8 +38,6 @@ export class ProjectsDialog {
     this.startSession = startSession;
     this.openFiles = openFiles;
     this.openTerminal = openTerminal;
-    const url = h("input", { placeholder: "https://github.com/you/app.git", "aria-label": "Repository address" }) as HTMLInputElement;
-    const name = h("input", { placeholder: "folder name (optional)", "aria-label": "Folder name" }) as HTMLInputElement;
     this.el.append(
       h(
         "div",
@@ -51,14 +51,14 @@ export class ProjectsDialog {
             {},
             this.list,
             h(
-              "form",
-              { class: "clone", onsubmit: (ev: Event) => { ev.preventDefault(); void this.clone(url, name); } },
-              h("h3", {}, "Clone a repository"),
-              url,
-              name,
-              h("button", { class: "btn", type: "submit" }, "Clone into ~/Projects"),
-              this.cloneMsg,
+              "div",
+              { class: "row adders" },
+              h("button", { class: "btn", type: "button", onclick: () => void this.addFolder() }, "Add a folder…"),
+              h("button", { class: "btn", type: "button", onclick: () => this.showForm("new") }, "New project…"),
+              h("button", { class: "btn", type: "button", onclick: () => this.showForm("clone") }, "Clone…"),
             ),
+            this.form,
+            this.formMsg,
           ),
           this.detail,
         ),
@@ -84,30 +84,100 @@ export class ProjectsDialog {
     } catch (err) {
       this.note = (err as Error).message;
     }
-    const short = (p: string) => p.replace(/^\/Users\/[^/]+/, "~");
     this.list.replaceChildren(
       h("button", { type: "button", class: `project${this.chosen === YOU ? " open" : ""}`, onclick: () => void this.show(YOU) }, h("b", {}, "You"), h("span", {}, "Claude settings and plugins")),
-      ...this.projects.map((p) => h("button", { type: "button", class: `project${this.chosen === p ? " open" : ""}`, onclick: () => void this.show(p) }, h("b", {}, p.split("/").pop()!), h("span", {}, short(p)))),
+      ...this.projects.map((p) =>
+        h(
+          "div",
+          { class: "project-row" },
+          h("button", { type: "button", class: `project${this.chosen === p ? " open" : ""}`, onclick: () => void this.show(p) }, h("b", {}, p.split("/").pop()!), h("span", {}, short(p))),
+          h("button", { type: "button", class: "forget", "aria-label": `Forget ${short(p)}`, onclick: () => void this.forget(p) }, "Forget"),
+        ),
+      ),
     );
   }
 
-  private cloneMsg = h("p", { class: "hint", role: "status" });
+  // Adding, making and cloning a project: one small form at a time under the list; what Annex
+  // refuses is said there, where you are looking.
+  private form = h("div", {});
+  private formMsg = h("p", { class: "hint", role: "status" });
 
-  private async clone(url: HTMLInputElement, name: HTMLInputElement) {
-    const folder = name.value.trim() || url.value.trim().split("/").pop()?.replace(/\.git$/, "") || "";
-    if (!confirm(`Clone ${url.value.trim()} into ~/Projects/${folder}?\n\nRuns: git clone -- ${url.value.trim()} ~/Projects/${folder}`)) return;
-    this.cloneMsg.textContent = "Cloning…";
+  private showForm(which: "add" | "new" | "clone") {
+    this.formMsg.textContent = "";
+    const submit = (label: string, run: () => Promise<void>, fields: HTMLElement[], title: string) =>
+      h("form", { class: "clone", onsubmit: (ev: Event) => { ev.preventDefault(); void run(); } }, h("h3", {}, title), ...fields, h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, label), h("button", { class: "btn ghost", type: "button", onclick: () => this.form.replaceChildren() }, "Cancel")));
+    if (which === "add") {
+      const folder = folderField("~/Code/my-app", "Folder");
+      this.form.replaceChildren(submit("Add", () => this.add(folder.input.value), [folder.el], "Add a folder"));
+      folder.input.focus();
+    } else if (which === "new") {
+      const parent = folderField("~/Projects", "Make it in");
+      parent.input.value = "~/Projects";
+      const name = h("input", { placeholder: "my-app", "aria-label": "Project name", required: true }) as HTMLInputElement;
+      const run = async () => {
+        this.formMsg.textContent = "Making it…";
+        try {
+          const r = (await post("/api/projects/create", { parent: parent.input.value, name: name.value })) as { folder: string };
+          this.done(`Made ${short(r.folder)}: a git repo with a README and one commit.`, r.folder);
+        } catch (err) {
+          this.formMsg.textContent = (err as Error).message;
+        }
+      };
+      this.form.replaceChildren(submit("Create", run, [parent.el, h("div", { class: "field" }, h("label", {}, "Name", name))], "New project"));
+      name.focus();
+    } else {
+      const url = h("input", { placeholder: "https://github.com/you/app.git", "aria-label": "Repository address", required: true }) as HTMLInputElement;
+      const parent = folderField("~/Projects", "Clone into");
+      parent.input.value = "~/Projects";
+      const name = h("input", { placeholder: "folder name (optional)", "aria-label": "Folder name" }) as HTMLInputElement;
+      const run = async () => {
+        const folder = name.value.trim() || url.value.trim().split("/").pop()?.replace(/\.git$/, "") || "";
+        const into = `${parent.input.value.trim().replace(/\/+$/, "")}/${folder}`;
+        if (!confirm(`Clone ${url.value.trim()} into ${into}?\n\nRuns: git clone -- ${url.value.trim()} ${into}`)) return;
+        this.formMsg.textContent = "Cloning…";
+        try {
+          const r = (await post("/api/projects/clone", { url: url.value, name: name.value, parent: parent.input.value })) as { folder: string };
+          this.done(`Cloned into ${r.folder}.`, r.folder);
+        } catch (err) {
+          this.formMsg.textContent = (err as Error).message;
+        }
+      };
+      this.form.replaceChildren(submit("Clone", run, [url, parent.el, name], "Clone a repository"));
+      url.focus();
+    }
+  }
+
+  // In Annex.app the Mac's folder panel opens at once; in a browser the folder is typed.
+  private async addFolder() {
+    if (!canPickFolder) return this.showForm("add");
+    const path = await pickFolder();
+    if (path) await this.add(path);
+  }
+
+  private async add(path: string) {
     try {
-      const r = (await post("/api/projects/clone", { url: url.value, name: name.value })) as { folder: string };
-      url.value = "";
-      name.value = "";
-      this.cloneMsg.textContent = "";
-      this.note = `Cloned into ${r.folder}.`;
-      await this.loadList();
-      void this.show(r.folder);
+      const r = (await post("/api/projects/add", { path })) as { folder: string };
+      this.done(`Added ${short(r.folder)}.`, r.folder);
     } catch (err) {
-      // the refusal shows by the clone form, where you are looking
-      this.cloneMsg.textContent = (err as Error).message;
+      this.formMsg.textContent = (err as Error).message;
+    }
+  }
+
+  private done(note: string, folder: string) {
+    this.form.replaceChildren();
+    this.formMsg.textContent = "";
+    this.note = note;
+    void this.show(folder);
+  }
+
+  private async forget(p: string) {
+    if (!confirm(`Forget ${short(p)}?\n\nAnnex stops listing it. The folder and its files stay exactly as they are, and Add a folder brings it back.`)) return;
+    try {
+      await post("/api/projects/forget", { path: p });
+      this.note = `Annex no longer lists ${short(p)}. Nothing in the folder changed.`;
+      void this.show(this.chosen === p ? YOU : this.chosen);
+    } catch (err) {
+      this.formMsg.textContent = (err as Error).message;
     }
   }
 
@@ -350,4 +420,18 @@ export class ProjectsDialog {
       ),
     );
   }
+}
+
+const short = (p: string) => p.replace(/^\/Users\/[^/]+/, "~");
+
+// A folder typed as a path, with Choose… for the Mac's folder panel inside Annex.app.
+function folderField(placeholder: string, label: string): { el: HTMLElement; input: HTMLInputElement } {
+  const input = h("input", { placeholder, "aria-label": label, autocomplete: "off", required: true }) as HTMLInputElement;
+  const choose = canPickFolder
+    ? h("button", { class: "btn", type: "button", onclick: async () => {
+        const p = await pickFolder();
+        if (p) input.value = p;
+      } }, "Choose…")
+    : null;
+  return { el: h("div", { class: "field" }, h("label", {}, label, h("div", { class: "row folder-pick" }, input, choose))), input };
 }

@@ -10,8 +10,9 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { initRepo } from "./git.ts";
 
 const run = promisify(execFile);
 
@@ -19,16 +20,52 @@ export class ProjectError extends Error {}
 
 // ---------- the folders Annex knows ----------
 
-export function knownProjects(extra: string[] = [], home = homedir()): string[] {
+// Your projects: folders you added, your offices' repos, folders your recent sessions ran in, and
+// the git repos directly inside ~/Projects, less the ones you asked Annex to forget. An office's
+// repo stays while the office uses it.
+export function knownProjects(o: { added?: string[]; offices?: string[]; seen?: string[]; forgotten?: string[] } = {}, home = homedir()): string[] {
   const root = join(home, "Projects");
-  const found = new Set<string>(extra.filter(Boolean));
+  const found = new Set<string>(o.seen?.filter(Boolean));
   try {
     for (const d of readdirSync(root, { withFileTypes: true })) if (d.isDirectory() && existsSync(join(root, d.name, ".git"))) found.add(join(root, d.name));
   } catch {
     // no ~/Projects
   }
+  for (const f of o.forgotten ?? []) found.delete(f);
+  for (const f of [...(o.added ?? []), ...(o.offices ?? [])]) if (f) found.add(f);
   // a folder deleted since a session ran there is not offered
   return [...found].filter((p) => existsSync(p)).sort();
+}
+
+// A folder named by the person: a full path to a folder that exists, without a trailing slash.
+export function existingFolder(path: string): string {
+  if (!isAbsolute(path)) throw new ProjectError("Name the folder by its full path (or start it with ~/)");
+  const p = resolve(path);
+  if (!existsSync(p) || !statSync(p).isDirectory()) throw new ProjectError(`${p} is not a folder`);
+  return p;
+}
+
+// The folder a new project goes in: one that exists, or ~/Projects, made if this Mac has none yet.
+function parentFolder(parent: string | null, home: string): string {
+  const projects = join(home, "Projects");
+  if (parent && resolve(parent) !== projects) return existingFolder(parent);
+  mkdirSync(projects, { recursive: true });
+  return projects;
+}
+
+// A new project: `name` inside `parent`, made a git repo with a README and one commit. An empty
+// folder of that name is used; one with anything in it is refused.
+export async function createProject(parent: string, name: string, home = homedir()): Promise<string> {
+  const n = name.trim();
+  if (!n || n === "." || n === ".." || /[/\\\0]/.test(n)) throw new ProjectError("The project name may not be empty, . or .., or contain a slash");
+  const target = join(parentFolder(parent, home), n);
+  if (existsSync(target) && (!statSync(target).isDirectory() || readdirSync(target).length)) throw new ProjectError(`${target} already exists and is not empty`);
+  try {
+    await initRepo(target, n, "");
+  } catch (err) {
+    throw new ProjectError(`Could not make the project: ${gitError(err)}`);
+  }
+  return target;
 }
 
 export function mustKnow(root: string, known: string[]): string {
@@ -57,13 +94,13 @@ export function cloneUrlOk(url: string): boolean {
   return /^https:\/\/[^/]+\/.+/.test(url) || /^ssh:\/\/[^/]+\/.+/.test(url) || /^[\w.-]+@[\w.-]+:[\w./~-]+$/.test(url);
 }
 
-export async function clone(url: string, name: string | null, home = homedir()): Promise<string> {
+// Into `parent`, ~/Projects unless you choose another folder.
+export async function clone(url: string, name: string | null, parent: string | null = null, home = homedir()): Promise<string> {
   if (!cloneUrlOk(url)) throw new ProjectError("Give a repository address that starts with https://, ssh:// or git@host:");
   const folder = (name?.trim() || basename(url).replace(/\.git$/, "")).trim();
   if (!/^[\w.-]+$/.test(folder) || folder.startsWith(".")) throw new ProjectError("The folder name may use letters, digits, dots, dashes and underscores");
-  const target = join(home, "Projects", folder);
+  const target = join(parentFolder(parent, home), folder);
   if (existsSync(target)) throw new ProjectError(`${target} already exists`);
-  mkdirSync(dirname(target), { recursive: true });
   try {
     await git(dirname(target), "clone", "--", url, target);
   } catch (err) {

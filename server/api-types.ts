@@ -299,3 +299,15 @@ export type TerminalUpdate =
   // whole kept screen history, so start the screen over
   | { type: "output"; at: number; data: string; reset?: boolean }
   | { type: "exit"; exitCode: number | null };
+
+// One first-run check (server/setup.ts): what it found, and the fix to run in a terminal pane.
+export type SetupFixId = "claude-install" | "claude-login" | "git-install" | "gh-login";
+export interface SetupCheck {
+  id: "claude" | "login" | "git" | "github";
+  label: string;
+  ok: boolean;
+  detail: string;
+  // false: Annex works without it (GitHub is needed only for private repositories)
+  required: boolean;
+  fix?: { id: SetupFixId; label: string };
+}

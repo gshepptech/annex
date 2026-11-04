@@ -10,6 +10,7 @@ import { fileLink, renderEntry } from "./terminal.ts";
 import { RunPanel } from "./runpanel.ts";
 import { MODELS } from "./newsession.ts";
 import { TERMINAL_ONLY, needsTerminal } from "./slash.ts";
+import { signedOut } from "./signedout.ts";
 
 const MODE_LABEL: Record<Mode, string> = { default: "Ask before acting", acceptEdits: "Accept edits", plan: "Plan only", bypassPermissions: "Don't ask" };
 
@@ -46,12 +47,20 @@ export class LiveView {
   onGone: (sessionId: string | null) => void = () => {};
   // move this conversation to a terminal pane (`claude --resume`), with the command to type there
   onTerminal: (command: string | null) => void = () => {};
+  // Claude Code is signed out: log in, in a terminal pane
+  onLogin: () => void = () => {};
+  private signin = h(
+    "div",
+    { class: "notice warn signin", role: "alert", hidden: true },
+    h("span", {}, h("b", {}, "Claude Code is signed out."), " Log in, then send your message again."),
+    h("button", { class: "btn primary", type: "button", onclick: () => this.onLogin() }, "Log in"),
+  );
 
   constructor(onBack: () => void, onChange: () => void, onPrompt: (tool: string) => void = () => {}) {
     this.onBack = onBack;
     this.onChange = onChange;
     this.onPrompt = onPrompt;
-    this.el.append(this.head, this.screen, this.cards, this.runBox, this.foot);
+    this.el.append(this.head, this.screen, this.signin, this.cards, this.runBox, this.foot);
     this.runBox.append(this.run.el);
     this.runBox.addEventListener("toggle", () => (this.runBox.open && this.cwd ? this.run.show({ folder: this.cwd }) : this.run.hide()));
     this.screen.addEventListener("scroll", () => {
@@ -159,6 +168,7 @@ export class LiveView {
     }
     this.partialEl.replaceChildren(...(this.partial ? [h("span", { class: "mk" }, "⏺"), h("span", { class: "body" }, this.partial)] : []));
     if (this.error) this.screen.append(h("div", { class: "ln error" }, h("span", { class: "mk" }, "✗"), h("span", { class: "body" }, this.error)));
+    this.signin.hidden = !signedOut(this.entries, this.error);
     this.drawCards();
     if (this.stick) this.screen.scrollTop = this.screen.scrollHeight;
     const closed = this.status === "closed";

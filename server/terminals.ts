@@ -13,6 +13,7 @@ import { chmodSync, existsSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { TerminalView, TerminalUpdate } from "./api-types.ts";
+import { fixCommand, UnknownFix } from "./setup.ts";
 export type { TerminalView, TerminalUpdate };
 
 export class TerminalError extends Error {}
@@ -43,11 +44,12 @@ export class Terminals {
   private terms = new Map<string, Term>();
   // conversations a claude terminal here drove and has since let go of
   private ran = new Set<string>();
-  private opts: { claude: string; shell: string; shellArgs: string[]; spawn: SpawnPty | null; max: number; keep: number };
+  private opts: { claude: string; shell: string; shellArgs: string[]; spawn: SpawnPty | null; max: number; keep: number; fixes: typeof fixCommand };
 
-  constructor(opts: { claude: string; shell?: string; shellArgs?: string[]; spawn?: SpawnPty; max?: number; keep?: number }) {
+  constructor(opts: { claude: string; shell?: string; shellArgs?: string[]; spawn?: SpawnPty; max?: number; keep?: number; fixes?: typeof fixCommand }) {
     this.opts = {
       claude: opts.claude,
+      fixes: opts.fixes ?? fixCommand,
       shell: opts.shell ?? userShell(),
       shellArgs: opts.shellArgs ?? ["-l"],
       spawn: opts.spawn ?? null,
@@ -77,21 +79,32 @@ export class Terminals {
   }
 
   // Your login shell in `cwd`; with `claude`, Claude Code continuing `resume` (or a new
-  // conversation) started through that shell, so your login PATH and environment apply.
-  open(o: { cwd: string; claude?: { resume: string | null } }): TerminalView {
+  // conversation) started through that shell, so your login PATH and environment apply. With
+  // `setup`, one of setup.ts's fixes runs first and your shell stays open after it.
+  open(o: { cwd: string; claude?: { resume: string | null }; setup?: string }): TerminalView {
     if (!existsSync(o.cwd) || !statSync(o.cwd).isDirectory()) throw new TerminalError(`${o.cwd} is not a folder`);
     if ([...this.terms.values()].filter((t) => t.status === "running").length >= this.opts.max) throw new TerminalError(`${this.opts.max} terminals are open already. Close one first.`);
     const resume = o.claude?.resume ?? null;
     if (resume !== null && !UUID.test(resume)) throw new TerminalError("That is not a Claude session id");
     if (resume && this.bySession(resume)) throw new TerminalError("That conversation is open in a terminal already");
-    // the id and the claude path go in as $1 and $0: nothing is pasted into the shell's command
+    let fix: { label: string; command: string } | null = null;
+    try {
+      fix = o.setup === undefined ? null : this.opts.fixes(o.setup);
+    } catch (err) {
+      if (err instanceof UnknownFix) throw new TerminalError(err.message);
+      throw err;
+    }
+    // the id and the claude path go in as $1 and $0: nothing is pasted into the shell's command;
+    // a fix's command is fixed text from setup.ts, and $0 is the shell to stay in afterwards
     const args = o.claude
       ? ["-l", "-c", resume ? 'exec "$0" --resume "$1"' : 'exec "$0"', this.opts.claude, ...(resume ? [resume] : [])]
-      : this.opts.shellArgs;
+      : fix
+        ? ["-l", "-c", `${fix.command}; echo; echo "Done. Close this terminal and press Check again in Annex."; exec "$0" -l`, this.opts.shell]
+        : this.opts.shellArgs;
     const pty = (this.opts.spawn ?? defaultSpawn())(this.opts.shell, args, { cwd: o.cwd, cols: 100, rows: 30, env: terminalEnv(process.env), name: "xterm-256color" });
     const t: Term = {
       id: randomUUID(), cwd: o.cwd, kind: o.claude ? "claude" : "shell", sessionId: resume,
-      title: o.claude ? (resume ? `claude --resume ${resume.slice(0, 8)}` : "claude") : basename(this.opts.shell),
+      title: o.claude ? (resume ? `claude --resume ${resume.slice(0, 8)}` : "claude") : fix ? fix.label : basename(this.opts.shell),
       status: "running", exitCode: null, startedAt: new Date().toISOString(),
       pty, closing: false, chunks: [], start: 0, end: 0, listeners: new Set(),
     };

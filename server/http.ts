@@ -19,6 +19,8 @@ import { Pairing } from "./pair.ts";
 import { LiveSessions, LiveError, MODES, defaultMode, type Mode } from "./live.ts";
 import { IDLE_MS, isReplying } from "./sessions.ts";
 import { Terminals, TerminalError } from "./terminals.ts";
+import { homedir } from "node:os";
+import { setupChecker, type SetupCheck } from "./setup.ts";
 
 export interface Bureau {
   state(): Promise<StateView>;
@@ -86,9 +88,10 @@ export function refuseForeign(req: IncomingMessage): string | null {
   return null;
 }
 
-export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; key?: string; runner?: Runner; backupsDir?: string; terminals?: Terminals; pairing?: Pairing }): Promise<Server> {
+export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger; port: number; webDir: string; claudeCommand?: string; engineUrl?: string; startedAt?: Date; live?: LiveSessions; key?: string; runner?: Runner; backupsDir?: string; terminals?: Terminals; pairing?: Pairing; setup?: (fresh?: boolean) => Promise<SetupCheck[]> }): Promise<Server> {
   const { bureau, store, webDir, logger } = opts;
   const pairing = opts.pairing ?? new Pairing();
+  const setup = opts.setup ?? setupChecker();
 
   const server = createServer(async (req, res) => {
     try {
@@ -105,6 +108,8 @@ export function startHttp(opts: { bureau: Bureau; store: Store; logger?: Logger;
       }
 
       if (req.method === "GET" && path === "/api/state") return json(res, 200, await bureau.state());
+      // first-run setup: Claude Code, its login, git and GitHub; ?fresh=1 is "Check again"
+      if (req.method === "GET" && path === "/api/setup") return json(res, 200, await setup(url.searchParams.get("fresh") === "1"));
       // a pairing link for another browser on this machine; the code and the key are never logged
       if (req.method === "POST" && path === "/api/pair") {
         if (!opts.key) throw new UserError("Annex has no key, so there is nothing to pair", 404);
@@ -431,19 +436,23 @@ async function liveRoutes(req: IncomingMessage, res: ServerResponse, url: URL, l
   return true;
 }
 
-// Folders Annex knows as yours: every git repo directly under ~/Projects, your offices' repos,
-// and the folders your recent sessions ran in. Project actions only ever take one of these.
-async function projectFolders(bureau: Bureau): Promise<string[]> {
-  const repos = (await bureau.state()).wings.map((w) => w.repo).filter((r): r is string => !!r);
+// Folders Annex knows as yours: the ones you added, your offices' repos, the folders your recent
+// sessions ran in and every git repo directly under ~/Projects, less those you forgot. Project
+// actions only ever take one of these.
+async function officeRepos(bureau: Bureau): Promise<string[]> {
+  return (await bureau.state()).wings.map((w) => w.repo).filter((r): r is string => !!r);
+}
+
+async function projectFolders(bureau: Bureau, store: Store): Promise<string[]> {
   const sessions = listSessions({ limit: 30, withinMs: 30 * 86_400_000 }).map((s) => s.cwd);
-  return P.knownProjects([...repos, ...sessions]);
+  return P.knownProjects({ ...store.projectFolders(), offices: await officeRepos(bureau), seen: sessions });
 }
 
 type Opts = Parameters<typeof startHttp>[0];
 
 async function projectRoutes(req: IncomingMessage, res: ServerResponse, url: URL, opts: Opts, bureau: Bureau): Promise<boolean> {
   const path = url.pathname;
-  const known = await projectFolders(bureau);
+  const known = await projectFolders(bureau, opts.store);
   const backups = opts.backupsDir ?? join(process.env.HOME ?? "", ".config", "annex", "backups");
   const claude = opts.claudeCommand ?? "claude";
   const root = (v: unknown) => {
@@ -488,8 +497,28 @@ async function projectRoutes(req: IncomingMessage, res: ServerResponse, url: URL
   if (req.method !== "POST") return false;
   const b = await readJson(req);
   switch (path) {
-    case "/api/projects/clone":
-      return (json(res, 201, { folder: await P.clone(str(b.url, "url"), typeof b.name === "string" ? b.name : null) }), true);
+    case "/api/projects/clone": {
+      const folder = await P.clone(str(b.url, "url"), typeof b.name === "string" ? b.name : null, typeof b.parent === "string" && b.parent.trim() ? expandHome(b.parent.trim()) : null);
+      opts.store.addProjectFolder(folder);
+      return (json(res, 201, { folder }), true);
+    }
+    // adding, forgetting and making projects change only Annex's list (and a new folder's own files)
+    case "/api/projects/add": {
+      const folder = P.existingFolder(expandHome(str(b.path, "path")));
+      opts.store.addProjectFolder(folder);
+      return (json(res, 201, { folder }), true);
+    }
+    case "/api/projects/forget": {
+      const folder = expandHome(str(b.path, "path")).replace(/(.)\/+$/, "$1");
+      if ((await officeRepos(bureau)).includes(folder)) throw new P.ProjectError("An office works in that folder, so it stays while the office does");
+      opts.store.forgetProjectFolder(folder);
+      return (json(res, 200, { ok: true }), true);
+    }
+    case "/api/projects/create": {
+      const folder = await P.createProject(expandHome(str(b.parent, "parent")), str(b.name, "name"));
+      opts.store.addProjectFolder(folder);
+      return (json(res, 201, { folder }), true);
+    }
     case "/api/projects/switch": {
       const r = root(b.root);
       if (inUse(r)) throw new UserError("A live session or a run is using that folder. Close or stop it first.", 409);
@@ -574,6 +603,8 @@ async function terminalRoutes(req: IncomingMessage, res: ServerResponse, url: UR
       if (opened) return (json(res, 200, opened), true);
       return (json(res, 201, terms.open({ cwd: l.cwd, claude: { resume: l.sessionId } })), true);
     }
+    // a setup fix, named by its id; the command comes from setup.ts, never from the request
+    if (typeof body.setup === "string") return (json(res, 201, terms.open({ cwd: homedir(), setup: body.setup })), true);
     const cwd = typeof body.cwd === "string" ? expandHome(body.cwd.trim()) : "";
     if (!cwd.startsWith("/")) throw new UserError("Name the folder by its full path (or start it with ~/)", 400);
     return (json(res, 201, terms.open({ cwd })), true);
