@@ -5,12 +5,12 @@
 //   npm run up
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
+import { existsSync, openSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { moveFromOldName } from "../server/rename.ts";
+import { CODE_ROOT as root, HOME, ensureHome } from "../server/paths.ts";
 
-const root = join(import.meta.dirname, "..");
-for (const step of moveFromOldName(root)) console.log(`[annex] ${step}`);
+for (const step of moveFromOldName(HOME)) console.log(`[annex] ${step}`);
 const engine = process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100";
 const children: ChildProcess[] = [];
 
@@ -36,18 +36,20 @@ const stop = () => {
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 
-mkdirSync(join(root, ".annex", "logs"), { recursive: true });
+ensureHome();
 
 if (await healthy()) {
   console.log(`[up] Paperclip is already running at ${engine}`);
 } else {
-  if (!existsSync(join(root, "runtime", "node_modules", ".bin", "paperclipai"))) {
+  const paperclip = join(root, "runtime", "node_modules", "paperclipai", "dist", "index.js");
+  if (!existsSync(paperclip)) {
     console.log("[up] installing the pinned Paperclip engine (first run only)...");
     await new Promise((resolve, reject) => run("npm", ["install", "--no-fund", "--no-audit"], join(root, "runtime")).on("exit", (code) => (code === 0 ? resolve(null) : reject(new Error(`npm install exited ${code}`)))));
   }
-  const log = join(root, ".annex", "logs", "paperclip.log");
+  const log = join(HOME, ".annex", "logs", "paperclip.log");
   console.log(`[up] starting Paperclip; its log is ${log}`);
-  run("npx", ["paperclipai", "run", "--data-dir", join(root, ".paperclip")], join(root, "runtime"), log);
+  // the same node that runs this script, so the app's bundled node runs the engine too
+  run(process.execPath, [paperclip, "run", "--data-dir", join(HOME, ".paperclip")], join(root, "runtime"), log);
   const deadline = Date.now() + 180_000;
   while (!(await healthy())) {
     if (Date.now() > deadline) {
@@ -64,12 +66,13 @@ if (await healthy()) {
 const built = join(root, "web", "dist", "index.html");
 const newestSource = (dir: string): number =>
   readdirSync(dir, { withFileTypes: true }).reduce((t, e) => Math.max(t, e.isDirectory() ? newestSource(join(dir, e.name)) : statSync(join(dir, e.name)).mtimeMs), 0);
-if (!existsSync(built) || statSync(built).mtimeMs < Math.max(newestSource(join(root, "web", "src")), statSync(join(root, "web", "index.html")).mtimeMs)) {
+// the app ships the page built and no source, so only a checkout rebuilds it
+if (existsSync(join(root, "web", "src")) && (!existsSync(built) || statSync(built).mtimeMs < Math.max(newestSource(join(root, "web", "src")), statSync(join(root, "web", "index.html")).mtimeMs))) {
   console.log("[up] building the office page...");
   await new Promise((resolve) => run("npx", ["vite", "build", "web"], root).on("exit", resolve));
 }
 
-run(process.execPath, [join(root, "server", "main.ts")], root).on("exit", (code) => {
+run(process.execPath, [join(root, "server", "main.ts")], HOME).on("exit", (code) => {
   console.log(`[up] Annex exited (${code})`);
   stop();
 });

@@ -5,7 +5,9 @@
 //   npm run service:status     say whether it is loaded
 //
 // The service runs `scripts/up.ts`, the same thing `npm run up` does; its output goes to
-// .annex/logs/service.log.
+// .annex/logs/service.log. Run from a checkout, it runs that checkout's code. Annex.app runs this
+// script from inside its bundle on first launch, so the service runs the app's own node and code,
+// with the data folder in ANNEX_HOME.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -13,18 +15,20 @@ import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
 import { loadOrCreateKey, openLink } from "../server/key.ts";
 import { moveFromOldName } from "../server/rename.ts";
+import { BUNDLED, CODE_ROOT as root, HOME } from "../server/paths.ts";
 
 const LABEL = "dev.annex.office";
-const root = join(import.meta.dirname, "..");
 // the login service from before the rename to Annex
 const OLD_LABEL = "dev.annex.office";
 const plist = join(homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 const domain = `gui/${userInfo().uid}`;
-const log = join(root, ".annex", "logs", "service.log");
+const log = join(HOME, ".annex", "logs", "service.log");
 
 // A versioned Cellar path (/opt/homebrew/Cellar/node/26.x/bin/node) disappears on brew upgrade;
 // prefer the stable link that upgrades follow.
 function stableNode(): string {
+  // the app's node lives in its bundle and moves with it
+  if (BUNDLED) return process.execPath;
   for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node"]) if (existsSync(p)) return p;
   return process.execPath;
 }
@@ -49,8 +53,8 @@ if (cmd === "install") {
     if (existsSync(oldPlist)) rmSync(oldPlist);
     console.log(`Removed the old login service ${OLD_LABEL}.`);
   }
-  for (const step of moveFromOldName(root)) console.log(`[annex] ${step}`);
-  mkdirSync(join(root, ".annex", "logs"), { recursive: true });
+  for (const step of moveFromOldName(HOME)) console.log(`[annex] ${step}`);
+  mkdirSync(join(HOME, ".annex", "logs"), { recursive: true });
   mkdirSync(join(homedir(), "Library", "LaunchAgents"), { recursive: true });
   // launchd starts with a bare PATH. Keep the PATH of the shell installing the service (where
   // claude, npx, gh, git credential helpers and plugins' MCP servers are found), plus the usual
@@ -69,11 +73,12 @@ if (cmd === "install") {
     <string>${esc(stableNode())}</string>
     <string>${esc(join(root, "scripts", "up.ts"))}</string>
   </array>
-  <key>WorkingDirectory</key><string>${esc(root)}</string>
+  <key>WorkingDirectory</key><string>${esc(HOME)}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key><string>${esc(path)}</string>
     <key>HOME</key><string>${esc(homedir())}</string>
+    <key>ANNEX_HOME</key><string>${esc(HOME)}</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -93,7 +98,8 @@ if (cmd === "install") {
   }
   console.log(`Installed ${plist}. Annex starts at login and restarts if it exits; its log is ${log}.`);
   // open it in the browser with its key once it answers, so this browser never needs a terminal for it
-  for (let i = 0; i < 90; i++) {
+  // the app that ran this opens itself
+  for (let i = 0; i < 90 && !process.env.ANNEX_FROM_APP; i++) {
     try {
       execFileSync("curl", ["-sf", "-o", "/dev/null", "http://127.0.0.1:4300/api/health"]);
       // Annex.app reads the key itself; without it, the browser gets a link that carries the key once

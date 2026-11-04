@@ -10,7 +10,34 @@ A task counts as done only when Annex's own run of its done check passes in the 
 a separate reviewer approves the diff, and the merge into the wing's integration branch passes
 the check again. On screen, that is when the red VERIFIED stamp lands.
 
-## Run it
+## Install the app
+
+Annex.app carries everything it runs: its own Node, the server, and the Paperclip engine. The only
+thing the Mac needs is Claude Code, installed and logged in with your subscription.
+
+1. Open `Annex.dmg` and drag Annex to Applications.
+2. Open Annex. The first time, it installs its login service and starts the engine (a minute or
+   two); after that it starts at login and the app just opens.
+
+Your data lives in `~/Library/Application Support/Annex` (offices in `wings/`, the database and
+logs in `.annex/`). To keep it somewhere else, put that folder's path in `~/.config/annex/home`
+before the first launch. Annex › Run Annex From This App… switches a Mac that ran Annex from a
+checkout over to the app.
+
+The build is signed for the Mac that built it, not with an Apple Developer ID, so on another Mac
+macOS refuses it as downloaded from the internet. Right-click Annex and choose Open once, or run
+`xattr -dr com.apple.quarantine /Applications/Annex.app`. A Developer ID and notarization remove
+that step.
+
+Build it from a checkout (needs Xcode for the Swift compiler):
+
+```sh
+npm install
+npm run app:dmg       # .annex/app/Annex.dmg, about 1.3 GB unpacked
+npm run app:install   # or build and copy straight to /Applications
+```
+
+## Run it from a checkout
 
 You need Node 24.11 or newer and Claude Code logged in with your subscription.
 

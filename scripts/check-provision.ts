@@ -7,7 +7,7 @@ import { loadWings } from "../server/wing.ts";
 import { Paperclip } from "../server/engine/paperclip.ts";
 import { provision, writeAgentSettings } from "../server/provision.ts";
 
-const root = join(import.meta.dirname, "..");
+import { HOME as root } from "../server/paths.ts";
 const stateDir = join(root, ".annex");
 const store = new Store(join(stateDir, "annex.db"));
 const pc = new Paperclip();

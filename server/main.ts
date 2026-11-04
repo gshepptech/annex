@@ -23,10 +23,11 @@ import { sessionTranscript } from "./sessions.ts";
 import { recordUsage } from "./usage.ts";
 import { loadOrCreateKey } from "./key.ts";
 import { moveFromOldName } from "./rename.ts";
+import { CODE_ROOT, HOME, WINGS_DIR, ensureHome } from "./paths.ts";
 
-const root = join(import.meta.dirname, "..");
-for (const step of moveFromOldName(root)) console.log(`[annex] ${step}`);
-const stateDir = join(root, ".annex");
+for (const step of moveFromOldName(HOME)) console.log(`[annex] ${step}`);
+ensureHome();
+const stateDir = join(HOME, ".annex");
 const port = Number(process.env.ANNEX_PORT ?? 4300);
 
 // Prefer a real install over wrapper shims some terminals put first on PATH.
@@ -40,7 +41,7 @@ function findClaude(): string {
 
 let wings;
 try {
-  wings = loadWings(join(root, "wings"));
+  wings = loadWings(WINGS_DIR);
 } catch (err) {
   if (err instanceof WingFileError) {
     console.error(`[annex] ${err.message}`);
@@ -59,7 +60,7 @@ const bureau = new Bureau({
   pc,
   wings,
   stateDir,
-  wingsDir: join(root, "wings"),
+  wingsDir: WINGS_DIR,
   logger,
   claudeCommand,
   settingsFile,
@@ -71,7 +72,7 @@ const live = new LiveSessions({ claude: claudeCommand, annexUrl: `http://127.0.0
 const key = loadOrCreateKey();
 const runner = new Runner(stateDir);
 const terminals = new Terminals({ claude: claudeCommand });
-await startHttp({ terminals, backupsDir: join(stateDir, "backups", "config"), runner, key, live, bureau, store, logger, port, webDir: join(root, "web", "dist"), claudeCommand, engineUrl: process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100", startedAt });
+await startHttp({ terminals, backupsDir: join(stateDir, "backups", "config"), runner, key, live, bureau, store, logger, port, webDir: join(CODE_ROOT, "web", "dist"), claudeCommand, engineUrl: process.env.PAPERCLIP_URL ?? "http://127.0.0.1:3100", startedAt });
 
 // a copy of the database a day, seven kept
 const backup = () => {
@@ -93,12 +94,12 @@ await bureau.start();
 // A wing file edited by hand is applied without a restart; editors save in bursts, so wait for
 // the file to settle first.
 const pending = new Map<string, ReturnType<typeof setTimeout>>();
-watch(join(root, "wings"), { recursive: true }, (_e, file) => {
+watch(WINGS_DIR, { recursive: true }, (_e, file) => {
   if (!file?.endsWith("wing.toml")) return;
   const id = file.split(/[\\/]/)[0]!;
   clearTimeout(pending.get(id));
   pending.set(id, setTimeout(() => {
-    const path = join(root, "wings", id, "wing.toml");
+    const path = join(WINGS_DIR, id, "wing.toml");
     if (existsSync(path)) void bureau.reloadFile(id, readFileSync(path, "utf8"));
   }, 400));
 });

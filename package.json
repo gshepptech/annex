@@ -18,7 +18,8 @@
     "service:status": "node scripts/service.ts status",
     "open": "node scripts/open.ts",
     "app": "node scripts/app.ts build",
-    "app:install": "node scripts/app.ts install"
+    "app:install": "node scripts/app.ts install",
+    "app:dmg": "node scripts/app.ts dmg"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

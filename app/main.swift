@@ -1,5 +1,7 @@
-// Annex.app: Annex in its own window instead of a browser tab. The server keeps running as the
-// login service (npm run service:install); this app only shows it. It reads the key from
+// Annex.app: Annex in its own window instead of a browser tab. The server runs as a login service.
+// A self-contained build carries its own node, Annex's server and the Paperclip engine in
+// Contents/Resources; on first launch it installs that login service itself, with the data in
+// ~/Library/Application Support/Annex (or the folder named in ~/.config/annex/home). It reads the key from
 // ~/.config/annex/key itself, so it never needs pairing, and it turns the page's alerts and its
 // "waiting on you" count into macOS notifications and a Dock badge.
 
@@ -9,7 +11,25 @@ import WebKit
 
 let port = ProcessInfo.processInfo.environment["ANNEX_PORT"] ?? "4300"
 let base = URL(string: "http://127.0.0.1:\(port)/")!
-let keyFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/annex/key")
+let userHome = FileManager.default.homeDirectoryForCurrentUser
+let keyFile = userHome.appendingPathComponent(".config/annex/key")
+let servicePlist = userHome.appendingPathComponent("Library/LaunchAgents/dev.annex.office.plist")
+
+// Runs a command through the person's login shell, so it sees the PATH their terminal has
+// (claude, git, npm) rather than the bare one an app gets from Finder.
+func loginShell(_ command: String) -> (ok: Bool, out: String) {
+  let p = Process()
+  p.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
+  p.arguments = ["-lc", command]
+  let pipe = Pipe()
+  p.standardOutput = pipe
+  p.standardError = FileHandle.nullDevice
+  do { try p.run() } catch { return (false, "") }
+  let data = pipe.fileHandleForReading.readDataToEndOfFile()
+  p.waitUntilExit()
+  let out = String(data: data, encoding: .utf8) ?? ""
+  return (p.terminationStatus == 0, out.trimmingCharacters(in: .whitespacesAndNewlines))
+}
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate,
   WKScriptMessageHandler, UNUserNotificationCenterDelegate
@@ -17,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
   var window: NSWindow!
   var web: WKWebView!
   var retry: Timer?
+  var starting = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.mainMenu = buildMenu()
@@ -44,7 +65,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     UNUserNotificationCenter.current().delegate = self
     UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    if !FileManager.default.fileExists(atPath: servicePlist.path) { installService(confirm: false) }
     load()
+  }
+
+  // MARK: the login service this app carries
+
+  var bundledNode: URL? {
+    let node = Bundle.main.resourceURL!.appendingPathComponent("node/bin/node")
+    return FileManager.default.fileExists(atPath: node.path) ? node : nil
+  }
+
+  func dataHome() -> String {
+    let named = userHome.appendingPathComponent(".config/annex/home")
+    if let home = try? String(contentsOf: named, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+      !home.isEmpty
+    {
+      return home
+    }
+    return userHome.appendingPathComponent("Library/Application Support/Annex").path
+  }
+
+  @objc func useBundledService(_ sender: Any?) { installService(confirm: true) }
+
+  func installService(confirm: Bool) {
+    guard let node = bundledNode else { return }
+    if !loginShell("command -v claude").ok {
+      let a = NSAlert()
+      a.messageText = "Annex needs Claude Code"
+      a.informativeText =
+        "Annex runs your own Claude Code with your subscription. Install it, run claude once in a terminal to log in, then open Annex again."
+      a.addButton(withTitle: "Get Claude Code")
+      a.addButton(withTitle: "Later")
+      if a.runModal() == .alertFirstButtonReturn {
+        NSWorkspace.shared.open(URL(string: "https://claude.com/product/claude-code")!)
+      }
+      return
+    }
+    if confirm {
+      let a = NSAlert()
+      a.messageText = "Run Annex from this app?"
+      a.informativeText =
+        "The login service will run the server inside this app and keep your data in \(dataHome()). Annex restarts once."
+      a.addButton(withTitle: "Use This App")
+      a.addButton(withTitle: "Cancel")
+      if a.runModal() != .alertFirstButtonReturn { return }
+    }
+    starting = true
+    let path = loginShell("printf %s \"$PATH\"").out
+    let script = Bundle.main.resourceURL!.appendingPathComponent("annex/scripts/service.ts")
+    var env = ProcessInfo.processInfo.environment
+    env["PATH"] = path.isEmpty ? "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin" : path
+    env["ANNEX_HOME"] = dataHome()
+    env["ANNEX_FROM_APP"] = "1"
+    let p = Process()
+    p.executableURL = node
+    p.arguments = [script.path, "install"]
+    p.environment = env
+    p.terminationHandler = { _ in DispatchQueue.main.async { self.load() } }
+    try? p.run()
   }
 
   // The key goes in the # once per load; the page stores it and takes it out of the address.
@@ -92,9 +171,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       """
       <html><body style="margin:0;height:100vh;display:grid;place-content:center;gap:10px;padding:24px;
       background:#08090a;color:#f7f8f8;font:15px/1.5 -apple-system,system-ui,sans-serif">
-      <h2 style="margin:0;font-weight:600;letter-spacing:-0.02em">Annex is not running</h2>
-      <p style="margin:0;color:#a0a4ab">It starts by itself with the login service. If it does not come back,
-      run <code>npm run service:install</code> in the Annex folder.</p>
+      <h2 style="margin:0;font-weight:600;letter-spacing:-0.02em">\(starting ? "Starting Annex" : "Annex is not running")</h2>
+      <p style="margin:0;color:#a0a4ab">\(starting
+        ? "The first start sets up the agent engine and its database, which takes a minute or two."
+        : "It starts by itself with the login service. If it does not come back, choose Annex, then Run Annex From This App.")</p>
       <p style="margin:0;color:#6f737b">Trying again every few seconds…</p></body></html>
       """, baseURL: nil)
     retry?.invalidate()
@@ -207,6 +287,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
       "Annex",
       [
         item("About Annex", #selector(NSApplication.orderFrontStandardAboutPanel(_:)), ""),
+        .separator(),
+        item("Run Annex From This App…", #selector(useBundledService(_:)), ""),
         .separator(),
         item("Hide Annex", #selector(NSApplication.hide(_:)), "h"),
         item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
