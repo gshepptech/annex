@@ -94,7 +94,7 @@ export function summarize(state: StateView): string {
       const crew = w.agents.filter((a) => a.role === "worker").length;
       const working = w.agents.filter((a) => a.status === "running").length;
       const status = w.offline ? `offline (${w.offline})` : w.paused ? "paused" : w.held ? `closed until ${w.held.until ?? "?"} (${w.held.reason})` : w.mode === "autonomous" ? "on its own" : "with the person";
-      const repo = w.repo ? w.repo.replace(/^\/Users\/[^/]+/, "~") : "no repo";
+      const repo = w.repo ? w.repo.replace(/^\/(Users|home)\/[^/]+/, "~") : "no repo";
       return `- ${w.id} "${w.name}": ${status}; ${repo}; crew ${crew}, ${working} working; ${w.tasks.length} open, ${w.filedCount} verified; ${w.asks.length} asks waiting${w.charter ? `; charter: ${w.charter.split("\n").filter(Boolean)[0]?.slice(0, 90)}` : ""}`;
     })
     .join("\n");
