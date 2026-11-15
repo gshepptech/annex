@@ -1,5 +1,5 @@
 // A wing is defined by wings/<id>/wing.toml. This file is the whole extension point: a new kind
-// of work is a new wing file, with no code change (design D10).
+// of work is a new wing file, with no code change.
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";

@@ -1,5 +1,5 @@
 // The office as a model. A snapshot from the server places everyone; after that, every change on
-// screen comes from applying one stored event (design D8). Nothing moves on a timer of its own:
+// screen comes from applying one stored event. Nothing moves on a timer of its own:
 // an agent with nothing to do sits at its desk.
 
 import type { AnnexEvent } from "../../../server/events.ts";

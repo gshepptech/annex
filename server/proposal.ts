@@ -1,4 +1,4 @@
-// The lead proposes; this decides. Every rule in design D5 that can be checked in code is checked
+// The lead proposes; this decides. Every proposal rule that can be checked in code is checked
 // here, so a lead that ignores its instructions produces rejected proposals, not busywork.
 
 import { PROPOSAL_FENCE, BRIEF_FENCE } from "./prompts.ts";

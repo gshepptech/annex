@@ -127,7 +127,7 @@ const MIGRATIONS: string[] = [
   alter table wake add column signals text;
   `,
   `
-  -- work the lead wants the person to say yes to first: a raised hand (design D3)
+  -- work the lead wants the person to say yes to first: a raised hand
   create table ask (
     id integer primary key,
     wing_id text not null references wing(id),

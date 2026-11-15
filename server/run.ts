@@ -1,5 +1,5 @@
 // Annex runs done checks and signals itself, in a shell, and keeps the exit code and the end of
-// the output. An agent's own report that "tests pass" is never used in place of this (design D6).
+// the output. An agent's own report that "tests pass" is never used in place of this.
 
 import { spawn } from "node:child_process";
 

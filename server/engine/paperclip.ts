@@ -1,4 +1,4 @@
-// Every call Annex makes to Paperclip lives in this file (design D1). Request bodies are the
+// Every call Annex makes to Paperclip lives in this file. Request bodies are the
 // ones Annex was tested against. Types cover only the fields Annex reads.
 
 export const BOARD_USER_ID = "local-board";
@@ -92,7 +92,7 @@ export interface AgentSpec {
   model: string;
   instructions: string;
   claudeCommand: string;
-  // Claude settings file that hides the person's global CLAUDE.md and auto-memory (design D12)
+  // Claude settings file that hides the person's global CLAUDE.md and auto-memory
   settingsFile: string;
   allowedTools: string[];
   maxConcurrentRuns?: number;
@@ -365,7 +365,7 @@ function agentConfig(a: AgentSpec) {
         ...(a.readDirs ?? []).flatMap((d) => ["--add-dir", d]),
       ],
     },
-    // Annex runs the wake timer itself (design D5), so Paperclip's stays off.
+    // Annex runs the wake timer itself, so Paperclip's stays off.
     runtimeConfig: { heartbeat: { enabled: false, intervalSec: 0, maxConcurrentRuns: a.maxConcurrentRuns ?? 1 } },
     instructionsBundle: { entryFile: "AGENTS.md", files: { "AGENTS.md": a.instructions } },
   };

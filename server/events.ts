@@ -1,4 +1,4 @@
-// The office only moves when one of these happens (design D8). Paperclip's own events are mapped
+// The office only moves when one of these happens. Paperclip's own events are mapped
 // onto this vocabulary before they are stored, so the browser never needs to know Paperclip.
 
 export const EVENT_KINDS = [

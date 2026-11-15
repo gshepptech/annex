@@ -1,4 +1,4 @@
-// Every task gets its own branch and worktree, cut from the wing's integration branch (design D7).
+// Every task gets its own branch and worktree, cut from the wing's integration branch.
 // Annex never checks out anything in the person's own working copy, never pushes, and never
 // touches the base branch. Verified work is merged into the integration branch inside Annex's own
 // worktree for it, and the person merges that branch when they choose to.

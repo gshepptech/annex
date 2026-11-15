@@ -442,7 +442,7 @@ export class Bureau implements BureauApi {
     return (mine[mine.length - 1]?.body ?? "").slice(0, 400);
   }
 
-  // ----- the done check gate (design D6) ---------------------------------------------------
+  // ----- the done check gate ---------------------------------------------------
 
   private async workspaceFor(rt: Runtime, issueId: string, includeArchived = false) {
     const all = await this.pc.executionWorkspaces(rt.prov!.companyId);
@@ -523,7 +523,7 @@ export class Bureau implements BureauApi {
     return runCommand(command, cwd, rt.wing.settings.checkTimeoutSec * 1000);
   }
 
-  // ----- merging verified work (design D7) -------------------------------------------------
+  // ----- merging verified work -------------------------------------------------
 
   private async merge(rt: Runtime, issue: Issue, task: TaskRow) {
     const key = `merge:${issue.id}`;
@@ -575,7 +575,7 @@ export class Bureau implements BureauApi {
     this.emit({ wingId: rt.wing.id, kind: "task.stopped", actor: "annex", taskId: issue.id, payload: { title: task.title, reason } });
   }
 
-  // ----- the wake routine (design D5) ------------------------------------------------------
+  // ----- the wake routine ------------------------------------------------------
 
   private async runsInLastHour(rt: Runtime): Promise<number> {
     const since = this.now().getTime() - 3600_000;
@@ -747,7 +747,7 @@ export class Bureau implements BureauApi {
           continue;
         }
         if (v.task.askFirst) {
-          // a raised hand: held until the person says yes (design D3)
+          // a raised hand: held until the person says yes
           const ask = this.store.addAsk(wingId, v.task as unknown as Record<string, unknown>, v.task.askReason || "The lead wants your yes before starting this.");
           this.emit({ wingId, kind: "approval.requested", actor: lead.id, taskId: null, payload: { title: `Approve "${v.task.title}"`, askId: ask.id, reason: ask.reason } });
           continue;
@@ -830,8 +830,8 @@ export class Bureau implements BureauApi {
     return { from, to, head: sha, files };
   }
 
-  // The person merges an office's verified work into their own branch (design D7 kept the merge
-  // in their hands as a command to copy; this is the same merge, theirs, from a button). Only the
+  // The person merges an office's verified work into their own branch (the same merge
+  // the Ready to merge tab offers as a command to copy, run from a button). Only the
   // commit they confirmed is merged: newer work on the branch means they have not reviewed it.
   async mergeIntoBase(wingId: string, sha: string): Promise<{ commit: string; where: string }> {
     const rt = this.ready(wingId);
@@ -963,7 +963,7 @@ export class Bureau implements BureauApi {
     }
   }
 
-  // ----- chat and the handoff (design D3, D4) ----------------------------------------------
+  // ----- chat and the handoff ----------------------------------------------
 
   private async chatIssue(rt: Runtime & { prov: Provisioned }): Promise<string> {
     const row = this.store.wing(rt.wing.id)!;
