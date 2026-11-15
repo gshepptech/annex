@@ -10,7 +10,7 @@ This page is for someone changing the code. To use Annex, start with `getting-st
 |---|---|---|
 | Annex.app | `app/main.swift` | A native window (WebKit) on the local server. Reads the key, installs the login service on first launch, turns page alerts into notifications and a Dock badge, opens the folder picker. |
 | Login service | `scripts/service.ts`, `scripts/up.ts` | A macOS LaunchAgent (`dev.annex.office`) that starts the engine, then the server, at login and after a crash. |
-| Server | `server/` | Node 26 runs the TypeScript files directly. Plain `node:http` with server-sent events, `node:sqlite` for state. Listens on 127.0.0.1:4300. |
+| Server | `server/` | Node (24.11 or newer; the app bundles 26) runs the TypeScript files directly. Plain `node:http` with server-sent events, `node:sqlite` for state. Listens on 127.0.0.1:4300. |
 | Page | `web/src/` | Plain TypeScript and DOM (`dom.ts`), built by Vite. The offices are drawn on a canvas (`web/src/office`). |
 | Engine | `runtime/` | Paperclip, pinned. It runs the agents' heartbeats and holds their issues; it listens on 127.0.0.1:3100 and keeps its own embedded Postgres. |
 
@@ -45,7 +45,7 @@ Code and data are separate (`server/paths.ts`). Data is in `ANNEX_HOME`: by defa
 
 ## Offices
 
-- **The bureau** (`bureau.ts`) ticks every few seconds:
+- **The bureau** (`bureau.ts`) reacts to engine events and polls every 15 seconds:
   - it reads each office's state from the engine (`engine/paperclip.ts`);
   - it wakes leads, files the tasks they propose (`proposal.ts`) and runs each task's done check
     in its worktree;
