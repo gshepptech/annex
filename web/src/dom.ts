@@ -15,3 +15,9 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   for (const c of children) if (c !== null && c !== undefined && c !== false) el.append(c);
   return el;
 }
+
+// The last two parts of a long path, for labels with little room.
+export function shortPath(p: string): string {
+  const parts = p.split("/");
+  return parts.length > 3 ? `…/${parts.slice(-2).join("/")}` : p;
+}

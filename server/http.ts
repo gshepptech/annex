@@ -21,6 +21,7 @@ import { IDLE_MS, isReplying } from "./sessions.ts";
 import { Terminals, TerminalError } from "./terminals.ts";
 import { homedir } from "node:os";
 import { setupChecker, type SetupCheck } from "./setup.ts";
+import { expandHome } from "./paths.ts";
 
 export interface Bureau {
   state(): Promise<StateView>;
@@ -662,10 +663,6 @@ function under(folder: string, root: string): boolean {
 // terminal app's would not.
 function claudeTerminalIn(terms: Terminals | undefined, root: string): boolean {
   return !!terms?.list().some((t) => t.kind === "claude" && t.status === "running" && under(t.cwd, root));
-}
-
-function expandHome(p: string): string {
-  return p === "~" || p.startsWith("~/") ? `${process.env.HOME ?? ""}${p.slice(1)}` : p;
 }
 
 function streamEvents(req: IncomingMessage, res: ServerResponse, store: Store, after: number) {

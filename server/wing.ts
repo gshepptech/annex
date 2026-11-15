@@ -3,11 +3,11 @@
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
 import { parse } from "smol-toml";
 
 import type { Mode } from "./api-types.ts";
 import { PLUGIN_ID } from "./plugins.ts";
+import { expandHome } from "./paths.ts";
 export type { Mode };
 
 export interface Signal {
@@ -200,10 +200,6 @@ export function inQuietHours(q: QuietHours | null, date: Date): boolean {
   if (!q) return false;
   const now = date.getHours() * 60 + date.getMinutes();
   return q.startMin <= q.endMin ? now >= q.startMin && now < q.endMin : now >= q.startMin || now < q.endMin;
-}
-
-function expandHome(p: string): string {
-  return p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p;
 }
 
 function str(v: unknown, field: string): string | undefined {

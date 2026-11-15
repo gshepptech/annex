@@ -3,6 +3,7 @@
 // login service passes ANNEX_HOME (by default ~/Library/Application Support/Annex).
 
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const CODE_ROOT = join(import.meta.dirname, "..");
@@ -15,4 +16,8 @@ export const BUNDLED = CODE_ROOT.includes(".app/Contents/");
 export function ensureHome() {
   mkdirSync(join(HOME, ".annex", "logs"), { recursive: true });
   mkdirSync(WINGS_DIR, { recursive: true });
+}
+
+export function expandHome(p: string): string {
+  return p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p;
 }

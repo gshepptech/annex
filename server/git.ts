@@ -275,8 +275,9 @@ async function checkedOutAt(repo: string, branch: string): Promise<string | null
   return null;
 }
 
-async function midOperation(worktree: string): Promise<string | null> {
-  const gitDir = (await git(worktree, "rev-parse", "--absolute-git-dir")).trim();
+// The operation a checkout is stopped in the middle of (merge, rebase, ...), or null.
+export async function midOperation(worktree: string): Promise<string | null> {
+  const gitDir = await git(worktree, "rev-parse", "--absolute-git-dir");
   const marks: [string, string][] = [["MERGE_HEAD", "merge"], ["rebase-merge", "rebase"], ["rebase-apply", "rebase"], ["CHERRY_PICK_HEAD", "cherry-pick"], ["REVERT_HEAD", "revert"], ["BISECT_LOG", "bisect"]];
   for (const [f, what] of marks) if (existsSync(join(gitDir, f))) return what;
   return null;

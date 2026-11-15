@@ -9,7 +9,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { TerminalView, TerminalUpdate } from "../../server/api-types.ts";
 import { post, withKey } from "./api.ts";
-import { h } from "./dom.ts";
+import { h, shortPath } from "./dom.ts";
 
 interface Tty {
   view: TerminalView;
@@ -216,9 +216,4 @@ export class TermPane {
     this.onChange();
     this.onBack();
   }
-}
-
-function shortPath(p: string): string {
-  const parts = p.split("/");
-  return parts.length > 3 ? `…/${parts.slice(-2).join("/")}` : p;
 }
