@@ -106,7 +106,6 @@ export class Room {
   // The nameplate's right side: when the lead next wakes, counting down, or why it will not.
   private tickNext() {
     const n = this.wing.nextWake;
-    const hhmm = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
     let text = "";
     let closed = false;
     // closed and paused are already on the badge and the door; the right side stays quiet

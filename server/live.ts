@@ -12,7 +12,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { randomBytes, randomUUID } from "node:crypto";
 import { sameKey } from "./key.ts";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { LIVE_MODES as MODES, type Entry, type LiveMode as Mode, type LivePrompt, type LiveView, type LiveUpdate } from "./api-types.ts";
