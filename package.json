@@ -2,7 +2,12 @@
   "name": "annex",
   "private": true,
   "type": "module",
-  "description": "An office of Claude agents you can watch. Wings, leads, crews, and two modes.",
+  "description": "A macOS app for running an office of Claude Code agents, with checked, reviewed and re-checked work.",
+  "author": "Garrett Sheppard",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gshepptech/annex.git"
+  },
   "engines": {
     "node": ">=24.11.0"
   },
