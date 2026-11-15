@@ -1,212 +1,161 @@
 # Annex
 
-An office of Claude agents you can watch. The building has wings; each wing has a lead, a crew
-and a reviewer. A wing is either **with you**, where you plan with its lead in a chat, or **on its
-own**, where the lead wakes on a timer, reads the wing's signals, and proposes work that Annex
-checks before anyone starts it. "Hand off" moves a wing from the first mode to the second;
-"Come back in" moves it back. Several wings run at once, in different modes.
+A macOS app for running an office of Claude Code agents, where work counts as done only after
+it is checked, reviewed and checked again.
 
-A task counts as done only when Annex's own run of its done check passes in the task's worktree,
-a separate reviewer approves the diff, and the merge into the wing's integration branch passes
-the check again. On screen, that is when the red VERIFIED stamp lands.
+![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)
+![TypeScript](https://img.shields.io/badge/language-TypeScript-3178c6)
+![Swift](https://img.shields.io/badge/app%20shell-Swift-f05138)
 
-## Install the app
+Annex organises Claude Code agents into wings. Each wing has a lead, a crew and a reviewer, and
+works on one repository. You can plan with a wing's lead in a chat, or hand the wing off so the
+lead wakes on a timer, reads the repo's signals and proposes work on its own. Every task runs in
+its own git worktree. A task is done only when Annex's own run of its check passes, a separate
+reviewer approves the diff, and the check passes again after the merge into the wing's
+integration branch. Annex never touches your checkout and never pushes.
 
-Annex.app carries everything it runs: its own Node, the server, and the Paperclip engine. Nothing
-else has to be on the Mac first: the first time it opens, its setup screen installs Claude Code,
-signs it in to your subscription and gets git, each step in a terminal inside Annex. The whole
-first run, for someone handed the dmg, is in [docs/getting-started.md](docs/getting-started.md).
+It is for people who want several agents working on real projects without trusting an agent's
+own claim that "tests pass".
 
-1. Open `Annex.dmg` and drag Annex to Applications.
-2. Open Annex. The first time, it installs its login service and starts the engine (a minute or
-   two); after that it starts at login and the app just opens.
+## Features
 
-Your data lives in `~/Library/Application Support/Annex` (offices in `wings/`, the database and
-logs in `.annex/`). To keep it somewhere else, put that folder's path in `~/.config/annex/home`
-before the first launch. Annex › Run Annex From This App… switches a Mac that ran Annex from a
-checkout over to the app.
+- **Wings with two modes.** "With you" plans in a chat with the lead; "on its own" wakes the lead
+  on a schedule. Several wings run at once, each in its own mode.
+- **One worktree per task.** Each task gets a branch cut from the wing's integration branch, so
+  crew members never share a working copy.
+- **A three-step done gate.** Annex runs the task's check in the worktree, a reviewer agent
+  approves the diff against the repo's `CLAUDE.md`, and the check runs again after the merge.
+- **Proposals Annex can reject.** A lead's proposed task must cite a charter line, quote real
+  signal output and carry a check command. Proposals that do not are thrown out in code.
+- **Sandboxed agents.** Every agent shell runs inside Claude Code's OS sandbox, limited to its
+  worktree, package caches and a short list of hosts.
+- **Your own sessions too.** Live Claude Code sessions, real terminals (node-pty and xterm.js),
+  a file editor and a projects list, all without leaving the app.
+- **One file per wing.** A wing is a `wing.toml`; edits are picked up without a restart.
 
-The build is signed for the Mac that built it, not with an Apple Developer ID, so on another Mac
-macOS refuses it as downloaded from the internet. Right-click Annex and choose Open once (on macOS
-15 and later: open it once, then Open Anyway in System Settings › Privacy & Security), or run
-`xattr -dr com.apple.quarantine /Applications/Annex.app`. A Developer ID and notarization remove
-that step.
+## Quick start
 
-Build it from a checkout (needs Xcode for the Swift compiler):
-
-```sh
-npm install
-npm run app:dmg       # .annex/app/Annex.dmg, about 1.3 GB unpacked
-npm run app:install   # or build and copy straight to /Applications
-```
-
-## Run it from a checkout
-
-You need Node 24.11 or newer and Claude Code logged in with your subscription.
+You need macOS, Node 24.11 or newer, and Claude Code signed in with your subscription.
 
 ```sh
+git clone https://github.com/gshepptech/annex.git
+cd annex
 npm install
-npm run up
+npm run up      # starts the engine, builds the page, runs the server on 127.0.0.1:4300
+npm run open    # opens the page in your browser with its access key
 ```
 
-`npm run up` starts the pinned Paperclip engine if it is not running (installing it the first
-time), waits for it, builds the page if it is missing or out of date, and runs Annex.
+Then add an office: copy `examples/wings/upkeep` into `wings/`, point its `[repo]` section at one
+of your projects, or use **+ New office** in the sidebar.
 
-**Open it with `npm run open`** the first time in a browser. Annex answers only a browser that
-has its key (kept in `~/.config/annex/key`); the link gives the page the key once and the
-browser keeps it. Without it the page says so. A second browser on this computer can also be
-paired from one that has Annex open: **Pair a browser** in the top bar makes a link that works
-once, for five minutes.
+To build the self-contained Mac app (needs Xcode for the Swift compiler):
 
-**Keep it running:** `npm run service:install` makes Annex a login service (macOS LaunchAgent):
-it starts at login and comes back by itself if it exits. `npm run service:status` and
-`npm run service:remove`. Its log is `.annex/logs/service.log`; the database is copied once a day
-to `.annex/backups` (seven kept). The top bar says when something is wrong (`/api/health`).
+```sh
+npm run app:install   # builds Annex.app and copies it to /Applications
+npm run app:dmg       # or builds .annex/app/Annex.dmg
+```
 
-To stop a hand-started Annex, press Ctrl-C where `npm run up` runs. With the service installed,
-use `npm run service:remove`. While working on the page, `npm run web:dev` serves it at :4301.
+The app carries its own Node, the server and the engine, and walks a new Mac through installing
+and signing in to Claude Code. See [docs/getting-started.md](docs/getting-started.md).
 
-## Working without the terminal
+## How it works
 
-- **New session** (top bar): Claude Code in any folder, on your own settings, the way `claude`
-  starts in a terminal. The answer streams in; a tool that needs your yes shows as a card (Allow,
-  Allow for the session, Deny with a reason); Stop ends a turn; the mode switches between asking,
-  accepting edits and planning; `/` completes slash commands, plugin commands included. Any of
-  your sessions under Your desk can be opened live once it has been quiet for a few minutes.
-- **Run the app**: in a live session ("Run the app") or an office's Run tab: package.json scripts
-  as buttons or any command, the output as it comes, the address it serves on, Stop.
-- **Ready to merge**: every file an office changed, each file's diff, and **Merge**, which merges
-  the exact commit you looked at, checks for conflicts first, and never touches a dirty checkout.
-- **Projects** (top bar): any folder can be a project. **Add a folder…**, **New project…** (a
-  new git repo wherever you choose) and **Clone…** (into `~/Projects` or a folder you choose); in
-  Annex.app folders are chosen in the Mac's own folder panel. Git repos directly in `~/Projects`, your offices'
-  repos and folders your recent sessions ran in are listed too; **Forget** takes one off the list
-  and never touches its files. Then: switch or create branches, **Publish** (push and
-  open a pull request; the commands are shown first, never a force-push), edit CLAUDE.md, the
-  project's and your own Claude settings and `.mcp.json` (validated, backed up, refused if the
-  file changed meanwhile), add or remove MCP servers, and turn plugins on for yourself.
-- **Files** (in Projects, or click a file path in a session, or **Open in your checkout** on a
-  file in Ready to merge): the project's files as a tree, with Find, and an editor (CodeMirror,
-  highlighting for TypeScript, JavaScript, JSON, Markdown, CSS, HTML, Python and Go, in both
-  themes). Cmd/Ctrl+S saves. The list is git's (tracked and untracked, not ignored). A save keeps
-  the file's line endings and BOM, backs up the old version (the newest 20 per file) and is
-  refused if the file changed on disk since you opened it, with Reload or Overwrite to choose
-  from. Binary, non-UTF-8 and files over 1 MB are not opened; paths never leave the project, and
-  `.git` and Annex's key folder are never opened.
-- **Terminal** (top bar, "Open a terminal here" in Projects): a real terminal in the page, your
-  login shell in a folder, with colours, full-screen programs and resizing. Several can be open;
-  each is listed under Your desk, keeps its recent output for when you come back, and ends when
-  you close it or Annex stops. Commands that only work in Claude Code's own screen (`/config`,
-  `/login`, `/status`, `/resume` and the like) show "opens in a terminal" in a live session's `/`
-  menu; choosing one, or **Open in terminal**, closes the live session and continues the same
-  conversation in `claude --resume` there. Terminals use `node-pty`: `npm install` warns that its
-  install script is not approved, which is fine; Annex needs only its prebuilt binary.
-- **Usage and alerts**: the top bar shows your plan's five-hour and weekly use as Claude last
-  reported it; each office shows its runs and minutes in the last five hours; **Turn on alerts**
-  for desktop notifications when something needs you while the tab is in the background.
+```mermaid
+flowchart LR
+  app["Annex.app<br/>Swift + WebKit shell"] <-->|"HTTP + SSE<br/>127.0.0.1:4300"| server
+  browser["Browser<br/>(paired with a key)"] <--> server
+  subgraph server ["Local server (Node, TypeScript)"]
+    bureau["Bureau<br/>wakes leads, checks proposals,<br/>runs done checks, merges"]
+    live["Live sessions<br/>and terminals"]
+  end
+  server <--> db[("SQLite<br/>node:sqlite")]
+  server <-->|"HTTP<br/>127.0.0.1:3100"| engine["Agent engine<br/>(Paperclip, pinned)"]
+  engine --> agents
+  subgraph agents ["Claude Code agents, sandboxed"]
+    lead["Lead"]
+    crew["Crew<br/>one git worktree per task"]
+    reviewer["Reviewer"]
+  end
+  agents -->|"report.mjs"| engine
+  bureau -->|"git worktree, merge"| repo[("Your repo<br/>integration branch")]
+```
 
-## Playing it
+- **App shell** (`app/main.swift`): a native WebKit window on the local server. It installs the
+  login service on first launch and turns page alerts into notifications.
+- **Server** (`server/`): plain `node:http` with server-sent events. Node runs the TypeScript
+  files directly. `node:sqlite` holds what Annex owns: wing modes, tasks, chat, asks, goals.
+- **Bureau** (`server/bureau.ts`): ticks every few seconds. It wakes leads, files the tasks they
+  propose (`proposal.ts`), runs each done check (`run.ts`), hands the diff to the reviewer, and
+  merges verified work (`git.ts`).
+- **Engine** (`runtime/`): a pinned [Paperclip](https://www.npmjs.com/package/paperclipai)
+  instance runs agent heartbeats and holds their issues. Every call to it lives in
+  `server/engine/paperclip.ts`.
+- **Page** (`web/src/`): plain TypeScript and DOM built by Vite. The offices are drawn on a
+  canvas and move only when a stored event says so.
 
-- **The HUD** shows offices, crew, who is working, how much is verified, and whether Annex is
-  OPEN or CLOSED (for example "CLOSED UNTIL 15:40" when your Claude usage limit is reached; it
-  reopens by itself).
-- **PARTY** lists every office and everyone in it. Click a member, or the person in a room, to
-  open their terminal: each run in Claude Code's own grammar, the exact prompt Paperclip sent,
-  the agent's standing orders, and the full system prompt.
-- **Each office's plaque** counts down to its lead's next wake, or says why it will not wake.
-- **An office's file**: Hand off / Come back in, + Hire, Pause / Resume, and tabs for the Log,
-  Talk with the lead, the Brief, Ready to merge (verified commits waiting for you to merge, with
-  the command) and Settings (every option, applied at once).
-- **Asks**: when a lead wants your yes first (anything under "Ask me before", or the brief's
-  "Call me back when"), the office shows it to Accept or Decline.
-- **Director**: one conversation above every office. It sees a line per office, answers how
-  things are going, and routes what you ask for: drops work into an office, opens an office,
-  hires, pauses, resumes, or brings an office back to you. Each lead still plans its own work.
-- **SYSTEM LOG**: everything Annex decided and why, also in `.annex/logs/annex.log`.
+More detail is in [docs/architecture.md](docs/architecture.md).
 
-## Rules and plugins
+## Configuration
 
-- **House rules** live in the repo's `CLAUDE.md` (and `AGENTS.md`). Every wake hands them to the
-  lead, every task must quote the ones it touches, and the reviewer checks the diff against them.
-- **What an office is for** is its `charter`; each task cites a line of it.
-- **Ask me before** (Settings tab, or `ask_before` in the wing file) makes the lead wait for your yes.
-- **Plugins**: `plugins = ["lint-kit@acme"]` in a wing file (or the Plugins field in Settings)
-  turns those Claude Code plugins on for that office's lead and crew only. Install them in Claude
-  Code first. Annex enables them in the office's own agent settings, allows their MCP tools and
-  subagents, and tells the lead and crew which commands they bring. Nobody answers a plugin's
-  questions mid-run, so plugins that interview you fit an office you work
-  with rather than one on its own. Reviewers never get plugins.
-
-## How the work is kept honest
-
-- A lead never plans blind: every wake carries the repo's signals and its CLAUDE.md / AGENTS.md,
-  and every proposed task must name the rules it touches, quote real signal output, and carry a
-  done check. Annex throws out anything that does not.
-- A task is done only when Annex runs its done check in the task's own worktree and it passes,
-  a separate reviewer approves the diff (house rules included), and the merge into the office's
-  integration branch passes the check again.
-- Leads can hire up to an office's "Most workers"; new hires walk in through the door.
-
-## Add work
-
-A wing is one file, `wings/<id>/wing.toml` in your Annex data folder (`examples/wings/upkeep` is one to copy). **+ New wing** and the Settings tab write it for you,
-and edits made by hand are picked up without a restart. To hand an existing wing a task, use
-**Drop in a task** in its Log tab.
+A wing is `wings/<id>/wing.toml` in Annex's data folder (the checkout when run with `npm run up`,
+`~/Library/Application Support/Annex` for the app).
 
 ```toml
 name = "Upkeep"
-mode = "autonomous"              # or "with_you" (the default)
+mode = "autonomous"                      # or "with_you" (the default)
 charter = """
 1. `npm test` and `npm run typecheck` pass on the integration branch.
 """
 done_check = "npm test && npm run typecheck"
-setup = "npm ci --no-audit --no-fund"   # run in a fresh worktree before checks
+setup = "npm ci --no-audit --no-fund"    # run in a fresh worktree before checks
+plugins = ["lint-kit@acme"]              # Claude Code plugins for this wing's lead and crew
 
 [repo]
 path = "~/Projects/shop"
 base_branch = "main"
-integration_branch = "annex/upkeep"     # default: annex/<id>
 
 [[signals]]                              # commands whose output the lead reads on each wake
 name = "outdated"
 run = "npm outdated --long"
 
 [crew]
-workers = 2                              # 1 to 8
-# lead_model, worker_model, reviewer_model default to claude-sonnet-5
+workers = 2
 
-[settings]                               # every limit is off unless you set it
+[settings]
 wake_every = "15m"
-# max_runs_per_hour = 6
-# quiet_hours = "00:00-07:00"
-# back_off_when_idle = true
-# ask_before = ["adding a new dependency"]
+ask_before = ["adding a new dependency"]
 
 [permissions]
-allow = ["npm", "npx", "node", "git"]    # shell commands the crew may run
-
-# [sandbox]                              # on by default; see below
-# allowed_domains = ["api.example.com"]  # hosts beyond npm, PyPI, GitHub and Claude's own
-# allow_write = ["~/.cargo"]             # folders beyond the worktree, git and package caches
-# enabled = false                        # gives up the protection below
+allow = ["npm", "npx", "node", "git"]
 ```
 
-## What Annex will and will not do
+The full field list, every screen, and the plugin and sandbox options are in
+[docs/usage.md](docs/usage.md).
 
-- It never touches your own checkout or your base branch, and it never pushes. Verified work
-  lands on the integration branch; you review and merge it yourself.
-- Agents run your `claude` with your subscription, without `--dangerously-skip-permissions`,
-  and without your global `~/.claude/CLAUDE.md`, hooks, plugins or auto-memory.
-- Every agent's shell runs inside Claude Code's sandbox (the operating system's, Seatbelt on
-  macOS), including anything `node` or `npm` starts. It cannot read Annex's key or live-session
-  folders, cannot write outside its worktree, the repo's git folder and package caches, and can
-  only reach package registries, GitHub, Claude and localhost (so tests that start a server work).
-- When Claude reports your plan's usage limit, every wing holds and starts again by itself at
-  the reset time.
+## What Annex will not do
 
-How the pieces fit together is in `docs/architecture.md`.
+- Touch your own checkout or base branch, or push. Verified work lands on the integration branch
+  and you merge it from the Ready to merge tab.
+- Run agents with `--dangerously-skip-permissions`, or with your global `~/.claude/CLAUDE.md`,
+  hooks, plugins or auto-memory.
+- Let an agent read Annex's access key, write outside its worktree, or reach hosts other than
+  package registries, GitHub, Claude and localhost.
+
+## Development
+
+```sh
+npm install
+npm run typecheck     # server and page
+npm test              # node --test, *.test.ts beside the code
+npm run web:build     # builds the page into web/dist
+npm run web:dev       # serves the page with live reload on :4301
+```
+
+`npm run service:install` runs Annex as a macOS LaunchAgent that starts at login;
+`npm run service:remove` takes it off.
 
 ## License
 
-Copyright 2026 gshepptech. Licensed under the Apache License, Version 2.0; see `LICENSE`. Annex.app
-also carries Node.js and the Paperclip engine, both under the MIT License.
+Copyright 2026 Garrett Sheppard. Licensed under the Apache License, Version 2.0; see
+[LICENSE](LICENSE). Annex.app also bundles Node.js and the Paperclip engine, both under the MIT
+License.
