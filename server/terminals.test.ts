@@ -135,7 +135,7 @@ test("at most N terminals; a folder that does not exist is refused", () => {
 });
 
 test("the environment drops Claude's nesting markers and npm's variables, and sets a terminal", () => {
-  const env = terminalEnv({ CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "sdk-ts", CI: "1", npm_config_prefix: "/x", PATH: "/repo/node_modules/.bin:/bin", HOME: "/Users/me" });
+  const env = terminalEnv({ CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "sdk-ts", CI: "1", npm_config_prefix: "/x", PATH: "/repo/node_modules/.bin:/bin", HOME: "/home/me" });
   assert.equal(env.CLAUDECODE, undefined);
   assert.equal(env.CLAUDE_CODE_ENTRYPOINT, undefined);
   assert.equal(env.CI, undefined);
@@ -144,7 +144,7 @@ test("the environment drops Claude's nesting markers and npm's variables, and se
   assert.equal(env.TERM, "xterm-256color");
   assert.equal(env.TERM_PROGRAM, "Annex");
   assert.equal(env.LANG, "en_US.UTF-8");
-  assert.equal(env.HOME, "/Users/me");
+  assert.equal(env.HOME, "/home/me");
 });
 
 test("a real pseudo-terminal: commands run, the size reaches the program, and Close ends it", async () => {

@@ -6,7 +6,7 @@ import { findClaude, fixCommand, setupChecker, setupStatus, UnknownFix, type Che
 // this machine.
 function mac(files: string[], answers: Record<string, { ok: boolean; out: string }>): { w: Where; run: CheckRun; ran: string[] } {
   const ran: string[] = [];
-  const w: Where = { env: { PATH: "/usr/bin:/bin" }, home: "/Users/new", exists: (p) => files.includes(p) };
+  const w: Where = { env: { PATH: "/usr/bin:/bin" }, home: "/home/new", exists: (p) => files.includes(p) };
   const run: CheckRun = async (file, args) => {
     const cmd = [file, ...args].join(" ");
     ran.push(cmd);
@@ -28,7 +28,7 @@ test("a brand-new Mac: nothing installed, every required check fails with a fix,
 });
 
 test("a Mac that is set up: versions, the plan, and the GitHub account", async () => {
-  const claude = "/Users/new/.local/bin/claude";
+  const claude = "/home/new/.local/bin/claude";
   const { w, run } = mac([claude, "/opt/homebrew/bin/gh"], {
     [`${claude} --version`]: { ok: true, out: "2.1.280 (Claude Code)" },
     [`${claude} auth status`]: { ok: true, out: JSON.stringify({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" }) },
@@ -59,9 +59,9 @@ test("signed out of Claude (auth status exits 1 with JSON) and of GitHub", async
 });
 
 test("claude is found in the usual places, then on the PATH; none is null, not an error", () => {
-  const w = (files: string[], env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/custom/bin" }): Where => ({ env, home: "/Users/new", exists: (p) => files.includes(p) });
+  const w = (files: string[], env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/custom/bin" }): Where => ({ env, home: "/home/new", exists: (p) => files.includes(p) });
   assert.equal(findClaude(w([])), null);
-  assert.equal(findClaude(w(["/custom/bin/claude", "/Users/new/.local/bin/claude"])), "/Users/new/.local/bin/claude");
+  assert.equal(findClaude(w(["/custom/bin/claude", "/home/new/.local/bin/claude"])), "/home/new/.local/bin/claude");
   assert.equal(findClaude(w(["/custom/bin/claude"])), "/custom/bin/claude");
   assert.equal(findClaude(w([], { CLAUDE_COMMAND: "/x/claude" })), "/x/claude");
 });
@@ -78,9 +78,9 @@ test("results are kept a few seconds; Check again runs them fresh", async () => 
 });
 
 test("fixes come only from the fixed map: unknown ids and anything shaped like a command are refused", () => {
-  const w: Where = { env: { PATH: "/usr/bin" }, home: "/Users/new", exists: (p) => p === "/Users/new/.local/bin/claude" };
+  const w: Where = { env: { PATH: "/usr/bin" }, home: "/home/new", exists: (p) => p === "/home/new/.local/bin/claude" };
   assert.equal(fixCommand("claude-install", w).command, "curl -fsSL https://claude.ai/install.sh | bash");
-  assert.equal(fixCommand("claude-login", w).command, "'/Users/new/.local/bin/claude' auth login");
+  assert.equal(fixCommand("claude-login", w).command, "'/home/new/.local/bin/claude' auth login");
   assert.equal(fixCommand("git-install", w).command, "xcode-select --install");
   for (const bad of ["rm -rf ~", "toString", "__proto__", "constructor", ""]) assert.throws(() => fixCommand(bad, w), UnknownFix, bad);
   assert.throws(() => fixCommand("gh-login", w), /cannot be done from here/, "no gh and no brew");

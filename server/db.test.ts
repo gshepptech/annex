@@ -60,8 +60,8 @@ test("project folders: added and forgotten are kept, and adding again undoes for
   s.addProjectFolder("/w/a");
   s.addProjectFolder("/w/b");
   s.forgetProjectFolder("/w/b");
-  s.forgetProjectFolder("/Users/me/Projects/old");
-  assert.deepEqual(s.projectFolders(), { added: ["/w/a"], forgotten: ["/Users/me/Projects/old", "/w/b"] });
+  s.forgetProjectFolder("/home/me/Projects/old");
+  assert.deepEqual(s.projectFolders(), { added: ["/w/a"], forgotten: ["/home/me/Projects/old", "/w/b"] });
   s.addProjectFolder("/w/b");
-  assert.deepEqual(s.projectFolders(), { added: ["/w/a", "/w/b"], forgotten: ["/Users/me/Projects/old"] });
+  assert.deepEqual(s.projectFolders(), { added: ["/w/a", "/w/b"], forgotten: ["/home/me/Projects/old"] });
 });

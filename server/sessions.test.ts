@@ -17,15 +17,15 @@ function fixture() {
   mkdirSync(agent);
   const lines = [
     { type: "custom-title", customTitle: "app-main", sessionId: A },
-    { type: "user", cwd: "/Users/me/app", gitBranch: "main", timestamp: "2026-10-02T10:00:00Z", message: { role: "user", content: "add a login page" } },
-    { type: "user", isMeta: true, cwd: "/Users/me/app", message: { role: "user", content: "<system-reminder>x</system-reminder>" } },
-    { type: "assistant", cwd: "/Users/me/app/web", timestamp: "2026-10-02T10:00:05Z", message: { model: "claude-opus-5-5", content: [{ type: "text", text: "On it." }, { type: "tool_use", id: "t1", name: "Read", input: { file_path: "/Users/me/app/web/login.ts" } }] } },
-    { type: "user", cwd: "/Users/me/app/web", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "export {}" }] } },
+    { type: "user", cwd: "/home/me/app", gitBranch: "main", timestamp: "2026-10-02T10:00:00Z", message: { role: "user", content: "add a login page" } },
+    { type: "user", isMeta: true, cwd: "/home/me/app", message: { role: "user", content: "<system-reminder>x</system-reminder>" } },
+    { type: "assistant", cwd: "/home/me/app/web", timestamp: "2026-10-02T10:00:05Z", message: { model: "claude-opus-5-5", content: [{ type: "text", text: "On it." }, { type: "tool_use", id: "t1", name: "Read", input: { file_path: "/home/me/app/web/login.ts" } }] } },
+    { type: "user", cwd: "/home/me/app/web", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "export {}" }] } },
     { type: "last-prompt", lastPrompt: "add a login page", sessionId: A },
     { type: "permission-mode", permissionMode: "acceptEdits", sessionId: A },
   ];
   writeFileSync(join(mine, `${A}.jsonl`), lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
-  writeFileSync(join(agent, `${B}.jsonl`), JSON.stringify({ type: "user", cwd: "/Users/me/annex/.paperclip/instances/default/workspaces/w", message: { content: "Wake" } }) + "\n");
+  writeFileSync(join(agent, `${B}.jsonl`), JSON.stringify({ type: "user", cwd: "/home/me/annex/.paperclip/instances/default/workspaces/w", message: { content: "Wake" } }) + "\n");
   return root;
 }
 
@@ -35,7 +35,7 @@ test("your sessions are listed with their project, branch, model and last prompt
   assert.equal(list.length, 1);
   const s = list[0]!;
   assert.equal(s.title, "app-main");
-  assert.equal(s.cwd, "/Users/me/app");
+  assert.equal(s.cwd, "/home/me/app");
   assert.equal(s.branch, "main");
   assert.equal(s.model, "claude-opus-5-5");
   assert.equal(s.lastPrompt, "add a login page");
@@ -65,7 +65,7 @@ test("a reply goes to an idle session as its next turn, in its own folder and pe
   utimesSync(join(root, "-Users-me-app", `${A}.jsonl`), old, old);
   const s = replyToSession(A, "now add a logout button", { claude: "/bin/claude", root, run });
   assert.equal(s.replying, true);
-  assert.deepEqual(calls, [{ cmd: "/bin/claude", args: ["-p", "now add a logout button", "--resume", A, "--output-format", "json", "--permission-mode", "acceptEdits"], cwd: "/Users/me/app" }]);
+  assert.deepEqual(calls, [{ cmd: "/bin/claude", args: ["-p", "now add a logout button", "--resume", A, "--output-format", "json", "--permission-mode", "acceptEdits"], cwd: "/home/me/app" }]);
   assert.throws(() => replyToSession(A, "again", { claude: "claude", root, run }), /already running/);
   assert.throws(() => replyToSession(B, "x", { claude: "claude", root, run }), /Annex's agents/);
 });
