@@ -5,7 +5,7 @@
 
 import type { Entry, LiveUpdate, LivePrompt, LiveMode as Mode } from "../../server/api-types.ts";
 import { apiFetch, withKey } from "./api.ts";
-import { h } from "./dom.ts";
+import { h, shortPath } from "./dom.ts";
 import { fileLink, renderEntry } from "./terminal.ts";
 import { RunPanel } from "./runpanel.ts";
 import { MODELS } from "./newsession.ts";
@@ -495,9 +495,4 @@ function describeInput(p: LivePrompt): HTMLElement {
     return h("div", {}, h("p", { class: "prompt-path" }, s("file_path") ? fileLink(s("file_path")) : ""), h("pre", { class: "prompt-detail" }, ...diff.map((l) => h("div", { class: l.startsWith("+") ? "add" : "del" }, l))));
   }
   return h("pre", { class: "prompt-detail" }, JSON.stringify(p.input, null, 2));
-}
-
-function shortPath(p: string): string {
-  const parts = p.split("/");
-  return parts.length > 3 ? `…/${parts.slice(-2).join("/")}` : p;
 }

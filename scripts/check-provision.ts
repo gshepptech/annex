@@ -6,14 +6,19 @@ import { Store } from "../server/db.ts";
 import { loadWings } from "../server/wing.ts";
 import { Paperclip } from "../server/engine/paperclip.ts";
 import { provision, writeAgentSettings } from "../server/provision.ts";
-
+import { findClaude } from "../server/setup.ts";
 import { HOME as root } from "../server/paths.ts";
+
+const claudeCommand = findClaude();
+if (!claudeCommand) {
+  console.error("claude not found: install Claude Code or set CLAUDE_COMMAND to its path");
+  process.exit(1);
+}
 const stateDir = join(root, ".annex");
 const store = new Store(join(stateDir, "annex.db"));
 const pc = new Paperclip();
 await pc.enableExperiments();
 const settingsFile = writeAgentSettings(stateDir);
-const claudeCommand = "/opt/homebrew/bin/claude";
 
 for (const wing of loadWings(join(root, "wings"))) {
   const a = await provision({ wing, store, pc, stateDir, claudeCommand, settingsFile });

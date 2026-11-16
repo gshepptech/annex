@@ -26,6 +26,7 @@ import { wakeIssue, taskDescription, BRIEF_FENCE } from "./prompts.ts";
 import { UserError, type Bureau as BureauApi } from "./http.ts";
 import { toolUses, isUsageLimit, resetTime } from "./mapping.ts";
 import { Logger } from "./logger.ts";
+import { expandHome } from "./paths.ts";
 import { readHouseRules } from "./houserules.ts";
 import type { Director } from "./director.ts";
 import { usage, usageFromRunLog } from "./usage.ts";
@@ -95,7 +96,7 @@ export class Bureau implements BureauApi {
     this.logger = opts.logger ?? new Logger(null, { quiet: true });
     for (const wing of opts.wings) {
       this.store.ensureWing(wing.id, wing.initialMode);
-      this.rts.set(wing.id, { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, spend: { runs: 0, minutes: 0 }, integration: Promise.resolve(), agentInfo: new Map() });
+      this.rts.set(wing.id, newRuntime(wing));
     }
   }
 
@@ -122,7 +123,7 @@ export class Bureau implements BureauApi {
   async directorSay(text: string) {
     if (!this.director) throw new UserError("There is no director", 404);
     const limited = this.store.wings().find((w) => w.heldUntil && w.heldReason !== PAUSED && w.heldReason?.includes("usage limit"));
-    if (limited) throw new UserError(`Annex is closed until ${new Date(limited.heldUntil!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })} for the Claude usage limit; the director would hit the same wall. Try again after.`, 409);
+    if (limited) throw new UserError(`Annex is closed until ${clock(limited.heldUntil!)} for the Claude usage limit; the director would hit the same wall. Try again after.`, 409);
     await this.director.say(text);
   }
 
@@ -174,6 +175,11 @@ export class Bureau implements BureauApi {
       if (rt) rt.wakeSoon = true;
     }
     return this.store.record(e);
+  }
+
+  // the window for "recent" work: what the lead is shown and what counts as a duplicate
+  private weekAgo(): string {
+    return new Date(this.now().getTime() - 7 * 86400_000).toISOString();
   }
 
   private rt(wingId: string): Runtime {
@@ -602,7 +608,7 @@ export class Bureau implements BureauApi {
     let due = goalNext;
     if (row.mode === "autonomous") {
       const last = this.store.lastWake(rt.wing.id);
-      const interval = Math.min(s.wakeEverySec * 2 ** row.backoffLevel, rt.wing.settings.maxBackoffSec) * 1000;
+      const interval = wakeInterval(rt.wing, row.backoffLevel);
       const dropIns = this.store.pendingDropIns(rt.wing.id);
       due ||= !last || this.now().getTime() - new Date(last.startedAt).getTime() >= interval || dropIns.length > 0;
     }
@@ -623,20 +629,19 @@ export class Bureau implements BureauApi {
     const wakeRow = this.store.startWake(wingId);
     try {
       this.emit({ wingId, kind: "lead.woke", actor: rt.prov!.lead.id, taskId: null, payload: {} });
-      let houseRules: ReturnType<typeof readHouseRules> = null;
-      const signals = await this.inIntegration(rt, async () => {
+      const { signals, houseRules } = await this.inIntegration(rt, async () => {
         await cleanWorktree(ws.integrationDir);
         if (rt.wing.setup) await runCommand(rt.wing.setup, ws.integrationDir, rt.wing.settings.checkTimeoutSec * 1000);
-        houseRules = readHouseRules(ws.integrationDir);
-        const out = [];
+        const houseRules = readHouseRules(ws.integrationDir);
+        const signals = [];
         for (const sig of rt.wing.signals) {
           const r = await runCommand(sig.run, ws.integrationDir, 5 * 60_000);
-          out.push({ name: sig.name, run: sig.run, exitCode: r.exitCode, output: r.output });
+          signals.push({ name: sig.name, run: sig.run, exitCode: r.exitCode, output: r.output });
         }
-        return out;
+        return { signals, houseRules };
       });
       this.logger.info(wingId, `woke the lead; signals: ${signals.map((s) => `${s.name}=${s.exitCode}`).join(", ") || "none"}`);
-      const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
+      const week = this.weekAgo();
       const view = (t: TaskRow) => {
         const last = t.state === "stopped" ? this.store.checks(t.id).at(-1) : undefined;
         return { identifier: t.identifier, title: t.title, status: t.state === "open" ? rt.issues.get(t.id)?.status ?? "open" : t.state, why: last?.outputTail ? lastLines(last.outputTail, 8) : undefined };
@@ -653,7 +658,7 @@ export class Bureau implements BureauApi {
         asked: [...this.store.asks(wingId), ...this.store.decidedAsks(wingId, week)].map((a) => ({ title: String((a.task as { title?: unknown }).title ?? ""), status: a.status })),
         goals: this.goalsForWake(wingId),
         autonomous: this.store.wing(wingId)!.mode === "autonomous",
-        houseRules: (houseRules as ReturnType<typeof readHouseRules>)?.text ?? null,
+        houseRules: houseRules?.text ?? null,
         crew: { workers: rt.prov!.workers.length, maxWorkers: rt.wing.settings.maxWorkers },
       });
       const issue = await this.pc.createIssue(rt.prov!.companyId, {
@@ -719,7 +724,7 @@ export class Bureau implements BureauApi {
         this.emit({ wingId, kind: "lead.idle", actor: lead.id, taskId: null, payload: { reason: `its proposal was unreadable: ${parsed.error}` } });
         return true;
       }
-      const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
+      const week = this.weekAgo();
       // work already open or done this week, and anything already put to you, waiting or answered
       const asked = [...this.store.asks(wingId), ...this.store.decidedAsks(wingId, week)].map((a) => String((a.task as { title?: unknown }).title ?? ""));
       const existingTitles = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })].map((t) => t.title).concat(asked);
@@ -880,7 +885,7 @@ export class Bureau implements BureauApi {
 
   // Each active goal as the lead sees it in a wake: its plan and which tasks served it.
   private goalsForWake(wingId: string) {
-    const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
+    const week = this.weekAgo();
     const tasks = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })];
     return this.store.goals(wingId, "active").map((g) => {
       const mine = tasks.filter((t) => t.goalId === g.id);
@@ -1044,7 +1049,7 @@ export class Bureau implements BureauApi {
     const rt = this.ready(wingId);
     const held = this.store.wing(wingId)!;
     if (held.heldUntil && held.heldReason !== PAUSED) {
-      throw new UserError(`${rt.wing.name} is closed until ${new Date(held.heldUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })} (${held.heldReason}). A message now would be spent against that limit; send it after, or press Resume now if the limit has really reset.`, 409);
+      throw new UserError(`${rt.wing.name} is closed until ${clock(held.heldUntil)} (${held.heldReason}). A message now would be spent against that limit; send it after, or press Resume now if the limit has really reset.`, 409);
     }
     if (this.store.wing(wingId)!.mode !== "with_you") throw new UserError(`${rt.wing.name} is on its own. Come back in to talk with its lead.`, 409);
     await this.say(rt, text, true);
@@ -1053,7 +1058,7 @@ export class Bureau implements BureauApi {
   async handoff(wingId: string) {
     const rt = this.ready(wingId);
     if (this.store.wing(wingId)!.mode !== "with_you") throw new UserError(`${rt.wing.name} is already on its own.`, 409);
-    if (!rt.wing.repo) throw new UserError(`${rt.wing.name} has no repo, so Annex has nothing to check its work against. Set one in Settings, then hand off. Add a [repo] section to wings/${wingId}/wing.toml, then hand off.`, 409);
+    if (!rt.wing.repo) throw new UserError(`${rt.wing.name} has no repo, so Annex has nothing to check its work against. Set one in Settings, or add a [repo] section to wings/${wingId}/wing.toml, then hand off.`, 409);
     await this.say(rt, `The person is ready to hand this wing off to you. Write the handoff brief now: one fenced block tagged \`${BRIEF_FENCE}\` with the headings ## Goal, ## Decided, ## Off limits, ## Call me back when. Write only what this conversation settled.`, false);
     this.emit({ wingId, kind: "agent.said", actor: "you", taskId: null, payload: { text: "Asked the lead to write the handoff brief" } });
   }
@@ -1106,7 +1111,7 @@ export class Bureau implements BureauApi {
     if (rt.offline) return { at: null, blockedBy: `not connected: ${rt.offline}` };
     if (this.store.openWake(rt.wing.id)) return { at: null, blockedBy: "the lead is reading the signals now" };
     const last = this.store.lastWake(rt.wing.id);
-    const interval = Math.min(rt.wing.settings.wakeEverySec * 2 ** row.backoffLevel, rt.wing.settings.maxBackoffSec) * 1000;
+    const interval = wakeInterval(rt.wing, row.backoffLevel);
     const at = last ? new Date(new Date(last.startedAt).getTime() + interval) : this.now();
     if (inQuietHours(rt.wing.settings.quietHours, at)) return { at: at.toISOString(), blockedBy: "quiet hours" };
     return { at: at.toISOString(), blockedBy: null };
@@ -1203,7 +1208,7 @@ export class Bureau implements BureauApi {
       return;
     }
     this.store.ensureWing(wingId, parsed.initialMode);
-    this.rts.set(wingId, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, spend: { runs: 0, minutes: 0 }, integration: Promise.resolve(), agentInfo: new Map() });
+    this.rts.set(wingId, newRuntime(parsed));
     await this.connectAll();
     this.logger.info(wingId, `new wing from its file`);
   }
@@ -1232,7 +1237,7 @@ export class Bureau implements BureauApi {
     this.written.set(id, text);
     writeFileSync(join(this.opts.wingsDir, id, "wing.toml"), text);
     this.store.ensureWing(id, "with_you");
-    this.rts.set(id, { wing: parsed, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, spend: { runs: 0, minutes: 0 }, integration: Promise.resolve(), agentInfo: new Map() });
+    this.rts.set(id, newRuntime(parsed));
     await this.connectAll();
     this.emit({ wingId: id, kind: "agent.said", actor: "you", taskId: null, payload: { text: `Opened the ${parsed.name} office` } });
     return { id };
@@ -1253,7 +1258,7 @@ export class Bureau implements BureauApi {
       this.logger.info(wingId, `request ${other.id} repeats request ${askId}; answered the same way`);
     }
     if (!approve) return;
-    const week = new Date(this.now().getTime() - 7 * 86400_000).toISOString();
+    const week = this.weekAgo();
     const same = [...this.store.tasks(wingId, { state: "open" }), ...this.store.tasks(wingId, { closedSince: week })].find((x) => x.state !== "stopped" && similar(x.title, t.title));
     if (same) {
       this.logger.info(wingId, `approved "${t.title}", but ${same.identifier} already covers it; not opening another`);
@@ -1432,6 +1437,15 @@ export class Bureau implements BureauApi {
   }
 }
 
+// An autonomous lead's wake interval, doubled for each idle wake when back_off_when_idle is on.
+function wakeInterval(w: Wing, backoffLevel: number): number {
+  return Math.min(w.settings.wakeEverySec * 2 ** backoffLevel, w.settings.maxBackoffSec) * 1000;
+}
+
+function newRuntime(wing: Wing): Runtime {
+  return { wing, prov: null, offline: "starting", issues: new Map(), seeded: false, stop: null, busy: new Set(), lastTool: new Map(), startedRuns: new Set(), waking: false, wakeSoon: false, spend: { runs: 0, minutes: 0 }, integration: Promise.resolve(), agentInfo: new Map() };
+}
+
 // Annex's own stage is the first one, held by the board user. A later user stage is an
 // escalation to a person, which Annex must not sign off.
 function isAtAnnex(i: Issue): boolean {
@@ -1455,10 +1469,6 @@ function readRepoFile(repoDir: string, rel: string): string | null {
   }
 }
 
-function expandHome(p: string): string {
-  return p === "~" || p.startsWith("~/") ? join(homedir(), p.slice(1)) : p;
-}
-
 function participantKey(i: Issue): string {
   const p = i.executionState?.currentParticipant;
   return p ? `${p.type}:${p.agentId ?? p.userId}` : "";
@@ -1470,6 +1480,10 @@ function fail(output: string): RunResult {
 
 function lastLines(text: string, n: number): string {
   return text.trimEnd().split("\n").slice(-n).join("\n").replace(/```/g, "'''");
+}
+
+function clock(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function formatSec(sec: number): string {

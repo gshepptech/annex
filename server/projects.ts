@@ -12,7 +12,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameS
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { initRepo } from "./git.ts";
+import { initRepo, midOperation } from "./git.ts";
 
 const run = promisify(execFile);
 
@@ -137,13 +137,6 @@ export async function branches(root: string): Promise<BranchView> {
   let defaultBranch: string | null = null;
   if (remote) defaultBranch = (await git(root, "symbolic-ref", "--short", `refs/remotes/${remote}/HEAD`).catch(() => "")).replace(`${remote}/`, "") || null;
   return { current, branches: list, dirty, changes, busy: await midOperation(root), remote, ahead, defaultBranch };
-}
-
-async function midOperation(root: string): Promise<string | null> {
-  const gitDir = await git(root, "rev-parse", "--absolute-git-dir");
-  const marks: [string, string][] = [["MERGE_HEAD", "merge"], ["rebase-merge", "rebase"], ["rebase-apply", "rebase"], ["CHERRY_PICK_HEAD", "cherry-pick"], ["REVERT_HEAD", "revert"], ["BISECT_LOG", "bisect"]];
-  for (const [f, what] of marks) if (existsSync(join(gitDir, f))) return what;
-  return null;
 }
 
 // Commit everything changed in the checkout (the list you were shown), with your message.

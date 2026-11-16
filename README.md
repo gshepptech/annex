@@ -19,19 +19,19 @@ own claim that "tests pass".
 
 ## Features
 
-- **Wings with two modes.** "With you" plans in a chat with the lead; "on its own" wakes the lead
-  on a schedule. Several wings run at once, each in its own mode.
-- **One worktree per task.** Each task gets a branch cut from the wing's integration branch, so
-  crew members never share a working copy.
-- **A three-step done gate.** Annex runs the task's check in the worktree, a reviewer agent
-  approves the diff against the repo's `CLAUDE.md`, and the check runs again after the merge.
-- **Proposals Annex can reject.** A lead's proposed task must cite a charter line, quote real
-  signal output and carry a check command. Proposals that do not are thrown out in code.
-- **Sandboxed agents.** Every agent shell runs inside Claude Code's OS sandbox, limited to its
-  worktree, package caches and a short list of hosts.
-- **Your own sessions too.** Live Claude Code sessions, real terminals (node-pty and xterm.js),
-  a file editor and a projects list, all without leaving the app.
-- **One file per wing.** A wing is a `wing.toml`; edits are picked up without a restart.
+- Two modes per wing. "With you" plans the work in a chat with the lead; "on its own" wakes the
+  lead on a schedule. Several wings can run at once, each in its own mode.
+- One git worktree per task, on a branch cut from the wing's integration branch, so crew members
+  never share a working copy.
+- A three-step done gate. Annex runs the task's check in the worktree, a reviewer agent approves
+  the diff against the repo's `CLAUDE.md`, and the check runs again after the merge.
+- Proposals are checked in code. A lead's proposed task must cite a charter line, quote real
+  signal output and carry a check command, or Annex throws it out.
+- Every agent shell runs inside Claude Code's OS sandbox, limited to its worktree, package caches
+  and a short list of hosts.
+- Your own Claude Code sessions, real terminals (node-pty and xterm.js), a file editor and a
+  projects list sit in the same app.
+- A wing is one `wing.toml` file. Edits are picked up without a restart.
 
 ## Quick start
 
@@ -80,17 +80,17 @@ flowchart LR
   bureau -->|"git worktree, merge"| repo[("Your repo<br/>integration branch")]
 ```
 
-- **App shell** (`app/main.swift`): a native WebKit window on the local server. It installs the
+- App shell (`app/main.swift`): a native WebKit window on the local server. It installs the
   login service on first launch and turns page alerts into notifications.
-- **Server** (`server/`): plain `node:http` with server-sent events. Node runs the TypeScript
+- Server (`server/`): plain `node:http` with server-sent events. Node runs the TypeScript
   files directly. `node:sqlite` holds what Annex owns: wing modes, tasks, chat, asks, goals.
-- **Bureau** (`server/bureau.ts`): ticks every few seconds. It wakes leads, files the tasks they
+- Bureau (`server/bureau.ts`): reacts to engine events and polls every 15 seconds. It wakes leads, files the tasks they
   propose (`proposal.ts`), runs each done check (`run.ts`), hands the diff to the reviewer, and
   merges verified work (`git.ts`).
-- **Engine** (`runtime/`): a pinned [Paperclip](https://www.npmjs.com/package/paperclipai)
+- Engine (`runtime/`): a pinned [Paperclip](https://www.npmjs.com/package/paperclipai)
   instance runs agent heartbeats and holds their issues. Every call to it lives in
   `server/engine/paperclip.ts`.
-- **Page** (`web/src/`): plain TypeScript and DOM built by Vite. The offices are drawn on a
+- Page (`web/src/`): plain TypeScript and DOM built by Vite. The offices are drawn on a
   canvas and move only when a stored event says so.
 
 More detail is in [docs/architecture.md](docs/architecture.md).
@@ -150,6 +150,16 @@ npm test              # node --test, *.test.ts beside the code
 npm run web:build     # builds the page into web/dist
 npm run web:dev       # serves the page with live reload on :4301
 ```
+
+Two scripts check Annex against a running engine. Neither wakes an agent, so neither uses
+Claude. Both find `claude` the way Annex does (`CLAUDE_COMMAND`, then the usual install folders,
+then `PATH`) and stop with an error if there is none.
+
+- `node scripts/check-engine.ts` exercises the engine client: health, websocket events, and
+  creating a test company, project and agent. It does not delete them afterwards.
+- `node scripts/check-provision.ts` provisions every wing in `wings/` (under `ANNEX_HOME` when
+  set) twice and checks the second pass changes nothing. It creates real companies, projects and
+  agents in the engine, the same ones Annex itself would make.
 
 `npm run service:install` runs Annex as a macOS LaunchAgent that starts at login;
 `npm run service:remove` takes it off.

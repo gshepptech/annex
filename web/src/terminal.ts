@@ -4,7 +4,7 @@
 // is working, unless the person has scrolled up to read.
 
 import type { TranscriptView, RunView, Entry, SessionTranscript } from "../../server/api-types.ts";
-import { h } from "./dom.ts";
+import { h, shortPath } from "./dom.ts";
 import { apiFetch } from "./api.ts";
 import { portrait, faceIndex } from "./portrait.ts";
 
@@ -368,9 +368,4 @@ function diff(text: string): HTMLElement {
 function duration(ms: number): string {
   const s = Math.round(ms / 1000);
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
-}
-
-function shortPath(p: string): string {
-  const parts = p.split("/");
-  return parts.length > 3 ? `…/${parts.slice(-2).join("/")}` : p;
 }

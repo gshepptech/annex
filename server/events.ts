@@ -42,7 +42,3 @@ export interface AnnexEvent {
 }
 
 export type NewEvent = Omit<AnnexEvent, "id" | "at"> & { at?: string };
-
-export function isEventKind(k: string): k is EventKind {
-  return (EVENT_KINDS as readonly string[]).includes(k);
-}
