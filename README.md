@@ -151,8 +151,15 @@ npm run web:build     # builds the page into web/dist
 npm run web:dev       # serves the page with live reload on :4301
 ```
 
-With the engine running, `node scripts/check-engine.ts` and `node scripts/check-provision.ts`
-check the engine client and office provisioning against it without waking an agent.
+Two scripts check Annex against a running engine. Neither wakes an agent, so neither uses
+Claude. Both find `claude` the way Annex does (`CLAUDE_COMMAND`, then the usual install folders,
+then `PATH`) and stop with an error if there is none.
+
+- `node scripts/check-engine.ts` exercises the engine client: health, websocket events, and
+  creating a test company, project and agent. It does not delete them afterwards.
+- `node scripts/check-provision.ts` provisions every wing in `wings/` (under `ANNEX_HOME` when
+  set) twice and checks the second pass changes nothing. It creates real companies, projects and
+  agents in the engine, the same ones Annex itself would make.
 
 `npm run service:install` runs Annex as a macOS LaunchAgent that starts at login;
 `npm run service:remove` takes it off.
